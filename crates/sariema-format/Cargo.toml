@@ -1,0 +1,21 @@
+[package]
+name = "sariema-format"
+description = "Room pack format of the Sariema engine: types, encode and validating decode."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+# `demo::demo_room()`, a test room built in code.
+demo = []
+
+[dependencies]
+bytemuck.workspace = true
+postcard.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+# The integration tests use `demo_room()`; enabling the feature here keeps them
+# compiled by plain `cargo test --workspace` and `cargo clippy --all-targets`.
+sariema-format = { path = ".", features = ["demo"] }
