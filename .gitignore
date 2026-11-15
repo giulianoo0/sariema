@@ -1,0 +1,7 @@
+target/
+games/
+.claude/
+.agents/
+.superpowers/
+skills-lock.json
+docs/superpowers/
