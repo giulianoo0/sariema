@@ -1,0 +1,11 @@
+[package]
+name = "sariema-core"
+description = "Renderer-independent core of the Sariema engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+glam.workspace = true
+sariema-format = { path = "../sariema-format" }
