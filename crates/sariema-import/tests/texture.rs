@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 
 use image::{Rgba, RgbaImage};
 use sariema_import::mip_chain_rgba8;

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 
 //! The glTF layer under the kit reader: GLB chunks, `EXT_meshopt_compression`
 //! buffer views, accessors (`KHR_mesh_quantization` included) and the document.

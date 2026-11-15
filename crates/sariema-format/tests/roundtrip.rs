@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 
 use sariema_format::demo::demo_room;
 use sariema_format::{FormatError, decode, encode, eval_sh9, hemisphere_sh9};

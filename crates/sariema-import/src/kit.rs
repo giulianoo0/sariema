@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 
 //! Reads a kit: a GLB whose scene root nodes are reusable scenery pieces.
 //!

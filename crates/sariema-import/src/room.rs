@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 
 //! Assembles a room pack from a kit, the game's placement file (`montagem.json`)
 //! and its lighting file (`luz.json`).

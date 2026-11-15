@@ -17,5 +17,4 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Licensed under either of MIT (`LICENSE-MIT`) or Apache-2.0 (`LICENSE-APACHE`),
-at your option.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
