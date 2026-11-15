@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sariema room description",
+  "description": "Which kit, placement (montagem) and lighting (luz) files make a room, and how to dress it. File paths are relative to the project's assets root.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "kit",
+    "montagem",
+    "luz",
+    "show",
+    "loose",
+    "drawn_materials",
+    "rim_materials",
+    "additive_materials",
+    "look",
+    "camera",
+    "background"
+  ],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "kit": { "$ref": "#/$defs/path", "description": "GLB whose scene root nodes are the pieces." },
+    "montagem": { "$ref": "#/$defs/path" },
+    "luz": { "$ref": "#/$defs/path" },
+    "show": {
+      "$ref": "#/$defs/names",
+      "minItems": 1,
+      "description": "Sub-rooms (comodos) to include; the first gives the ambient light and the sun."
+    },
+    "loose": { "$ref": "#/$defs/names", "description": "Pieces that keep their own draws instead of merging by material." },
+    "drawn_materials": { "$ref": "#/$defs/names" },
+    "rim_materials": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "prefixItems": [{ "type": "string" }, { "type": "number", "minimum": 0 }],
+        "minItems": 2,
+        "items": false
+      }
+    },
+    "additive_materials": { "$ref": "#/$defs/names" },
+    "look": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exposure", "bloom_threshold", "bloom_strength", "tint", "real", "night", "tilt", "focus"],
+      "properties": {
+        "exposure": { "type": "number" },
+        "bloom_threshold": { "type": "number" },
+        "bloom_strength": { "type": "number" },
+        "tint": { "$ref": "#/$defs/rgb" },
+        "real": { "type": "number" },
+        "night": { "type": "number" },
+        "tilt": { "type": "number" },
+        "focus": { "type": "number" }
+      }
+    },
+    "camera": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fov_y_deg", "pitch_deg", "distance", "focus"],
+      "properties": {
+        "fov_y_deg": { "type": "number" },
+        "pitch_deg": { "type": "number" },
+        "distance": { "type": "number" },
+        "focus": { "$ref": "#/$defs/vec3" }
+      }
+    },
+    "background": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["top", "bottom"],
+      "properties": {
+        "top": { "$ref": "#/$defs/rgb" },
+        "bottom": { "$ref": "#/$defs/rgb" }
+      }
+    }
+  },
+  "$defs": {
+    "path": { "type": "string", "minLength": 1 },
+    "names": { "type": "array", "items": { "type": "string" } },
+    "vec3": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+    "rgb": {
+      "description": "Linear RGB.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0 },
+      "minItems": 3,
+      "maxItems": 3
+    }
+  }
+}
