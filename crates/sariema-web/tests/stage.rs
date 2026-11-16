@@ -174,6 +174,34 @@ fn an_actor_holds_the_pose_of_its_clip_time() {
 }
 
 #[test]
+fn shadows_and_occlusion_turn_off_by_setting() {
+    let target = Target::new();
+    let mut off = target.stage(r#"{"quality":"high","shadows":false,"ambient_occlusion":false}"#);
+    off.load_room(&sariema_format::encode(&demo_room()))
+        .unwrap();
+    off.frame(0.0, &target.view).unwrap();
+    let without = target.image();
+    let mut plain_room = demo_room();
+    for light in &mut plain_room.lights {
+        light.casts_shadow = false;
+    }
+    plain_room.look.ao_strength = 0.0;
+    let mut plain = target.stage(r#"{"quality":"high"}"#);
+    plain
+        .load_room(&sariema_format::encode(&plain_room))
+        .unwrap();
+    plain.frame(0.0, &target.view).unwrap();
+    let d = compare_images(&without, &target.image()).unwrap();
+    assert_eq!(d.max_channel_delta, 0, "{d:?}");
+    assert!(
+        compare_images(&without, &golden("demo_lit"))
+            .unwrap()
+            .max_channel_delta
+            > 6
+    );
+}
+
+#[test]
 fn steps_follow_the_page_clock() {
     let target = Target::new();
     let mut stage = target.stage("");

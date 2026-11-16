@@ -20,7 +20,7 @@ use crate::{Gpu, Quality, RenderPath};
 
 pub(crate) mod ao;
 
-const VIEW_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
+pub(crate) const VIEW_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 /// Past 9 taps the kernel's outer pairs weigh under 0.02% each; a wider blur
 /// is the next level's job.
 pub(crate) const MAX_BLUR_TAPS: u32 = 9;

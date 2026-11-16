@@ -180,8 +180,16 @@ impl Stage {
     /// Shows the room of pack `bytes` with its own camera, replacing any
     /// room shown before.
     pub fn load_room(&mut self, bytes: &[u8]) -> Result<(), StageError> {
-        let room =
+        let mut room =
             sariema_format::decode(bytes).map_err(|e| StageError::new(e.code(), e.to_string()))?;
+        if !self.settings.shadows {
+            if let Some(sun) = &mut room.sun {
+                sun.casts_shadow = false;
+            }
+            for light in &mut room.lights {
+                light.casts_shadow = false;
+            }
+        }
         self.renderer.load_room(&room)?;
         self.room_camera = Some(room.camera.clone());
         self.aim();

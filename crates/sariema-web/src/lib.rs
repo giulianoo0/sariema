@@ -9,6 +9,7 @@
 
 pub mod clock;
 pub mod feed;
+pub mod float_targets;
 pub mod game;
 pub mod input;
 pub mod pose;

@@ -56,6 +56,10 @@ pub struct WebSettings {
     /// Sample compressed textures where the GPU can. False loads the RGBA8
     /// packs on every device, as one without ASTC does. Default true.
     pub compressed_textures: bool,
+    /// Lights and the sun cast the shadows their room gives them. Default true.
+    pub shadows: bool,
+    /// Screen-space ambient occlusion where the tier has it. Default true.
+    pub ambient_occlusion: bool,
 }
 
 impl Default for WebSettings {
@@ -70,6 +74,8 @@ impl Default for WebSettings {
             audio: FeedSettings::default(),
             ui_quads: 1024,
             compressed_textures: true,
+            shadows: true,
+            ambient_occlusion: true,
         }
     }
 }
@@ -90,6 +96,11 @@ impl WebSettings {
         };
         Quality {
             msaa: self.msaa.unwrap_or(tier.msaa),
+            ao_samples: if self.ambient_occlusion {
+                tier.ao_samples
+            } else {
+                0
+            },
             path: match self.path {
                 PathChoice::Auto => RenderPath::Auto,
                 PathChoice::Full => RenderPath::Full,

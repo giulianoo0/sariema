@@ -18,6 +18,10 @@ export interface Options {
   maxPixelRatio?: number;
   /** False loads the RGBA8 packs even where the GPU samples ASTC. Default true. */
   compressedTextures?: boolean;
+  /** False draws no shadow maps. Default true. */
+  shadows?: boolean;
+  /** False turns screen-space ambient occlusion off. Default true. */
+  ambientOcclusion?: boolean;
   step?: { step_s?: number; max_steps_per_frame?: number };
   audio?: { lead_s?: number; block_frames?: number };
   /** Where `sariema_web_bg.wasm` is; by default next to this module. */
@@ -95,6 +99,15 @@ export class SariemaError extends Error {
 }
 
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+
+/** Yields to the event loop without setTimeout's 4 ms clamp. */
+function nextTask(): Promise<void> {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => resolve();
+    channel.port2.postMessage(null);
+  });
+}
 let wasmReady: Promise<unknown> | null = null;
 
 /** Mounts the engine on `canvas`, sized by its CSS box. */
@@ -140,6 +153,8 @@ export class Sariema {
       msaa: o.msaa,
       max_pixel_ratio: o.maxPixelRatio,
       compressed_textures: o.compressedTextures,
+      shadows: o.shadows,
+      ambient_occlusion: o.ambientOcclusion,
       step: o.step,
       audio: o.audio,
     });
@@ -396,14 +411,34 @@ export class Sariema {
 
   /** Draws the current frame offscreen and reads it back as RGBA rows. */
   async capture(): Promise<{ width: number; height: number; data: Uint8Array }> {
-    this.#call((e) => e.capture());
+    this.#call((e) => e.capture(1));
+    const data = await this.#readBack();
+    return { width: this.#canvas.width, height: this.#canvas.height, data };
+  }
+
+  async #readBack(): Promise<Uint8Array> {
     const deadline = performance.now() + 10_000;
     while (performance.now() < deadline) {
       const bytes = this.#call((e) => e.take_capture());
-      if (bytes) return { width: this.#canvas.width, height: this.#canvas.height, data: bytes };
-      await new Promise((r) => setTimeout(r, 4));
+      if (bytes) return bytes;
+      await nextTask();
     }
     throw new SariemaError("E_GPU", "the frame was not read back within 10 s");
+  }
+
+  /**
+   * Times `frames` draws of the current frame back to back, after one read
+   * back that drains the GPU and up to the read back of the last: per
+   * frame, the CPU to encode and submit, and the wall time with the GPU.
+   */
+  async bench(frames: number): Promise<{ frames: number; cpu_ms: number; wall_ms: number }> {
+    await this.capture();
+    const start = performance.now();
+    this.#call((e) => e.capture(frames));
+    const submitted = performance.now();
+    await this.#readBack();
+    const end = performance.now();
+    return { frames, cpu_ms: (submitted - start) / frames, wall_ms: (end - start) / frames };
   }
 
   /** The last frame's steps, path, passes, draws and uploads. */

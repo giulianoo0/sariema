@@ -560,6 +560,12 @@ impl Renderer {
     }
 }
 
+/// The float formats the renderer draws into besides its target: the scene,
+/// view depth and the occlusion. WebGL2 renders into them only with
+/// `EXT_color_buffer_float`, which a device must have.
+pub const FLOAT_TARGETS: [wgpu::TextureFormat; 3] =
+    [scene::HDR_FORMAT, post::VIEW_DEPTH_FORMAT, post::ao::FORMAT];
+
 /// A device of `adapter` with every limit it has, and with ASTC sampling,
 /// adapter-specific format features and timestamp queries when it offers them.
 pub fn request_device(

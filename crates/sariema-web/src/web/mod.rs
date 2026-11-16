@@ -210,16 +210,20 @@ impl Engine {
         self.stage.pause();
     }
 
-    /// Draws the current frame offscreen and starts reading it back; the
-    /// page polls [`Engine::take_capture`] until it returns the bytes.
-    pub fn capture(&mut self) -> Result<(), JsError> {
+    /// Draws the current frame offscreen `draws` times, back to back, and
+    /// starts reading the last back; the page polls [`Engine::take_capture`]
+    /// until it returns the bytes. Many draws time the renderer as the
+    /// three.js bench does, with one read at the end.
+    pub fn capture(&mut self, draws: u32) -> Result<(), JsError> {
         let size = self.stage.size();
         let device = &self.gpu.device;
         if !self.capture.as_ref().is_some_and(|c| c.fits(size)) {
             self.capture = Some(Capture::new(device, self.gpu.config.format, size));
         }
         let capture = self.capture.as_ref().expect("made above");
-        self.stage.draw(&capture.view).map_err(js)?;
+        for _ in 0..draws.max(1) {
+            self.stage.draw(&capture.view).map_err(js)?;
+        }
         self.captured.store(WAITING, Ordering::Relaxed);
         let captured = self.captured.clone();
         capture.read(device, &self.gpu.queue, move |ok| {

@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde_json::{Value, json};
 use web_sys::HtmlCanvasElement;
 
+use crate::float_targets;
 use crate::settings::{Backend, WebSettings};
 use crate::stage::StageError;
 
@@ -48,6 +49,14 @@ impl Gpu {
             })
             .await
             .map_err(|e| gpu_error(format!("no {backend:?} adapter: {e}")))?;
+        let unrenderable =
+            float_targets::unrenderable(|f| adapter.get_texture_format_features(f).allowed_usages);
+        if !unrenderable.is_empty() {
+            return Err(gpu_error(format!(
+                "this browser cannot draw into {unrenderable:?}, which the renderer needs; \
+                 on WebGL2 that takes EXT_color_buffer_float"
+            )));
+        }
         let compressed = wgpu::Features::TEXTURE_COMPRESSION_ASTC
             | wgpu::Features::TEXTURE_COMPRESSION_BC
             | wgpu::Features::TEXTURE_COMPRESSION_ETC2;
