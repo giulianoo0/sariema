@@ -6,7 +6,7 @@
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use sariema_core::Camera;
-use sariema_format::{AlphaMode, Light, Shading};
+use sariema_format::{AlphaMode, CharacterLight, Light, Shading};
 
 use crate::cluster::{self, Bins, Grid, Visible};
 use crate::lights::{GPU_LIGHT_SIZE, GpuLight, gpu_light};
@@ -54,6 +54,9 @@ struct FrameUniform {
     background_top: [f32; 4],
     grid: [u32; 4],
     slicing: [f32; 4],
+    character_dir: [f32; 4],
+    character_color: [f32; 4],
+    character: [f32; 4],
 }
 
 /// What picks a draw's pipeline. There is one pipeline per kind; nothing
@@ -210,7 +213,15 @@ impl Scene {
         let pipelines = std::array::from_fn(|i| {
             let vertex = ("vs_main", vertex_layout());
             let kind = Kind::from_index(i);
-            mesh_pipeline(gpu, &mesh_layout, &module, kind, false, quality, vertex)
+            mesh_pipeline(
+                gpu,
+                &mesh_layout,
+                &module,
+                kind,
+                (false, false),
+                quality,
+                vertex,
+            )
         });
         let dithered = std::array::from_fn(|i| {
             let vertex = ("vs_main", vertex_layout());
@@ -219,7 +230,15 @@ impl Scene {
                 alpha: AlphaMode::Opaque,
                 double_sided: i % 2 == 1,
             };
-            mesh_pipeline(gpu, &mesh_layout, &module, kind, true, quality, vertex)
+            mesh_pipeline(
+                gpu,
+                &mesh_layout,
+                &module,
+                kind,
+                (true, false),
+                quality,
+                vertex,
+            )
         });
         let background = gpu.pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("background"),
@@ -463,6 +482,12 @@ fn frame_uniform(
     let mut sh = [[0.0; 4]; 9];
     let (mut sun_dir, mut sun_color) = ([0.0; 4], [0.0; 4]);
     let (mut bottom, mut top) = ([0.0; 4], [0.0; 4]);
+    let off = CharacterLight::default();
+    let character = lighting.map_or(&off, |l| &l.character);
+    // The fill's direction is fixed to the camera, given in its frame.
+    let towards = (camera.view.inverse())
+        .transform_vector3(Vec3::from(character.direction))
+        .normalize_or(Vec3::Z);
     if let Some(lighting) = lighting {
         for (dst, src) in sh.iter_mut().zip(&lighting.ambient) {
             *dst = rgb_w(*src, 0.0);
@@ -489,6 +514,14 @@ fn frame_uniform(
         background_top: top,
         grid: [grid.tiles_x, grid.tiles_y, grid.slices, grid.tile_px],
         slicing: [scale, bias, 0.0, 0.0],
+        character_dir: towards.extend(character.wrap).into(),
+        character_color: rgb_w(character.color, character.intensity),
+        character: [
+            character.rim,
+            character.rim_power,
+            character.min_brightness,
+            character.room_tint,
+        ],
     }
 }
 
@@ -621,13 +654,14 @@ pub(crate) fn depth_state(write: bool, compare: wgpu::CompareFunction) -> wgpu::
 }
 
 /// The pipeline drawing `kind` with fs_main, its vertices read by the entry
-/// point and buffer layout of `vertex`.
+/// point and buffer layout of `vertex`; `dither` for a dissolving room's
+/// opaque draws, `actor` for actors, which take the character light.
 pub(crate) fn mesh_pipeline(
     gpu: &Gpu,
     layout: &wgpu::PipelineLayout,
     module: &wgpu::ShaderModule,
     kind: Kind,
-    dither: bool,
+    (dither, actor): (bool, bool),
     quality: &Quality,
     (entry_point, buffer): (&str, wgpu::VertexBufferLayout<'_>),
 ) -> wgpu::RenderPipeline {
@@ -638,6 +672,7 @@ pub(crate) fn mesh_pipeline(
         ("BLEND", !kind.is_opaque() as u8 as f64),
         ("PCF_SIDE", pcf_side as f64),
         ("DITHER", dither as u8 as f64),
+        ("ACTOR", actor as u8 as f64),
     ];
     let options = wgpu::PipelineCompilationOptions {
         constants: &constants,

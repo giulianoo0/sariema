@@ -65,6 +65,9 @@ override PCF_SIDE: u32 = 1u;
 // its own pipelines discard, so the others keep early depth testing on
 // tile-based GPUs.
 override DITHER: bool = false;
+// Actors take the character light, and the colour of the room's light only
+// as far as its room tint says.
+override ACTOR: bool = false;
 
 struct VertexOut {
     @builtin(position) clip: vec4<f32>,
@@ -118,6 +121,9 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     var color = base.rgb;
     if LIT {
         color = lit(in, n, v, base.rgb);
+        if ACTOR {
+            color = character_light(color, n, v, base.rgb * (1.0 - material.metallic));
+        }
     }
     color += emissive;
     if material.rim > 0.0 {
@@ -137,9 +143,9 @@ fn lit(in: VertexOut, n: vec3<f32>, v: vec3<f32>, base: vec3<f32>) -> vec3<f32> 
     let roughness = min(max(material.roughness, 0.0525) + max(dn.x, max(dn.y, dn.z)), 1.0);
     let alpha = roughness * roughness;
 
-    var color = ambient(n) * diffuse / PI;
+    var color = room_light(ambient(n)) * diffuse / PI;
     let sun = shadow(i32(frame.sun_dir.w), in.world, n, 0.0);
-    color += frame.sun_color.rgb * sun * brdf(n, v, frame.sun_dir.xyz, diffuse, f0, alpha);
+    color += room_light(frame.sun_color.rgb) * sun * brdf(n, v, frame.sun_dir.xyz, diffuse, f0, alpha);
     let cell = cluster_at(cluster_index(in.clip.xy, in.view_depth));
     let first = cell >> COUNT_BITS;
     let count = cell & ((1u << COUNT_BITS) - 1u);
@@ -149,9 +155,41 @@ fn lit(in: VertexOut, n: vec3<f32>, v: vec3<f32>, base: vec3<f32>) -> vec3<f32> 
         let d2 = dot(to_light, to_light);
         let l = to_light * inverseSqrt(max(d2, 1e-12));
         let reaching = falloff(light, l, d2) * shadow(light.shadow, in.world, n, sqrt(d2));
-        color += light.color * reaching * brdf(n, v, l, diffuse, f0, alpha);
+        color += room_light(light.color) * reaching * brdf(n, v, l, diffuse, f0, alpha);
     }
     return color;
+}
+
+fn luminance(c: vec3<f32>) -> f32 {
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// The colour of the room's light `c` as it reaches what is drawn: whole, or
+// on an actor mixed towards its luminance as far as the room tint is below 1.
+fn room_light(c: vec3<f32>) -> vec3<f32> {
+    if ACTOR {
+        return mix(vec3(luminance(c)), c, frame.character.w);
+    }
+    return c;
+}
+
+// An actor's lit `color` with the character light: a fill that casts no
+// shadow and gives no highlight, wrapped past the side it faces as Godot's
+// DIFFUSE_LAMBERT_WRAP; a rim tinted by the albedo, as Godot's rim with
+// rim_tint 1, so a thin facet seen edge-on brightens in its own colour and
+// never white; then whatever the least brightness still asks for, made up
+// in the albedo's own hue.
+fn character_light(color: vec3<f32>, n: vec3<f32>, v: vec3<f32>, diffuse: vec3<f32>) -> vec3<f32> {
+    let light = frame.character_color.rgb;
+    let wrap = frame.character_dir.w;
+    let facing = saturate((dot(n, frame.character_dir.xyz) + wrap) / (1.0 + wrap));
+    var c = color + light * frame.character_color.w * facing * diffuse / PI;
+    // The floor keeps pow away from 0⁰, which WGSL leaves undefined.
+    let edge = pow(max(1.0 - saturate(dot(n, v)), 1e-4), frame.character.y);
+    c += light * frame.character.x * edge * diffuse;
+    let albedo = max(luminance(diffuse), 1e-4);
+    let least = frame.character.z * albedo;
+    return c + diffuse * max(least - luminance(c), 0.0) / albedo;
 }
 
 // Fraction of a light reaching `world` past the casters in shadow slot

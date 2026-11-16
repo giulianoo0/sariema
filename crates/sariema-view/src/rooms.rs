@@ -22,7 +22,7 @@ use sariema_engine::Engine;
 use sariema_format::scenery::{Channel, LightField, NodeIndex, RoomIndex, Target, sun_direction};
 use sariema_format::script::RoomTransition;
 use sariema_format::stream::RoomDecoder;
-use sariema_format::{Background, Look, RoomCamera, RoomPack, Sun};
+use sariema_format::{Background, CharacterLight, Look, RoomCamera, RoomPack, Sun};
 use sariema_render::{Lighting, Renderer};
 use sariema_runtime::scenery::{Binding, RoomScene};
 use sariema_runtime::sim::Logic;
@@ -87,6 +87,7 @@ struct Base {
     sh9: [[f32; 3]; 9],
     look: Look,
     camera: RoomCamera,
+    character: CharacterLight,
 }
 
 /// What the renderer's slot shows of the room's scene.
@@ -362,6 +363,7 @@ impl Rooms {
             sh9: room.ambient.sh9,
             look: room.look.clone(),
             camera: room.camera.clone(),
+            character: room.character.clone(),
         });
         renderer.begin_room(r as u32, &room)?;
         self.views[r].load = Load::Uploading(Box::new(room));
@@ -510,6 +512,7 @@ fn lit(base: &Base, scene: &RoomScene) -> (Lighting, Look) {
             sun,
             ambient: sh9,
             background,
+            character: base.character.clone(),
         },
         look,
     )
@@ -544,6 +547,16 @@ fn blend((a, la): &(Lighting, Look), (b, lb): &(Lighting, Look), p: f32) -> (Lig
         background: Background {
             top: mix3(a.background.top, b.background.top),
             bottom: mix3(a.background.bottom, b.background.bottom),
+        },
+        character: CharacterLight {
+            direction: mix3(a.character.direction, b.character.direction),
+            color: mix3(a.character.color, b.character.color),
+            intensity: mix(a.character.intensity, b.character.intensity),
+            wrap: mix(a.character.wrap, b.character.wrap),
+            rim: mix(a.character.rim, b.character.rim),
+            rim_power: mix(a.character.rim_power, b.character.rim_power),
+            min_brightness: mix(a.character.min_brightness, b.character.min_brightness),
+            room_tint: mix(a.character.room_tint, b.character.room_tint),
         },
     };
     let look = Look {

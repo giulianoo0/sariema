@@ -32,7 +32,7 @@ use std::time::Duration;
 use glam::Mat4;
 use sariema_core::Camera;
 use sariema_format::actor::ActorPack;
-use sariema_format::{AlphaMode, Background, Light, Look, RoomPack, Sun};
+use sariema_format::{AlphaMode, Background, CharacterLight, Light, Look, RoomPack, Sun};
 
 mod actors;
 mod cluster;
@@ -268,14 +268,15 @@ impl Gpu {
     }
 }
 
-/// The sun, ambient light and background a frame is lit with, when the
-/// host gives them instead of the first drawn room's.
+/// The sun, ambient light, background and character light a frame is lit
+/// with, when the host gives them instead of the first drawn room's.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Lighting {
     pub sun: Option<Sun>,
     /// 9 SH coefficients, as [`sariema_format::Ambient`].
     pub ambient: [[f32; 3]; 9],
     pub background: Background,
+    pub character: CharacterLight,
 }
 
 impl Lighting {
@@ -285,6 +286,7 @@ impl Lighting {
             sun: room.sun.clone(),
             ambient: room.ambient.sh9,
             background: room.background.clone(),
+            character: room.character.clone(),
         }
     }
 }
@@ -800,6 +802,7 @@ impl Renderer {
                 sun: r.sun.clone(),
                 ambient: r.ambient,
                 background: r.background.clone(),
+                character: r.character.clone(),
             }),
         };
         let sun = lighting.as_ref().and_then(|l| l.sun.as_ref());

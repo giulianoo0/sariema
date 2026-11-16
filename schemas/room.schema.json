@@ -109,6 +109,21 @@
         "intensity": { "type": "number", "minimum": 0 }
       }
     },
+    "character_light": {
+      "type": "object",
+      "description": "Light only actors receive, so they read against the room. Every field is optional; the defaults leave actors lit as the room is.",
+      "additionalProperties": false,
+      "properties": {
+        "direction": { "$ref": "#/$defs/vec3", "description": "Towards the fill in the camera's frame: x right, y up, z towards the viewer. [0.3, 0.6, 1] when absent." },
+        "color": { "$ref": "#/$defs/rgb", "description": "Linear RGB of the fill and the rim. White when absent." },
+        "intensity": { "type": "number", "minimum": 0, "description": "The fill's strength in the sun's units; it casts no shadow and gives no highlight. 0 when absent." },
+        "wrap": { "type": "number", "minimum": 0, "description": "How far the fill reaches past the side it faces: 0 is Lambert's cosine, 1 lights all but the far side. 0.5 when absent." },
+        "rim": { "type": "number", "minimum": 0, "description": "Light along the silhouette, a fraction of the albedo it shows. 0 when absent." },
+        "rim_power": { "type": "number", "minimum": 0, "description": "How tight the rim hugs the silhouette; higher is thinner. 3 when absent." },
+        "min_brightness": { "type": "number", "minimum": 0, "description": "The least an actor reflects, a fraction of its albedo's luminance. 0 when absent." },
+        "room_tint": { "type": "number", "minimum": 0, "maximum": 1, "description": "How much of the room's light colour tints actors: 0 keeps the albedo's hue. 1 when absent." }
+      }
+    },
     "textures": {
       "enum": ["rgba8", "astc"],
       "description": "How colour textures are stored. ASTC 4x4 (the default) needs a GPU that samples ASTC; RGBA8 is four times larger."

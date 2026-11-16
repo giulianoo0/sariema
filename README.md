@@ -40,6 +40,7 @@ Docs:
 - [docs/design.md](docs/design.md) — the public design.
 - [docs/physics.md](docs/physics.md) — character movement, collision packs and `sariema check`.
 - [docs/actors.md](docs/actors.md) — actor packs, skeletal animation and skinned drawing.
+- [docs/lighting.md](docs/lighting.md) — the character light, light and look changed at run time, cutaway walls.
 - [docs/audio.md](docs/audio.md) — sound banks, the mixer and `sariema audio`.
 - [docs/ui.md](docs/ui.md) — the in-engine UI and `sariema ui render`.
 - [docs/performance.md](docs/performance.md) — `sariema bench` and what a frame costs.

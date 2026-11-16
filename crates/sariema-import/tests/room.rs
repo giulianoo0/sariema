@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use common::write_glb;
 use sariema_format::{
-    AlphaMode, Draw, LightKind, Look, Mobility, RoomPack, Shading, TextureFormat, decode, encode,
-    eval_sh9,
+    AlphaMode, CharacterLight, Draw, LightKind, Look, Mobility, RoomPack, Shading, TextureFormat,
+    decode, encode, eval_sh9,
 };
 use sariema_import::{ImportError, RoomSource, build_room};
 use serde_json::{Value, json};
@@ -682,4 +682,27 @@ fn builds_whole_tree_house() {
     // montagem.json declares 46 013 triangles over the nine rooms, and luz.json 21 lights.
     assert_eq!(r.stats.triangles, 46_013);
     assert_eq!(r.lights.len(), 21);
+}
+
+#[test]
+fn a_character_light_keeps_the_defaults_it_leaves_out() {
+    assert_eq!(build(sala_min()).character, CharacterLight::default());
+    let room = build(with(
+        sala_min(),
+        json!({ "character_light": { "intensity": 1.2, "room_tint": 0.4, "color": [1.0, 0.8, 0.6] } }),
+    ));
+    assert_eq!(
+        room.character,
+        CharacterLight {
+            intensity: 1.2,
+            room_tint: 0.4,
+            color: [1.0, 0.8, 0.6],
+            ..CharacterLight::default()
+        }
+    );
+    let e = build_err(with(
+        sala_min(),
+        json!({ "character_light": { "room_tint": 2.0 } }),
+    ));
+    assert_eq!(e.code(), "E_SCHEMA");
 }
