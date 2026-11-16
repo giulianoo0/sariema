@@ -34,6 +34,8 @@ pub struct Place {
     pub yaw: f32,
 }
 
+/// Packs store each variant by its position, and earlier game packs are
+/// read with this enum: a new variant goes at the end.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Block {
     Sequence(Vec<Block>),
