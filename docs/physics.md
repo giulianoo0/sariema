@@ -338,7 +338,8 @@ sariema physics-map room.srmc -o map.png [--path <from>:<to>] [--actor <name>] [
 Every command takes `--json`.
 
 `check` places each spot's actor collider at the spot, and the carried
-actor's collider at each traversal's end. It reports every problem as one
+actor's collider at each traversal's end, with the settings of the
+project's game (`game.settings.physics`), the defaults without one. It reports every problem as one
 failure, naming the room and the spot or traversal:
 
 | Code | Meaning |
@@ -367,7 +368,15 @@ canopy or a ceiling.
 ## Settings
 
 Every number that bounds or tunes the simulation is a field of
-`sariema_physics::Settings`. Defaults come from the game this engine replaces:
+`sariema_physics::Settings`. A game sets them in its project's
+`game.settings` under `physics` (`{"physics": {"controller":
+{"step_height": 0.26}}}`), which its pack carries to the collision module
+(`docs/engine.md`); a key left out keeps its default. `step_seconds` and
+`controller.max_yaw_speed` belong to the engine, which sets them to the
+runtime's step and `motion.turn_rate`, so a game's settings cannot name
+them. A size or count that cannot run (a `nav.cell_size` of 0, no
+`slide_iterations`, a slope of 90° or more) fails loading with
+`E_SETTINGS`. Defaults come from the game this engine replaces:
 its measured hero speed, collider, stick curve and turning rate, and, for what
 a 2D game does not have (steps, slopes, snapping), values chosen to match how
 it feels.
@@ -501,8 +510,6 @@ room with 135 colliders in 0.2 s.
 - `physics-map` does not draw traversals or contact points.
 - Actors push each other apart as vertical circles (radius of the body
   capsule, overlapping heights); head spheres do not push.
-- `check` uses the default controller settings; a game that tunes them should
-  check with its own (not yet exposed on the command line).
 - The pinned replay hash was produced on aarch64 macOS and reproduced on
   x86_64-apple-darwin and on wasm32 under node, in debug and release builds.
   Other targets are untested.

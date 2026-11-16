@@ -446,6 +446,7 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `motion.max_visible_speed` | 20 | Metres per second a visible actor may move, carried or driven by anything; a faster move is a jump. |
 | `motion.min_carrier_scale` | 0.000001 | A carrier scaled below this cannot hold a visible actor the no-jump rule puts back: the actor leaves it. |
 | `motion.turn_rate` | 540 | Degrees per second an actor turns; nothing turns faster, and a larger turn in one step is a jump. |
+| `physics.*` | [physics.md](physics.md#settings) | The collision module's settings (`physics.controller.step_height`, `physics.controller.accel_steps`, …), with the defaults and meanings listed there. |
 | `spring_rest` | 0.001 | A spring stops, exactly on its target, once its offset and velocity are both within this. |
 | `vm.commands_bytes_per_step` | 4194304 | Bytes of commands one tick may submit; more stops the game with E_GAME_BUDGET. |
 | `vm.fuel_first_step` | 200000000 | Budget of the first tick, which usually builds the world. |

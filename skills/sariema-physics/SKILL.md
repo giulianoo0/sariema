@@ -216,7 +216,19 @@ py / ppm.
 ## Tuning the controller
 
 Every number is a field of `Settings` (`docs/physics.md` lists all, with
-defaults). The ones games change:
+defaults). A game sets them in its project's `game.settings`, under
+`physics`, and its pack carries them to the collision module; a key left
+out keeps its default, an unknown one fails the build with `E_SCHEMA`, and
+a size that cannot run (`nav.cell_size` 0) with `E_SETTINGS`:
+
+```json
+"game": { "settings": { "physics": { "controller": { "step_height": 0.26, "accel_steps": 6 } } } }
+```
+
+`step_seconds` and `controller.max_yaw_speed` are the engine's (the runtime's
+step and `motion.turn_rate`), so a game's settings cannot name them.
+`sariema api --json` lists every `physics.*` key with its default. The ones
+games change:
 
 | Want | Setting |
 |---|---|
@@ -228,8 +240,9 @@ defaults). The ones games change:
 | Turn faster | `controller.yaw_rate` (14 /s) |
 | Walk speed | `ActorDesc::walk_speed` (2.1 m/s) or `Intent::SetSpeedScale` |
 
-`check` uses the default settings; after changing `step_height` or
-`max_slope_deg`, also test the routes in the game.
+`check` walks the routes and judges the ground with the game's settings,
+so a project whose `game.settings.physics.controller.step_height` is 0.26
+passes routes up 0.25 m risers that fail at the default 0.2.
 
 ## Common mistakes
 
