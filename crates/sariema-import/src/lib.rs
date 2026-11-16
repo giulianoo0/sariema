@@ -11,7 +11,7 @@ mod room;
 mod texture;
 
 pub use kit::{Kit, KitImage, KitPiece, KitPrimitive, load_kit};
-pub use room::{RoomSource, build_room};
+pub use room::{AmbientFill, RoomSource, build_room};
 pub use texture::{TextureMode, encode_texture, mip_chain_rgba8};
 
 #[derive(Debug)]

@@ -29,6 +29,14 @@
       "description": "Sub-rooms (comodos) to include; the first gives the ambient light and the sun."
     },
     "loose": { "$ref": "#/$defs/names", "description": "Pieces that keep their own draws instead of merging by material." },
+    "hidden": {
+      "$ref": "#/$defs/names",
+      "description": "Pieces that start hidden. Loose ones keep invisible draws the game can show; merged ones are left out."
+    },
+    "shadowless_lights": {
+      "$ref": "#/$defs/names",
+      "description": "Lights, named <room>.<nome>, that cast no shadow; luz.json has no shadow setting and its spots cast by default."
+    },
     "drawn_materials": { "$ref": "#/$defs/names" },
     "rim_materials": {
       "type": "array",
@@ -73,6 +81,17 @@
       "properties": {
         "top": { "$ref": "#/$defs/rgb" },
         "bottom": { "$ref": "#/$defs/rgb" }
+      }
+    },
+    "ambient_fill": {
+      "type": "object",
+      "description": "A hemisphere light added to the ambient light of the first room in show, as three.js's HemisphereLight lights.",
+      "additionalProperties": false,
+      "required": ["sky", "ground", "intensity"],
+      "properties": {
+        "sky": { "$ref": "#/$defs/rgb" },
+        "ground": { "$ref": "#/$defs/rgb" },
+        "intensity": { "type": "number", "minimum": 0 }
       }
     },
     "textures": {

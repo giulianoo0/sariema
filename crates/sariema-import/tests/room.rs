@@ -207,6 +207,20 @@ fn hidden_piece_is_invisible() {
     assert_eq!((r.stats.triangles, r.stats.draws), (0, 0));
 }
 
+#[test]
+fn listed_pieces_start_hidden() {
+    let r = build(with(
+        sala_min(),
+        json!({ "hidden": ["mesa"], "loose": ["mesa"] }),
+    ));
+    assert!(!draw(&r, "a.mesa").visible);
+    assert_eq!(triangles(&r, draw(&r, "a/mat0")), 24);
+
+    // Merged pieces have no draw of their own to show later, so they are left out.
+    let merged = build(with(sala_min(), json!({ "hidden": ["caixa"] })));
+    assert_eq!(merged.stats.triangles, 12);
+}
+
 /// A kit with one piece, `vela`, hidden at start: a 1-triangle `vela_base` and
 /// a 1-triangle `vela_chama` that only its state `acesa` shows.
 fn candle_kit() -> PathBuf {
@@ -379,6 +393,12 @@ fn spots_cast_shadows_and_points_do_not() {
 }
 
 #[test]
+fn listed_lights_cast_no_shadow() {
+    let r = build(with(sala_min(), json!({ "shadowless_lights": ["a.foco"] })));
+    assert!(r.lights.iter().all(|l| !l.casts_shadow));
+}
+
+#[test]
 fn lights_are_placed_like_pieces() {
     let sala = with_edited("luz", "luz_min.json", "placed", |l| {
         l["comodos"]["b"]["luzes"] = json!([point("vela", [0.5, 0.25, 1.0], 2.0, 3.0)]);
@@ -438,6 +458,21 @@ fn first_shown_room_gives_ambient_and_sun() {
     // Room b's sky is #CFE0F0, whose red is 0.624 in linear light, at intensity 0.75.
     let up = eval_sh9(&b.ambient.sh9, [0.0, 1.0, 0.0]);
     assert!((up[0] - 0.624 * 0.75).abs() < 0.001, "{up:?}");
+}
+
+#[test]
+fn ambient_fill_adds_a_hemisphere() {
+    let fill = json!({ "sky": [0.5, 0.25, 0.5], "ground": [0.1, 0.1, 0.0], "intensity": 2.0 });
+    let plain = build(sala_min());
+    let filled = build(with(sala_min(), json!({ "ambient_fill": fill })));
+    for (normal, added) in [
+        ([0.0, 1.0, 0.0], [1.0, 0.5, 1.0]),
+        ([0.0, -1.0, 0.0], [0.2, 0.2, 0.0]),
+    ] {
+        let before = eval_sh9(&plain.ambient.sh9, normal);
+        let expected: Vec<f32> = before.iter().zip(added).map(|(b, a)| b + a).collect();
+        assert_close(&eval_sh9(&filled.ambient.sh9, normal), &expected, 1e-5);
+    }
 }
 
 #[test]
@@ -522,4 +557,36 @@ fn real_cozinha_shows_instance_states() {
     // montagem.json declares 10 302. Its geladeira_real is `aberta` and its
     // pacote_batata `caido`; as they start, the cozinha would have 10 148.
     assert_eq!(r.stats.triangles, 10_302);
+}
+
+#[test]
+#[ignore = "needs the Origem assets in SARIEMA_ORIGEM_ASSETS"]
+fn builds_whole_tree_house() {
+    let root = std::env::var_os("SARIEMA_ORIGEM_ASSETS").expect(
+        "set SARIEMA_ORIGEM_ASSETS to the Origem assets directory, the one holding arvore/",
+    );
+    let show = [
+        "quarto_janela",
+        "tunel_entrada",
+        "salao",
+        "tunel_1",
+        "tunel_2",
+        "cozinha",
+        "sala_estar",
+        "tunel_alto",
+        "sala_mila",
+    ];
+    let sala = with(
+        sala_min(),
+        json!({
+            "kit": "arvore/kit_casa_arvore.opt.glb",
+            "montagem": "arvore/montagem.json",
+            "luz": "arvore/luz.json",
+            "show": show
+        }),
+    );
+    let r = build_in(&sala, Path::new(&root)).unwrap();
+    // montagem.json declares 46 013 triangles over the nine rooms, and luz.json 21 lights.
+    assert_eq!(r.stats.triangles, 46_013);
+    assert_eq!(r.lights.len(), 21);
 }

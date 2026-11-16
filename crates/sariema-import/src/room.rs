@@ -39,15 +39,31 @@ pub struct RoomSource {
     pub show: Vec<String>,
     /// Pieces that keep their own draws instead of merging by material.
     pub loose: Vec<String>,
+    /// Pieces that start hidden: loose ones as invisible draws, merged ones left out.
+    #[serde(default)]
+    pub hidden: Vec<String>,
+    /// Lights, named `<room>.<nome>`, that cast no shadow.
+    #[serde(default)]
+    pub shadowless_lights: Vec<String>,
     pub drawn_materials: Vec<String>,
     pub rim_materials: Vec<(String, f32)>,
     pub additive_materials: Vec<String>,
     pub look: Look,
     pub camera: RoomCamera,
     pub background: Background,
+    #[serde(default)]
+    pub ambient_fill: Option<AmbientFill>,
     /// ASTC 4×4 when absent.
     #[serde(default)]
     pub textures: Option<TextureMode>,
+}
+
+/// A hemisphere light added to the first shown room's ambient; colours are linear RGB.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AmbientFill {
+    pub sky: [f32; 3],
+    pub ground: [f32; 3],
+    pub intensity: f32,
 }
 
 impl RoomSource {
@@ -150,6 +166,7 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
     let mut scene = Scene {
         kit: &kit,
         loose: &source.loose,
+        hidden: &source.hidden,
         meshes: Vec::new(),
         draws: Vec::new(),
     };
@@ -162,7 +179,9 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         let corner = comodo.sw_celulas.map(|cells| cells * montagem.celula);
         scene.add_room(room, comodo, corner)?;
         for item in luz.comodos.get(room).map_or(&[][..], |l| &l.luzes) {
-            lights.push(light(room, item, corner)?);
+            let mut light = light(room, item, corner)?;
+            light.casts_shadow &= !source.shadowless_lights.contains(&light.name);
+            lights.push(light);
         }
     }
     let Scene { meshes, draws, .. } = scene;
@@ -178,6 +197,18 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         .ok_or_else(|| {
             ImportError::Schema(format!("luz: room {first}: sol_dir_three has no direction"))
         })?;
+    let mut sh9 = hemisphere_sh9(
+        linear_rgb(&sky.hemi_ceu)?,
+        linear_rgb(&sky.hemi_chao)?,
+        sky.hemi_int,
+    );
+    if let Some(fill) = &source.ambient_fill {
+        // Light adds, and so do the coefficients of a linear projection.
+        let added = hemisphere_sh9(fill.sky, fill.ground, fill.intensity);
+        for (sum, add) in sh9.iter_mut().flatten().zip(added.iter().flatten()) {
+            *sum += add;
+        }
+    }
     let mode = source.textures.unwrap_or_default();
     let textures: Vec<Texture> = kit
         .images
@@ -192,13 +223,7 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         textures,
         draws,
         lights,
-        ambient: Ambient {
-            sh9: hemisphere_sh9(
-                linear_rgb(&sky.hemi_ceu)?,
-                linear_rgb(&sky.hemi_chao)?,
-                sky.hemi_int,
-            ),
-        },
+        ambient: Ambient { sh9 },
         sun: Some(Sun {
             direction: sun_direction.into(),
             color: linear_rgb(&sky.sol)?,
@@ -247,6 +272,7 @@ fn dress(materials: &mut [Material], source: &RoomSource) {
 struct Scene<'a> {
     kit: &'a Kit,
     loose: &'a [String],
+    hidden: &'a [String],
     meshes: Vec<Mesh>,
     draws: Vec<Draw>,
 }
@@ -273,7 +299,8 @@ impl Scene<'_> {
             let primitives = shown_primitives(piece, inst, room)?;
             let placement = placement(inst, corner, room)?;
             // As casa.ts treats nodes flagged oculto_no_inicio: hidden only while no estado is set.
-            let hidden = piece.hidden_at_start && inst.estado.is_none();
+            let hidden = (piece.hidden_at_start && inst.estado.is_none())
+                || self.hidden.contains(&inst.peca);
             if self.loose.contains(&inst.peca) {
                 let copy = copies.entry(&inst.peca).or_default();
                 *copy += 1;
