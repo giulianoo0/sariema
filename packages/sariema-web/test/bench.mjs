@@ -7,12 +7,16 @@
 // burst WebGL2's CPU also waits on the browser's command buffer once the
 // GPU falls behind. A game is replayed with `--log` to step `--steps`
 // first, its hashes printed as `replay` to compare with `sariema run
-// --headless`, then plays on with no input. One JSON line a run.
+// --headless`, then plays on with no input. `--timeline <frames>` instead
+// plays the game from its first frame at the display's pace and prints,
+// for each frame, the step reached, the frame's CPU, the time since the
+// last frame and the frame's passes and draws, to see what a moment of the game (a room switch) costs. One
+// JSON line a run.
 //
 //   node test/bench.mjs --pack <room.srma> | --game <folder> [--log <input.json>]
 //     [--steps 120] [--browser chromium|webkit] [--backend webgpu|webgl2]
 //     [--viewport 1920,1080,1] [--quality medium] [--msaa 1] [--no-shadows]
-//     [--no-ao] [--frames 300] [--warm 1000] [--reps 3]
+//     [--no-ao] [--frames 300] [--warm 1000] [--timeline <frames>] [--reps 3]
 //
 // Chromium is Playwright's chromium-1248 with ANGLE on Metal, as in
 // test/run.mjs; SARIEMA_CHROMIUM overrides it. Run `npm run build` first.
@@ -47,7 +51,7 @@ export async function serve(mounts) {
 }
 
 /** One run in a fresh context of `browser`: load `pack` (a URL; a game folder's ends in /), warm up, burst. */
-export async function engineRun(browser, base, { pack, log, steps, viewport, backend, settings, frames = 300, warmMs = 1000 }) {
+export async function engineRun(browser, base, { pack, log, steps, viewport, backend, settings, frames = 300, warmMs = 1000, timeline }) {
   const [width, height, dpr] = viewport;
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr });
   try {
@@ -62,7 +66,9 @@ export async function engineRun(browser, base, { pack, log, steps, viewport, bac
     await page.goto(new URL("test/bench.html", base).href);
     await page.waitForFunction(() => window.bench);
     const load = await page.evaluate(([p, o, l, n]) => window.bench.load(p, o, l, n), [pack, settings, log, steps]);
-    const run = await page.evaluate(([w, n]) => window.bench.run(w, n), [warmMs, frames]);
+    const run = timeline
+      ? await page.evaluate((n) => window.bench.timeline(n), timeline)
+      : await page.evaluate(([w, n]) => window.bench.run(w, n), [warmMs, frames]);
     return { ...load, ...run, settings, viewport, load_average: loadavg(), errors };
   } finally {
     await context.close();
@@ -108,6 +114,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
         settings,
         frames: Number(a.frames),
         warmMs: Number(a.warm),
+        timeline: a.timeline ? Number(a.timeline) : undefined,
       });
       console.log(JSON.stringify({ pack: basename(pack), browser: a.browser, rep: r + 1, ...run }));
     }

@@ -73,4 +73,23 @@ window.bench = {
     const burst = await sariema.bench(frames);
     return { ...burst, paced_cpu_ms: paced[59], paced_p90_cpu_ms: paced[107], paced_frames: paced.length, stats: sariema.stats() };
   },
+
+  async timeline(frames) {
+    const rows = [];
+    let last = null;
+    await new Promise((resolve) => {
+      const tick = (t) => {
+        const start = performance.now();
+        sariema.frame(t);
+        const cpu = performance.now() - start;
+        const s = sariema.stats();
+        rows.push([s.game?.steps ?? s.steps, cpu, last === null ? 0 : t - last, s.passes, s.draws]);
+        last = t;
+        if (rows.length < frames) requestAnimationFrame(tick);
+        else resolve();
+      };
+      requestAnimationFrame(tick);
+    });
+    return { timeline: rows, stats: sariema.stats() };
+  },
 };
