@@ -37,6 +37,7 @@ mod resources;
 mod scene;
 mod shadow;
 mod timing;
+pub mod ui;
 
 pub use actors::{ActorId, ActorModel, ActorState, DiscShadow};
 pub use golden::{GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, GoldenDiff, compare_images};

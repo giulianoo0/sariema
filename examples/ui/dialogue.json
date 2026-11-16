@@ -1,0 +1,34 @@
+{
+  "fonts": {
+    "line": { "file": "../../crates/sariema-ui/fonts/Nunito.ttf", "weight": 650 },
+    "name": { "file": "../../crates/sariema-ui/fonts/Nunito.ttf", "weight": 800 }
+  },
+  "nodes": [
+    { "name": "hud", "safe": true, "children": [
+      { "name": "band", "absolute": true, "left": 0, "right": 0, "bottom": 14, "justify": "center", "children": [
+        { "name": "box", "width": 450, "padding": [22, 40, 16, 22],
+          "fill": "#FFF8EC", "border": { "width": 2.5, "color": "#33261C" },
+          "radius": { "x": [15, 19, 16, 18], "y": [18, 15, 19, 16] },
+          "shadow": { "y": 3, "color": "#33261C61" },
+          "children": [
+            { "name": "line", "text": "Did you hear that? Something moved behind the wall, near the café.",
+              "font": "line", "size": 20, "line_height": 1.32, "fill": "#33261C", "max_lines": 3, "shrink": 1 },
+            { "name": "who", "absolute": true, "left": 18, "top": -15, "padding": [2, 12],
+              "fill": "#6FE3F7", "border": { "width": 2.5, "color": "#33261C" }, "radius": 12,
+              "children": [ { "text": "Mira", "font": "name", "size": 15, "fill": "#33261C" } ] },
+            { "name": "next", "absolute": true, "right": 16, "bottom": 14, "width": 10, "height": 16,
+              "stroke": { "points": [[2, 2], [8, 8], [2, 14]], "width": 3 }, "fill": "#A8480A" }
+          ]}
+      ]}
+    ]}
+  ],
+  "animations": {
+    "open": [
+      { "node": "box", "prop": "y", "from": 14, "to": 0, "duration": 0.26 },
+      { "node": "box", "prop": "opacity", "from": 0, "to": 1, "duration": 0.18 },
+      { "node": "next", "prop": "opacity", "from": 0, "to": 1, "duration": 0.18, "delay": 2.3 },
+      { "node": "next", "prop": "x", "from": -6, "to": 0, "duration": 0.22, "delay": 2.3 },
+      { "node": "line", "prop": "reveal", "typewriter": { "rate": 30, "pause": 0.07 } }
+    ]
+  }
+}

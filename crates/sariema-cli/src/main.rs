@@ -10,6 +10,7 @@ use sariema_import::TextureMode;
 use sariema_render::Quality;
 
 mod actor;
+mod audio;
 mod bench;
 mod check;
 mod collision;
@@ -23,6 +24,7 @@ mod project;
 mod run;
 mod spot_check;
 mod stage;
+mod ui;
 
 #[derive(Parser)]
 #[command(
@@ -87,6 +89,10 @@ enum Command {
     /// load stage, frame stage and GPU pass, with draws, passes, uploads and
     /// allocations per frame.
     Bench(bench::BenchArgs),
+    /// Build, inspect and check sound banks; render cue lists offline.
+    Audio(audio::AudioArgs),
+    /// Draw UI descriptions headless at a screen size and a moment.
+    Ui(ui::UiArgs),
 }
 
 #[derive(Args)]
@@ -181,6 +187,8 @@ fn main() -> ExitCode {
         Command::Check(args) => check::run(args),
         Command::PhysicsMap(args) => physics_map::run(args),
         Command::Bench(args) => bench::bench(args),
+        Command::Audio(args) => audio::run(args),
+        Command::Ui(args) => ui::run(args),
     });
     output::emit(cli.json, outcome)
 }

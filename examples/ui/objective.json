@@ -1,0 +1,54 @@
+{
+  "fonts": {
+    "label": { "file": "../../crates/sariema-ui/fonts/Nunito.ttf", "weight": 750 },
+    "phrase": { "file": "../../crates/sariema-ui/fonts/Nunito.ttf", "weight": 800 }
+  },
+  "nodes": [
+    { "name": "hud", "safe": true, "children": [
+      { "name": "objective", "absolute": true, "left": 16, "top": 12, "align": "center", "gap": 10,
+        "padding": [8, 16, 8, 8], "max_width": 360,
+        "fill": "#FFF8EC", "border": { "width": 2.5, "color": "#33261C" },
+        "radius": { "x": [15, 19, 16, 18], "y": [18, 15, 19, 16] },
+        "shadow": { "y": 3, "color": "#33261C61" },
+        "children": [
+          { "name": "disc", "width": 42, "height": 42, "radius": 21, "fill": "#F1DFC0", "children": [
+            { "name": "icon", "absolute": true, "left": 9, "top": 9, "width": 24, "height": 24,
+              "ring": { "width": 3.5 }, "fill": "#33261C" },
+            { "name": "check", "absolute": true, "left": 0, "top": 0, "width": 42, "height": 42,
+              "stroke": { "points": [[13, 22], [19, 28], [30, 15]], "width": 4.5 },
+              "fill": "#FFFFFF", "progress": 0 }
+          ]},
+          { "direction": "column", "shrink": 1, "children": [
+            { "children": [
+              { "name": "label", "text": "Objective", "font": "label", "size": 13, "fill": "#7A4A12" },
+              { "name": "label_done", "absolute": true, "left": 0, "top": 0, "text": "Done!",
+                "font": "label", "size": 13, "fill": "#1F6E2C", "opacity": 0 }
+            ]},
+            { "children": [
+              { "name": "phrase", "text": "Find the key by the old well", "font": "phrase", "size": 17,
+                "line_height": 1.18, "fill": "#33261C", "max_lines": 2 },
+              { "name": "strike", "absolute": true, "left": -3, "right": -3, "top": "42%", "height": 5,
+                "stroke": { "points": [[0, 3], [40, 1.8], [100, 2.6]], "viewbox": [100, 5], "width": 2.6 },
+                "fill": "#33261C", "progress": 0 }
+            ]}
+          ]}
+        ]}
+    ]}
+  ],
+  "animations": {
+    "enter": [
+      { "node": "objective", "prop": "y", "from": -14, "to": 0, "duration": 0.26 },
+      { "node": "objective", "prop": "opacity", "from": 0, "to": 1, "duration": 0.18 }
+    ],
+    "done": [
+      { "node": "disc", "prop": "fill", "to": "#2F9E41", "duration": 0.18 },
+      { "node": "disc", "prop": "scale", "from": 0.9, "to": 1, "duration": 0.22 },
+      { "node": "icon", "prop": "opacity", "to": 0, "duration": 0.12 },
+      { "node": "check", "prop": "progress", "to": 1, "duration": 0.28, "delay": 0.06 },
+      { "node": "label", "prop": "opacity", "to": 0, "duration": 0.18 },
+      { "node": "label_done", "prop": "opacity", "to": 1, "duration": 0.18 },
+      { "node": "strike", "prop": "progress", "to": 1, "duration": 0.34, "ease": "in_out", "delay": 0.14 },
+      { "node": "phrase", "prop": "opacity", "to": 0.62, "duration": 0.34, "delay": 0.14 }
+    ]
+  }
+}

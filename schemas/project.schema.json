@@ -21,6 +21,11 @@
       "type": "object",
       "description": "Actor id to the path of its actor description (schemas/actor.schema.json), relative to the project directory.",
       "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "audio": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path of the game's sound description (schemas/audio.schema.json), relative to the project directory."
     }
   }
 }

@@ -19,6 +19,9 @@ the `sariema` command-line tool.
 - `crates/sariema-anim` — skeletal animation: clip sampling, crossfades,
   events and skinning palettes for actor packs (`SRMK`, see
   [docs/actors.md](docs/actors.md)).
+- `crates/sariema-audio` — the mixer: buses, streamed music, ducking, loudness
+  checks and offline rendering of cue lists ([docs/audio.md](docs/audio.md)).
+- `crates/sariema-ui` — in-engine UI: flexbox tree, distance-field text, animation, touch widgets and a batched draw list ([docs/ui.md](docs/ui.md)).
 - `crates/sariema-cli` — the `sariema` tool: `build`, `inspect`, `run --headless`
   and `test`, each with `--json`. `examples/demo` is a project it can build.
 - [docs/performance.md](docs/performance.md) — `sariema bench` and what a frame costs.

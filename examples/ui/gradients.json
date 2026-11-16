@@ -1,0 +1,23 @@
+{
+  "fonts": { "label": { "file": "../../crates/sariema-ui/fonts/Nunito.ttf", "weight": 800 } },
+  "nodes": [
+    { "name": "vignette", "absolute": true, "left": 0, "top": 0, "right": 0, "bottom": 0,
+      "gradient": { "type": "radial", "center": [0.5, 0.46], "radius": [0.7, 0.62],
+                    "from": "#080C1E00", "to": "#080C1E8C", "stops": [0.55, 1] } },
+    { "name": "hud", "safe": true, "children": [
+      { "name": "card", "absolute": true, "left": 16, "top": 12, "padding": [8, 14], "radius": 12,
+        "border": { "width": 2.5, "color": "#33261C" }, "shadow": { "y": 3, "color": "#33261C61" },
+        "gradient": { "type": "linear", "angle": 160, "from": "#FFF8EC", "to": "#FFE2A8" },
+        "children": [ { "text": "Find the lantern", "font": "label", "size": 15, "fill": "#33261C" } ] },
+      { "name": "action", "absolute": true, "right": 16, "bottom": 16, "width": 80, "height": 80,
+        "children": [
+          { "name": "glow", "absolute": true, "left": 4, "top": 4, "width": 72, "height": 72, "radius": 36,
+            "shadow": { "y": 8, "blur": 16, "color": "#00000038" } },
+          { "name": "face", "absolute": true, "left": 4, "top": 4, "width": 72, "height": 72, "radius": 36,
+            "border": { "width": 2.5, "color": "#33261C" }, "shadow": { "y": 4, "color": "#33261C52" },
+            "gradient": { "type": "radial", "center": [0.5, 0.32], "from": "#FF8A3D", "to": "#E0650F",
+                          "stops": [0, 0.7] } }
+        ]}
+    ]}
+  ]
+}
