@@ -38,6 +38,7 @@ pub enum UiOp {
     Visible { node: u32, visible: bool },
     Text { node: u32, text: String },
     Value { node: u32, value: f32 },
+    Play { animation: u32 },
 }
 
 /// Movement and collision requests for a collision module. The built-in
@@ -72,6 +73,16 @@ pub enum PhysicsIntent {
     SpeedScale {
         entity: Entity,
         scale: f32,
+    },
+    /// Turn in place to `yaw` degrees.
+    Face {
+        entity: Entity,
+        yaw: f32,
+    },
+    Traverse {
+        entity: Entity,
+        traversal: u32,
+        duration: f32,
     },
 }
 

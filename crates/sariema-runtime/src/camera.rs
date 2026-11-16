@@ -158,8 +158,12 @@ impl Rig {
 
     /// The subject point and the distance the framing wants, or `None` when
     /// a subject is gone.
-    fn wanted(&self, world: &World) -> Option<(Vec3, f32)> {
-        let at = |e: Entity| world.pose(e).map(|p| p.position);
+    fn wanted(&self, world: &World, points: &[(Entity, Vec3)]) -> Option<(Vec3, f32)> {
+        let at = |e: Entity| {
+            let pose = world.pose(e)?;
+            let local = points.iter().find(|(p, _)| *p == e).map(|&(_, at)| at);
+            Some(pose.position + local.map_or(Vec3::ZERO, |at| pose.rotation * (at * pose.scale)))
+        };
         match self.framing {
             Framing::Follow {
                 subject,
@@ -184,7 +188,7 @@ impl Rig {
         }
     }
 
-    fn step(&mut self, world: &World) -> Option<CameraPose> {
+    fn step(&mut self, world: &World, points: &[(Entity, Vec3)]) -> Option<CameraPose> {
         let (yaw, pitch, fov) = match self.framing {
             Framing::Fixed(pose) => return Some(pose),
             Framing::Follow {
@@ -194,7 +198,7 @@ impl Rig {
                 yaw, pitch, fov, ..
             } => (yaw, pitch, fov),
         };
-        let (subject, distance) = self.wanted(world)?;
+        let (subject, distance) = self.wanted(world, points)?;
         if !self.ready {
             self.last_subject = subject;
             self.goal = self.clamp(subject);
@@ -287,6 +291,9 @@ pub struct Camera {
     cut: bool,
     /// `(rig, subject, anchor, name)`: where in its subject a rig aims.
     anchors: Vec<(u32, Entity, Anchor, u32)>,
+    /// This step's resolved anchors: a subject and the point aimed at, in
+    /// its own frame (model space, before its placement and scale).
+    points: Vec<(Entity, Vec3)>,
 }
 
 impl Camera {
@@ -303,6 +310,17 @@ impl Camera {
             previous: None,
             cut: false,
             anchors: Vec::new(),
+            points: Vec::new(),
+        }
+    }
+
+    /// Where an anchor of [`Camera::anchors`] is this step, in `subject`'s
+    /// own frame; the rig aims there instead of at its origin. Given each
+    /// step by the animation module, before the camera steps.
+    pub fn set_anchor_point(&mut self, subject: Entity, at: Vec3) {
+        match self.points.iter_mut().find(|(e, _)| *e == subject) {
+            Some(point) => point.1 = at,
+            None => self.points.push((subject, at)),
         }
     }
 
@@ -487,13 +505,19 @@ impl Camera {
     pub fn begin_step(&mut self) {
         self.previous = self.pose;
         self.cut = false;
+        self.points.clear();
     }
 
     pub fn step(&mut self, world: &World) {
         let Some(active) = self.active else {
             return;
         };
-        let Some(live) = self.rigs.get_mut(&active).and_then(|r| r.step(world)) else {
+        let points = &self.points;
+        let Some(live) = self
+            .rigs
+            .get_mut(&active)
+            .and_then(|r| r.step(world, points))
+        else {
             return;
         };
         let mut pose = match &mut self.blend {

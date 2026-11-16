@@ -53,6 +53,20 @@ pub trait Logic {
     }
 }
 
+/// Other modules a step hands the world to, where the built-in mover would
+/// run: after the game's commands, the cutscene sequencer and the hero's
+/// control, before followers, tweens, world placement and the no-jump
+/// measurement, which judges the poses they leave. Events they push into
+/// `state.events` (and happenings into `state.happen`) reach the game and
+/// the sequencer at the next step, as the built-in mover's do.
+pub trait Modules {
+    fn step(&mut self, state: &mut State);
+}
+
+impl Modules for () {
+    fn step(&mut self, _: &mut State) {}
+}
+
 /// Region kind 1: `u32` count, then that many records of entity index and
 /// generation (`u32` each), position (3 × `f32`) and yaw (`f32`), little-endian.
 pub const REGION_TRANSFORMS: u32 = 1;
@@ -90,6 +104,13 @@ impl<L: Logic> Simulation<L> {
             seed,
             stopped: None,
         }
+    }
+
+    /// Adds a display frame's duration, scaled by the time scale, to the
+    /// clock and gives the steps it owes, for a host that runs them itself
+    /// with [`Simulation::step_with`].
+    pub fn advance(&mut self, dt: Duration) -> Tick {
+        self.clock.advance(self.world_time(dt))
     }
 
     /// Runs the steps one display frame owes, sampling `raw` for each.
@@ -173,6 +194,11 @@ impl<L: Logic> Simulation<L> {
     }
 
     pub fn step(&mut self, actions: &Actions) {
+        self.step_with(actions, &mut ());
+    }
+
+    /// One step, with `modules` run where the built-in mover would.
+    pub fn step_with(&mut self, actions: &Actions, modules: &mut dyn Modules) {
         let s = &mut self.state;
         s.world.begin_step();
         s.camera.begin_step();
@@ -225,6 +251,7 @@ impl<L: Logic> Simulation<L> {
                 *count += 1;
             });
         }
+        modules.step(s);
         s.followers.step(&mut s.world);
         let events = &mut s.events;
         let rest = s.settings.spring_rest;

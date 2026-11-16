@@ -54,6 +54,12 @@ batch_table! {
         /// An impulse in m/s for the collision module.
         0x0019 Knockback knockback { entity: Entity, impulse: Vec3 }
         0x001A SetCollider set_collider { entity: Entity, enabled: bool }
+        /// Carries an actor along the room's traversal `traversal` (a name in
+        /// its collision pack) over `duration` seconds, collider off, its
+        /// declared contacts touched by the actor's socket or joint of the
+        /// same name; ends with `arrived` on free floor. Needs a collision
+        /// module: with `motion.builtin` it ends at once with `blocked`.
+        0x001B Traverse traverse { entity: Entity, traversal: u32, duration: f32 }
 
         /// `blend` is the crossfade from the current clip, in seconds.
         0x0020 PlayClip play_clip { entity: Entity, clip: u32, mode: ClipMode, blend: f32, speed: f32 }
@@ -73,6 +79,8 @@ batch_table! {
         0x0043 Say say { line: u32, speaker: Entity, text: Str, voice: u32, advance: Advance, duration: f32 }
         /// Ends the current `Tap` line.
         0x0044 AdvanceLine advance_line {}
+        /// Plays the HUD animation named `animation`.
+        0x0045 UiPlay ui_play { animation: u32 }
 
         /// Fades the screen to `to` (0 clear, 1 covered) with `color`, linear RGB.
         0x0050 Fade fade { to: f32, duration: f32, color: Vec3 }

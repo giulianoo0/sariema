@@ -177,6 +177,25 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
         C::Face { entity, yaw } => {
             actor(s, entity)?;
             s.motion.mover_mut(entity).face = Some(yaw);
+            s.outbox.physics.push(PhysicsIntent::Face { entity, yaw });
+        }
+        C::Traverse {
+            entity,
+            traversal,
+            duration,
+        } => {
+            actor(s, entity)?;
+            if s.settings.motion.builtin {
+                s.events.push(Event::Blocked { entity });
+                s.happen(Happening::Blocked(entity));
+            } else {
+                s.motion.mover_mut(entity).goal = Goal::Idle;
+                s.outbox.physics.push(PhysicsIntent::Traverse {
+                    entity,
+                    traversal,
+                    duration,
+                });
+            }
         }
         C::LookAt { entity, target } => {
             actor(s, entity)?;
@@ -249,6 +268,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             text: text.into(),
         }),
         C::UiValue { node, value } => s.outbox.ui.push(UiOp::Value { node, value }),
+        C::UiPlay { animation } => s.outbox.ui.push(UiOp::Play { animation }),
         C::Say {
             line,
             speaker,

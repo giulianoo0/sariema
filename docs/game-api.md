@@ -330,7 +330,11 @@ world hashes and timing.
 - **Movement**: `move_to` walks at a speed and ends with `arrived` (exactly
   on the target) or `blocked`; `move_intent` holds a velocity; `face` turns
   at `motion.turn_rate`. With `motion.builtin` the runtime moves actors
-  itself; a collision module takes the same intents.
+  itself; a collision module takes the same intents
+  ([the engine](engine.md) wires `sariema-physics` in when the room has a
+  collision pack). `traverse` carries an actor along one of the room's
+  declared traversals, collider off, and ends with `arrived`; without a
+  collision module it ends at once with `blocked`.
 - **Tweens and springs** on position, yaw, pitch, roll, scale or a world
   variable, with 20 easings (Penner's, plus smoothstep). A new animation of a
   property starts from its current value, and a spring keeps its velocity, so
@@ -368,6 +372,9 @@ world hashes and timing.
   clips, waits) slows together. Leftover frame time carries into the next
   step. The scale stays within `min_time_scale`, so the world never stops,
   and `max_time_scale`.
+- **HUD**: `ui_visible`, `ui_text` and `ui_value` change nodes of the HUD by
+  name, and `ui_play` plays one of its animations, so a game binds its
+  events to the HUD (an objective that slides in on `trigger_enter`).
 - **Screen**: `fade` to a colour, `letterbox`, and dialogue lines (`say`):
   an `auto` line ends after its duration, a `tap` line when the game sends
   `advance_line` (in a cutscene, on the `cutscene.advance_action` button);
