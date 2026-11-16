@@ -28,6 +28,8 @@ use sariema_format::{AlphaMode, Look, RoomPack};
 mod actors;
 mod cluster;
 mod cull;
+#[cfg(test)]
+mod glsl_es;
 mod golden;
 mod headless;
 mod lights;
@@ -128,6 +130,9 @@ pub(crate) struct Gpu {
     draws: Cell<u32>,
     uploaded: Cell<u64>,
     timer: Option<GpuTimer>,
+    /// Every shader's label and WGSL, for the GLSL ES check.
+    #[cfg(test)]
+    shaders: std::cell::RefCell<Vec<(String, String)>>,
 }
 
 impl Gpu {
@@ -141,7 +146,21 @@ impl Gpu {
             draws: Cell::new(0),
             uploaded: Cell::new(0),
             timer: None,
+            #[cfg(test)]
+            shaders: Default::default(),
         }
+    }
+
+    pub fn shader(&self, label: &str, source: String) -> wgpu::ShaderModule {
+        #[cfg(test)]
+        self.shaders
+            .borrow_mut()
+            .push((label.into(), source.clone()));
+        self.device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some(label),
+                source: wgpu::ShaderSource::Wgsl(source.into()),
+            })
     }
 
     /// Counts a render pass about to begin and gives its timestamp writes

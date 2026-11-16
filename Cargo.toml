@@ -21,6 +21,7 @@ js-sys = "0.3.107"
 # No remote or file $ref resolution: the schemas are embedded.
 jsonschema = { version = "0.61.2", default-features = false }
 libm = "0.2.16"
+naga = "30.0.2"
 log = "0.4.35"
 meshopt = "0.7.0"
 pollster = "1.0.1"

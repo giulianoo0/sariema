@@ -15,6 +15,13 @@ struct Params {
     srgb_target: u32,
     // Darkening of a fully occluded pixel; 0 when the occlusion is off.
     ao_strength: f32,
+    // The bloom's mip count. While the bloom is off a one-texel black
+    // texture is bound, whose single level the sampler clamps to.
+    bloom_levels: u32,
+    // WebGL2 binds uniforms in whole 16-byte rows.
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 @group(0) @binding(0) var scene: texture_2d<f32>;
@@ -55,7 +62,7 @@ fn fs(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
         c = mix(c, textureSampleLevel(quarter_size, bilinear, uv, 0.0), blur * blur);
     }
     var glow = vec3(0.0);
-    for (var i = 0u; i < textureNumLevels(bloom); i++) {
+    for (var i = 0u; i < params.bloom_levels; i++) {
         glow += textureSampleLevel(bloom, bilinear, uv, f32(i)).rgb;
     }
     let toned = hejl((c.rgb + glow * params.bloom_strength) * params.exposure);

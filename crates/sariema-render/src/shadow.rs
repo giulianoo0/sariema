@@ -290,10 +290,7 @@ impl Shadows {
                 }),
             }],
         });
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("shadow"),
-            source: wgpu::ShaderSource::Wgsl(SOURCE.into()),
-        });
+        let module = gpu.shader("shadow", SOURCE.into());
         let layout = |groups: &[Option<&wgpu::BindGroupLayout>]| {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("shadow"),

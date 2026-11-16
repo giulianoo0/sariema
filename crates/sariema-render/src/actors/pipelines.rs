@@ -46,12 +46,7 @@ impl Pipelines {
     ) -> Result<Pipelines, RenderError> {
         let device = &gpu.device;
         let scope = Scope::push(device);
-        let module = |label, source: &str| {
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(label),
-                source: wgpu::ShaderSource::Wgsl(source.into()),
-            })
-        };
+        let module = |label, source: &str| gpu.shader(label, source.into());
         let record = record(quality);
         let scene_source = [
             scene::source(quality).as_str(),

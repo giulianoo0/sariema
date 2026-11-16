@@ -16,7 +16,7 @@ use sariema_format::Look;
 use wgpu::BindingResource;
 
 use crate::scene::{HDR_FORMAT, Scene};
-use crate::{Gpu, Quality};
+use crate::{Gpu, Quality, RenderPath};
 
 pub(crate) mod ao;
 
@@ -54,6 +54,8 @@ struct CompositeUniform {
     focus: f32,
     srgb_target: u32,
     ao_strength: f32,
+    bloom_levels: u32,
+    _pad: [u32; 3],
 }
 
 struct Layouts {
@@ -82,6 +84,7 @@ pub(crate) struct Post {
     ao_radius_m: f32,
     /// The projection the depth passes' uniforms were last written for.
     uploaded_for: Cell<Option<Mat4>>,
+    params: CompositeUniform,
 }
 
 /// What does not depend on the target's size.
@@ -102,6 +105,8 @@ struct Stages {
     /// `None` where the quality turns the occlusion off.
     occlusion: Option<ao::Occlusion>,
     sampler: wgpu::Sampler,
+    /// Reads the scene's depth on the downlevel path.
+    nearest: Option<wgpu::Sampler>,
     /// Bound as the bloom while it is off, and as the occlusion where the
     /// quality turns it off.
     black: wgpu::TextureView,
@@ -139,6 +144,8 @@ struct Frame {
     tilt: Vec<Pass>,
     composite: wgpu::BindGroup,
     composite_without_bloom: wgpu::BindGroup,
+    /// The bloom's mip count, which GLSL ES 3.0 cannot query.
+    bloom_levels: u32,
 }
 
 impl Post {
@@ -153,12 +160,17 @@ impl Post {
             ao: false,
             ao_radius_m: 0.0,
             uploaded_for: Cell::new(None),
+            params: CompositeUniform::zeroed(),
         }
     }
 
     /// Rebuilds the chain's textures at the size of the scene's.
     pub fn resize(&mut self, gpu: &Gpu, scene: &Scene) {
         self.frame = self.stages.frame(gpu, scene);
+        if self.params.bloom_levels != self.frame.bloom_levels {
+            self.params.bloom_levels = self.frame.bloom_levels;
+            gpu.write(&self.stages.params, bytemuck::bytes_of(&self.params));
+        }
     }
 
     pub fn set_look(&mut self, gpu: &Gpu, look: &Look) {
@@ -175,7 +187,7 @@ impl Post {
             tint: look.tint,
             threshold: look.bloom_threshold,
         };
-        let params = CompositeUniform {
+        self.params = CompositeUniform {
             exposure: look.exposure,
             bloom_strength: look.bloom_strength,
             real: look.real,
@@ -184,9 +196,11 @@ impl Post {
             focus: look.focus,
             srgb_target: self.stages.srgb_target as u32,
             ao_strength: if self.ao { look.ao_strength } else { 0.0 },
+            bloom_levels: self.frame.bloom_levels,
+            _pad: [0; 3],
         };
         gpu.write(&self.stages.bright, bytemuck::bytes_of(&bright));
-        gpu.write(&self.stages.params, bytemuck::bytes_of(&params));
+        gpu.write(&self.stages.params, bytemuck::bytes_of(&self.params));
     }
 
     /// Whether the next frame reads the scene's depth.
@@ -268,20 +282,40 @@ impl Stages {
         use wgpu::util::DeviceExt;
         let device = &gpu.device;
         let module = |label: &str, source: &str| {
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(label),
-                source: wgpu::ShaderSource::Wgsl(
-                    [include_str!("../shaders/fullscreen.wgsl"), source]
-                        .concat()
-                        .into(),
-                ),
-            })
+            gpu.shader(
+                label,
+                [include_str!("../shaders/fullscreen.wgsl"), source].concat(),
+            )
         };
         let multisampled = depth_samples > 1;
-        let scene_depth = if multisampled {
-            "alias SceneDepth = texture_depth_multisampled_2d;\n"
+        // GLSL ES 3.0 cannot load from a depth texture, so the downlevel path
+        // binds the scene's depth as a plain float texture. It reads it through
+        // a nearest sampler: wgpu's GL backend leaves a depth texture's own
+        // filter at the mipmapped linear default, which makes it incomplete,
+        // reading 0, for a load without a sampler.
+        let as_float = quality.path == RenderPath::Downlevel;
+        let scene_depth = match (multisampled, as_float) {
+            (true, _) => {
+                "alias SceneDepth = texture_depth_multisampled_2d;
+                fn load_depth(p: vec2<i32>, s: u32) -> f32 { return textureLoad(scene_depth, p, s); }\n"
+            }
+            (false, false) => {
+                "alias SceneDepth = texture_depth_2d;
+                fn load_depth(p: vec2<i32>, s: u32) -> f32 { return textureLoad(scene_depth, p, s); }\n"
+            }
+            (false, true) => {
+                "alias SceneDepth = texture_2d<f32>;
+                @group(0) @binding(2) var nearest: sampler;
+                fn load_depth(p: vec2<i32>, s: u32) -> f32 {
+                    let size = vec2<f32>(textureDimensions(scene_depth));
+                    return textureSampleLevel(scene_depth, nearest, (vec2<f32>(p) + 0.5) / size, 0.0).r;
+                }\n"
+            }
+        };
+        let depth_type = if as_float {
+            wgpu::TextureSampleType::Float { filterable: false }
         } else {
-            "alias SceneDepth = texture_depth_2d;\n"
+            wgpu::TextureSampleType::Depth
         };
         let resolve = module(
             "resolve depth",
@@ -312,9 +346,13 @@ impl Stages {
                 gpu,
                 "resolve depth",
                 &[
-                    texture_entry(0, wgpu::TextureSampleType::Depth, multisampled),
+                    texture_entry(0, depth_type, multisampled),
                     buffer_entry(1, uniform),
-                ],
+                    fragment_entry(
+                        2,
+                        wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                    ),
+                ][..if as_float { 3 } else { 2 }],
             ),
             downsample: layout(
                 gpu,
@@ -422,6 +460,12 @@ impl Stages {
                 min_filter: wgpu::FilterMode::Linear,
                 ..Default::default()
             }),
+            nearest: as_float.then(|| {
+                device.create_sampler(&wgpu::SamplerDescriptor {
+                    label: Some("scene depth"),
+                    ..Default::default()
+                })
+            }),
             black: black.create_view(&Default::default()),
             projection: uniform_buffer("depth projection", size_of::<ProjectionUniform>()),
             bright: uniform_buffer("bright", size_of::<BrightUniform>()),
@@ -462,7 +506,9 @@ impl Stages {
                 [
                     BindingResource::TextureView(scene.depth()),
                     self.projection.as_entire_binding(),
-                ],
+                ]
+                .into_iter()
+                .chain(self.nearest.as_ref().map(BindingResource::Sampler)),
                 &t.depth,
             ),
             occlusion,
@@ -481,6 +527,7 @@ impl Stages {
                 &self.black,
                 &ambient,
             ),
+            bloom_levels: t.bloom.mip_level_count(),
         }
     }
 

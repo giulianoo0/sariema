@@ -188,10 +188,7 @@ impl Scene {
         shadows: &Shadows,
     ) -> Scene {
         let device = &gpu.device;
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("scene"),
-            source: wgpu::ShaderSource::Wgsl(source(quality).into()),
-        });
+        let module = gpu.shader("scene", source(quality));
         let pipeline_layout = |groups: &[&wgpu::BindGroupLayout]| {
             let groups: Vec<_> = groups.iter().copied().map(Some).collect();
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
