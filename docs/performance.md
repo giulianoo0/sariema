@@ -87,8 +87,13 @@ turns each pass into a Metal render command encoder in a Metal command
 buffer of its own. `finish` is two thirds to four fifths of
 `Renderer::render`; in a `sample` profile of a 19-pass frame, creating the
 per-pass Metal encoders was about two fifths of `finish` and creating the
-per-pass command buffers about a quarter. Each pass cost 0.03–0.05 ms of
+per-pass command buffers about a quarter. Each pass cost 0.02–0.05 ms of
 CPU on an Apple M5; 24 or 127 draws changed the total by under 0.2 ms.
+
+The allocations left in a frame are wgpu's, about 16 per render pass: pass
+and barrier bookkeeping in wgpu-core and the Metal encoders in wgpu-hal.
+Traced with a backtrace per allocation on two reference rooms, the
+renderer itself made none.
 
 So the renderer's main lever on CPU is drawing fewer passes, and its lever
 on a tile-based GPU is the same: every pass stores its target to memory and
@@ -135,23 +140,31 @@ Passes per frame, shadows already drawn:
 
 ## Reference numbers
 
-Apple M5, Metal, `medium`, the Origem rooms; medians of three repetitions
-of three runs of 300 frames, with the load average between 9 and 25 (the
-machine was shared), so timings carry about ±10%. Wall is the time from a
-run's first frame to the GPU finishing its last, per frame. "Like for like"
-is `--msaa 1 --no-shadows --no-ao` on one room.
+Apple M5, Metal, `medium`, the Origem rooms, with frustum culling and
+actors in the renderer; medians of three repetitions of three runs of 300
+frames, with the load average between 6 and 16 (the machine was shared),
+so timings carry about ±10%. Wall is the time from a run's first frame to
+the GPU finishing its last, per frame. "Like for like" is `--msaa 1
+--no-shadows --no-ao` on one room. The three.js column is the Origem game
+in Chrome with ANGLE on Metal, measured in the same session: its frame's
+render call alone, called back to back, with the game's tick not run and
+its characters hidden, up to one `readPixels`, per frame.
 
-| Buffer | Look | Room | Passes | CPU ms | GPU ms | Wall ms |
-|---|---|---|---|---|---|---|
-| 1920×1080 | like for like | s5 | 9 | 0.58 | 0.99 | 1.07 |
-| 1920×1080 | like for like | s11 | 13 | 0.73 | 0.99 | 1.01 |
-| 1920×1080 | full | s11, nine rooms | 16 | 1.09 | 1.56 | 1.76 |
-| 1266×585 | like for like | s5 | 9 | 0.41 | 0.53 | 0.53 |
-| 1266×585 | like for like | s11 | 13 | 0.56 | 0.60 | 0.73 |
-| 1266×585 | full | s11, nine rooms | 16 | 0.77 | 0.73 | 0.91 |
+| Buffer | Look | Room | Passes | CPU ms | GPU ms | Wall ms | three.js wall ms |
+|---|---|---|---|---|---|---|---|
+| 1920×1080 | like for like | s5 | 9 | 0.45 | 0.95 | 0.99 | 0.81 |
+| 1920×1080 | like for like | s11 | 13 | 0.65 | 0.97 | 1.13 | 1.61 |
+| 1920×1080 | like for like | s12 | 13 | 0.56 | 0.86 | 0.92 | 0.99 |
+| 1920×1080 | full | s11, nine rooms | 16 | 0.91 | 1.53 | 1.75 | |
+| 1266×585 | like for like | s5 | 9 | 0.38 | 0.53 | 0.51 | 0.32 |
+| 1266×585 | like for like | s11 | 13 | 0.51 | 0.59 | 0.76 | 0.61 |
+| 1266×585 | like for like | s12 | 13 | 0.49 | 0.58 | 0.67 | 0.38 |
+| 1266×585 | full | s11, nine rooms | 16 | 0.63 | 0.63 | 0.85 | |
 
-Before the pass reductions the same rows drew 15, 20 and 23 passes and took
-0.62–1.33 ms of CPU. Of the full look's extra cost over like for like, the
+Like for like still differs in content: the game's post-processing is 6–7
+passes (one bloom level, one half-size blur) against the engine's 9–13, and
+each side draws its own build of the room. Before the pass reductions the
+engine rows drew 15, 20 and 23 passes and took 0.58–1.29 ms of CPU. Of the full look's extra cost over like for like, the
 occlusion (three passes and its GPU work) is the largest share, then MSAA;
 the shadow atlas, drawn once for a static room, and the eight extra rooms
 cost at most 0.2 ms of CPU or GPU each.
