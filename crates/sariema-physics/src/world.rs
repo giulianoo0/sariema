@@ -100,6 +100,8 @@ struct Actor {
     speed_scale: f32,
     knockback: Option<Knockback>,
     teleport: Option<(Vec3, f32)>,
+    pose: Option<(Vec3, f32)>,
+    posed: bool,
     move_to: Option<(Vec3, Option<f32>)>,
     route: Option<Route>,
     path: Vec<Vec3>,
@@ -120,6 +122,17 @@ pub struct World {
     order: Vec<u32>,
     pushes: Vec<Vec3>,
     inside: Vec<u32>,
+}
+
+impl Actor {
+    /// Ends a pose: the collider is on again from the next step.
+    fn release(&mut self) {
+        if self.posed {
+            self.posed = false;
+            self.pose = None;
+            self.awake = true;
+        }
+    }
 }
 
 impl World {
@@ -229,6 +242,8 @@ impl World {
             speed_scale: 1.0,
             knockback: None,
             teleport: None,
+            pose: None,
+            posed: false,
             move_to: None,
             route: None,
             path: Vec::new(),
@@ -311,24 +326,32 @@ impl World {
 
     pub fn apply(&mut self, intent: Intent) {
         match intent {
-            Intent::Move { actor, stick } => self.actors[actor.0 as usize].stick = stick,
+            Intent::Move { actor, stick } => {
+                let a = &mut self.actors[actor.0 as usize];
+                a.stick = stick;
+                a.release();
+            }
             Intent::MoveTo {
                 actor,
                 target,
                 face,
             } => {
                 let a = &mut self.actors[actor.0 as usize];
+                a.release();
                 a.move_to = Some((target, face));
                 a.route = None;
             }
             Intent::Stop { actor } => {
                 let a = &mut self.actors[actor.0 as usize];
+                a.release();
                 a.stick = Vec2::ZERO;
                 a.move_to = None;
                 a.route = None;
             }
             Intent::Knockback { actor, push, steps } => {
-                self.actors[actor.0 as usize].knockback = (steps > 0).then_some(Knockback {
+                let a = &mut self.actors[actor.0 as usize];
+                a.release();
+                a.knockback = (steps > 0).then_some(Knockback {
                     push: flat(push),
                     steps,
                     done: 0,
@@ -339,7 +362,18 @@ impl World {
                 position,
                 yaw,
             } => {
-                self.actors[actor.0 as usize].teleport = Some((position, yaw));
+                let a = &mut self.actors[actor.0 as usize];
+                a.release();
+                a.teleport = Some((position, yaw));
+            }
+            Intent::Pose {
+                actor,
+                position,
+                yaw,
+            } => {
+                let a = &mut self.actors[actor.0 as usize];
+                a.pose = Some((position, yaw));
+                a.posed = true;
             }
             Intent::SetColliderEnabled { collider, enabled } => {
                 let c = &mut self.scene.colliders[collider.0 as usize];
@@ -401,6 +435,23 @@ impl World {
             let a = &mut self.actors[i];
             a.previous_position = a.position;
             a.previous_yaw = a.yaw;
+        }
+        if self.actors[i].posed {
+            if let Some((position, yaw)) = self.actors[i].pose.take() {
+                let ground = self.standing_on(&self.actors[i], position, yaw);
+                let a = &mut self.actors[i];
+                a.position = position;
+                a.yaw = yaw;
+                a.target_yaw = yaw;
+                a.velocity = Vec3::ZERO;
+                a.vertical = 0.0;
+                a.ground = ground;
+                a.route = None;
+                a.move_to = None;
+                a.knockback = None;
+                a.pressing_wall = false;
+            }
+            return;
         }
         self.carry(i);
         if let Some((position, yaw)) = self.actors[i].teleport.take() {
@@ -731,12 +782,18 @@ impl World {
         for k in 0..self.order.len() {
             let ia = self.order[k] as usize;
             let a = &actors[ia];
+            if a.posed {
+                continue;
+            }
             let ra = a.desc.collider.radius;
             for &ib in &self.order[k + 1..] {
                 let b = &actors[ib as usize];
                 let rb = b.desc.collider.radius;
                 if b.position.x - rb > a.position.x + ra {
                     break;
+                }
+                if b.posed {
+                    continue;
                 }
                 let top_a = a.position.y + a.desc.collider.height;
                 let top_b = b.position.y + b.desc.collider.height;

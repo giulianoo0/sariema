@@ -267,3 +267,62 @@ fn a_teleport_clears_the_head_where_it_will_face() {
         "{a:?}"
     );
 }
+
+#[test]
+fn a_posed_actor_goes_through_a_sill_untouched_then_walks_with_collision() {
+    let mut room = Room::default();
+    room.floor(20.0).add(
+        "sill",
+        Owned::Box {
+            center: Vec3::new(0.0, 0.45, -1.0),
+            half: Vec3::new(1.0, 0.45, 0.2),
+            rotation: Mat3::IDENTITY,
+        },
+    );
+    let mut world = room.world(Settings::default());
+    let id = actor(&mut world, Vec3::new(0.0, 0.0, 0.5));
+    let bystander = actor(&mut world, Vec3::new(0.2, 0.0, 0.5));
+    let north = std::f32::consts::PI;
+    let mut events = Vec::new();
+    world.step(&mut events);
+    let beside = world.actor(bystander).position;
+    let pose = |world: &mut sariema_physics::World, position: Vec3| {
+        world.apply(Intent::Pose {
+            actor: id,
+            position,
+            yaw: north,
+        })
+    };
+
+    pose(&mut world, Vec3::new(0.2, 0.0, 0.5));
+    world.step(&mut events);
+    assert_eq!(world.actor(id).position, Vec3::new(0.2, 0.0, 0.5));
+    let moved = world.actor(bystander).position - beside;
+    assert!(moved.length() < 1e-4, "the bystander was pushed by {moved}");
+    for z in [-0.6, -1.0, -1.4] {
+        pose(&mut world, Vec3::new(0.0, 0.5, z));
+        world.step(&mut events);
+        assert_eq!(world.actor(id).position, Vec3::new(0.0, 0.5, z));
+    }
+    world.step(&mut events);
+    assert_eq!(world.actor(id).position, Vec3::new(0.0, 0.5, -1.4));
+
+    pose(&mut world, Vec3::new(0.0, 0.0, -1.6));
+    world.step(&mut events);
+    hold(&mut world, id, Vec2::new(0.0, -1.0), 30, &mut events);
+    let walked = world.actor(id);
+    assert!(walked.grounded && walked.position.z < -2.4, "{walked:?}");
+    hold(&mut world, id, Vec2::new(0.0, 1.0), 120, &mut events);
+    let back = world.actor(id);
+    assert!(
+        back.position.z < -1.49,
+        "walked back into the sill: {back:?}"
+    );
+    assert!(
+        !events.iter().any(|e| matches!(
+            e.kind,
+            EventKind::Landed { .. } | EventKind::TeleportRejected
+        )),
+        "{events:?}"
+    );
+}

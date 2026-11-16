@@ -50,6 +50,16 @@ pub enum Intent {
         position: Vec3,
         yaw: f32,
     },
+    /// Puts the actor exactly at `position` facing `yaw` with its collider
+    /// off, for a traversal driven by a clip: no collision, gravity or
+    /// pushing until the next `Move`, `MoveTo`, `Stop`, `Knockback` or
+    /// `Teleport`. Triggers still see it. The last pose must leave it on free
+    /// floor, which `sariema check` proves for declared traversals.
+    Pose {
+        actor: ActorId,
+        position: Vec3,
+        yaw: f32,
+    },
     SetColliderEnabled {
         collider: ColliderId,
         enabled: bool,
