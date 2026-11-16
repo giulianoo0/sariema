@@ -111,6 +111,33 @@ fn run_reports_cpu_and_wall_time_per_frame() {
 }
 
 #[test]
+fn run_reports_load_time_and_post_passes() {
+    let tmp = TempDir::new().unwrap();
+    let pack = build_demo(tmp.path());
+    let shot = tmp.path().join("shot.png");
+    let (code, out) = sariema(&[
+        "run",
+        arg(&pack),
+        "--headless",
+        "--frames",
+        "1",
+        "--screenshot",
+        arg(&shot),
+        "--width",
+        "320",
+        "--height",
+        "180",
+    ]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out["load_room_ms"].as_f64().unwrap() > 0.0, "{out}");
+    // The composite pass always runs.
+    assert!(
+        out["frame_stats"]["post_passes"].as_u64().unwrap() >= 1,
+        "{out}"
+    );
+}
+
+#[test]
 fn max_background_passes_at_the_ratio_and_fails_below_it() {
     let tmp = TempDir::new().unwrap();
     let pack = build_demo(tmp.path());

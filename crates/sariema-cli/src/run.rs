@@ -17,7 +17,9 @@ pub fn run(args: &RunArgs) -> Result<Done, Failure> {
     let room = pack::read(&args.pack)?;
     let camera = room_camera(&room.camera, args.width as f32 / args.height as f32);
     let mut headless = Headless::new(args.width, args.height, args.quality.settings())?;
+    let loading = Instant::now();
     headless.renderer().load_room(&room)?;
+    let load_room_ms = loading.elapsed().as_secs_f64() * 1000.0;
     let pipelines = headless.renderer().pipelines_created();
     let mut cpu = Duration::ZERO;
     let started = Instant::now();
@@ -53,6 +55,7 @@ pub fn run(args: &RunArgs) -> Result<Done, Failure> {
     Ok(Done {
         json: json!({
             "frames": args.frames,
+            "load_room_ms": load_room_ms,
             "screenshot": args.screenshot.display().to_string(),
             "cpu_ms_per_frame": cpu_ms,
             "wall_ms_per_frame": wall_ms,
@@ -65,12 +68,14 @@ pub fn run(args: &RunArgs) -> Result<Done, Failure> {
                 "max_lights_overlapping_cluster": stats.max_lights_overlapping_cluster,
                 "cluster_overflows": stats.cluster_overflows,
                 "shadows_skipped": stats.shadows_skipped,
+                "post_passes": stats.post_passes,
             },
         }),
         text: format!(
             "{} frames into {}: {cpu_ms:.2} ms CPU and {wall_ms:.2} ms wall per frame, \
-             {:.1}% background\n\
-             lights: {} in view, {} dropped, {} of {} clusters overflowed, {} shadows skipped",
+             {:.1}% background, room loaded in {load_room_ms:.1} ms\n\
+             lights: {} in view, {} dropped, {} of {} clusters overflowed, {} shadows skipped; \
+             {} post passes",
             args.frames,
             args.screenshot.display(),
             background * 100.0,
@@ -78,7 +83,8 @@ pub fn run(args: &RunArgs) -> Result<Done, Failure> {
             stats.lights_dropped,
             stats.cluster_overflows,
             stats.clusters,
-            stats.shadows_skipped
+            stats.shadows_skipped,
+            stats.post_passes
         ),
     })
 }
