@@ -1,0 +1,24 @@
+{
+  "root": "../../crates/sariema-audio/tests/fixtures",
+  "sounds": {
+    "theme": {
+      "file": "tone.mp3",
+      "bus": "music",
+      "stream": true,
+      "loop": { "start": 33075, "end": 77175 },
+      "enter_s": 0.8,
+      "leave_s": 2.0
+    },
+    "wind": {
+      "file": "tone.ogg",
+      "bus": "ambience",
+      "stream": true,
+      "loop": { "start": 33075, "end": 77175 }
+    },
+    "chime": { "file": "tone.ogg", "bus": "effects" },
+    "hello": { "file": "tone.mp3", "bus": "voice", "on_demand": true }
+  },
+  "mixes": {
+    "yard": ["theme", "wind", "chime"]
+  }
+}

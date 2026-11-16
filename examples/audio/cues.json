@@ -1,0 +1,11 @@
+{
+  "duration_s": 8.0,
+  "cues": [
+    { "t": 0.0, "do": "music", "sound": "theme" },
+    { "t": 0.0, "do": "play", "sound": "wind", "id": "wind" },
+    { "t": 0.0, "do": "preload", "sound": "hello" },
+    { "t": 2.0, "do": "play", "sound": "hello" },
+    { "t": 5.0, "do": "stinger", "sound": "chime" },
+    { "t": 7.0, "do": "stop", "id": "wind", "fade_s": 1.0 }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "audio-example",
+  "assets_root": ".",
+  "rooms": {},
+  "audio": "audio.json"
+}
