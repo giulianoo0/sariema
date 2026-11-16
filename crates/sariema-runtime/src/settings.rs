@@ -131,6 +131,10 @@ pub const DOCS: &[(&str, &str)] = &[
         "Degrees per second an actor turns; nothing turns faster, and a larger turn in one step is a jump.",
     ),
     (
+        "motion.min_carrier_scale",
+        "A carrier scaled below this cannot hold a visible actor the no-jump rule puts back: the actor leaves it.",
+    ),
+    (
         "motion.arrive_distance",
         "Metres from a walk target that count as arrived.",
     ),

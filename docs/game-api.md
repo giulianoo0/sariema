@@ -134,8 +134,9 @@ and its walk, which ends with `blocked` (a cutscene's `walk` ends there
 too, whether the runtime or a collision module moves actors). An actor that went too far only because what carries it
 was put back is put back too, and nothing of its own stops. A transform
 region is not stopped: while it keeps moving a carrier too fast, the actor
-riding it is put back every step. A carrier scaled to nothing cannot hold
-the actor anywhere, so the actor leaves it. The step's `rejected` events,
+riding it is put back every step. A carrier scaled below
+`motion.min_carrier_scale` (10⁻⁶) cannot hold the actor anywhere, so the
+actor leaves it. The step's `rejected` events,
 with opcode 0 and `E_TELEPORT_VISIBLE`, name the actor put back, then each
 carrier stopped.
 
@@ -415,6 +416,7 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `motion.builtin` | true | The runtime moves actors itself; off when a collision module consumes the movement intents. |
 | `motion.camera_relative` | true | The hero's move axis turns with the camera's view direction. |
 | `motion.max_visible_speed` | 20 | Metres per second a visible actor may move, carried or driven by anything; a faster move is a jump. |
+| `motion.min_carrier_scale` | 0.000001 | A carrier scaled below this cannot hold a visible actor the no-jump rule puts back: the actor leaves it. |
 | `motion.turn_rate` | 540 | Degrees per second an actor turns; nothing turns faster, and a larger turn in one step is a jump. |
 | `spring_rest` | 0.001 | A spring stops, exactly on its target, once its offset and velocity are both within this. |
 | `vm.commands_bytes_per_step` | 4194304 | Bytes of commands one tick may submit; more stops the game with E_GAME_BUDGET. |

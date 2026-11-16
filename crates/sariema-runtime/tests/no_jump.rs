@@ -833,3 +833,41 @@ fn a_walk_the_measurement_stops_ends_with_blocked() {
     assert_eq!(r.heard.blocked, [(3, ACTOR)]);
     assert!(r.heard.arrived.is_empty(), "{:?}", r.heard.arrived);
 }
+
+#[test]
+fn a_carrier_shrunk_to_a_tiny_scale_lets_go_of_the_actor_it_cannot_hold() {
+    let walk = Command::Tween {
+        tween: 1,
+        entity: ACTOR,
+        property: Property::PositionX,
+        var: 0,
+        to: 8.0,
+        duration: 2.0,
+        ease: Ease::Linear,
+    };
+    let mut script = vec![vec![], vec![parent(ACTOR, PROP), walk]];
+    script.extend((0..125).map(|_| vec![]));
+    script.push(vec![Command::SetScale {
+        entity: PROP,
+        scale: 2e-38,
+    }]);
+    script.extend((0..5).map(|_| vec![]));
+    let shrunk = script.len() as u64 - 6;
+    let r = run(script);
+    assert!(
+        r.at.iter().all(|p| p.is_finite()),
+        "a pose went non-finite: {:?}",
+        r.at.iter().find(|p| !p.is_finite())
+    );
+    assert!(
+        r.refused
+            .contains(&(shrunk, "E_TELEPORT_VISIBLE".to_string())),
+        "{:?}",
+        r.refused
+    );
+    assert!(
+        (r.at.last().unwrap().x - 8.0).abs() < 1e-4,
+        "{}",
+        r.at.last().unwrap()
+    );
+}

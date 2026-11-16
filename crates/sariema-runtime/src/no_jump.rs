@@ -69,7 +69,7 @@ fn put_back(s: &mut State, e: Entity, limits: Limits, moved: bool) {
     if moved {
         stop_what_carried(s, e, limits);
     }
-    s.world.hold(e);
+    s.world.hold(e, s.settings.motion.min_carrier_scale);
     let local = s.world.node(e).expect("a held actor is alive").local;
     s.outbox.physics.push(PhysicsIntent::Teleport {
         entity: e,

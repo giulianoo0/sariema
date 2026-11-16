@@ -464,16 +464,18 @@ impl World {
     }
 
     /// Puts `e` back where the previous step left it, whatever its parent
-    /// is now. A parent scaled to nothing cannot hold it anywhere, so `e`
-    /// leaves it.
-    pub fn hold(&mut self, e: Entity) {
+    /// is now. A parent scaled below `min_scale` cannot hold it anywhere
+    /// (its local placement would not be finite), so `e` leaves it.
+    pub fn hold(&mut self, e: Entity, min_scale: f32) {
         if !self.is_alive(e) {
             return;
         }
         let i = e.index as usize;
         let was = self.previous[i];
         let parent = match self.current_pose(self.nodes[i].parent) {
-            Some(p) if p.scale.is_normal() => p,
+            Some(p) if p.scale.is_finite() && p.scale.abs() >= min_scale.max(f32::MIN_POSITIVE) => {
+                p
+            }
             Some(_) => {
                 self.unlink(e);
                 self.nodes[i].parent = Entity::NONE;

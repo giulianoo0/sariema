@@ -24,6 +24,8 @@ pub struct MotionSettings {
     pub camera_relative: bool,
     /// Metres per second a visible actor may move; faster is a jump.
     pub max_visible_speed: f32,
+    /// A carrier scaled below this cannot hold an actor put back under it.
+    pub min_carrier_scale: f32,
 }
 
 impl Default for MotionSettings {
@@ -34,6 +36,7 @@ impl Default for MotionSettings {
             arrive_distance: 0.01,
             camera_relative: true,
             max_visible_speed: 20.0,
+            min_carrier_scale: 1e-6,
         }
     }
 }
