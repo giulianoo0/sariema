@@ -215,10 +215,10 @@ writes for each.
    jump: the cut changes the camera only, and every role keeps moving
    continuously across it. Waits count world time: 0.6 s on screen at 0.4×
    is `wait: 0.24`.
-9. **No HUD while covered.** The HUD stays hidden while the screen is
-   covered and returns with the first frame after it. No step hides the
-   HUD; the game hides it on `cutscene_started` and while it fades the
-   screen.
+9. **No HUD while covered.** The engine hides the game's HUD while a
+   cutscene holds control and shows it again when control returns; a node
+   of the HUD's root in the group `cutscene` stays. Outside a cutscene, a
+   game that covers the screen hides its HUD itself.
 
 ### Worked example: entering through a window
 

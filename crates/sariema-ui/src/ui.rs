@@ -326,6 +326,15 @@ impl Ui {
         self.id(self.root)
     }
 
+    /// The node's children, in drawing order.
+    pub fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        let children = match self.live(id) {
+            Ok(i) => self.nodes[i as usize].children.as_slice(),
+            Err(_) => &[],
+        };
+        children.iter().map(|&i| self.id(i))
+    }
+
     pub fn node(&self, name: &str) -> Option<NodeId> {
         self.names.get(name).map(|&i| self.id(i))
     }
@@ -701,6 +710,27 @@ impl Ui {
         }
         self.nodes[index as usize].gradient = gradient;
         Ok(())
+    }
+
+    /// Lays out now and keeps the node and everything under it where they
+    /// are until the next step, instead of moving them there from where
+    /// they were when this step began.
+    pub fn snap(&mut self, id: NodeId) -> Result<(), UiError> {
+        let index = self.live(id)?;
+        if self.layout_dirty {
+            self.layout();
+        }
+        self.snap_index(index);
+        Ok(())
+    }
+
+    fn snap_index(&mut self, index: u32) {
+        let node = &mut self.nodes[index as usize];
+        node.rect_prev = node.rect;
+        for i in 0..node.children.len() {
+            let child = self.nodes[index as usize].children[i];
+            self.snap_index(child);
+        }
     }
 
     pub fn set_visible(&mut self, id: NodeId, visible: bool) -> Result<(), UiError> {

@@ -88,6 +88,10 @@ units, `"N%"` or `"auto"`. Two choices differ from a browser's defaults:
 every node is a containing block for its absolute children (as in Bevy and
 React Native), and the root is a row filling the screen.
 
+**Groups** (`"groups": ["cutscene"]`) name sets of nodes for the host, as
+Godot's node groups do; the screen does not read them. The engine keeps a
+node of the root in `cutscene` on screen while a cutscene plays.
+
 ## Text
 
 - **Shaping** is rustybuzz (a port of HarfBuzz): kerning, ligatures and
@@ -214,6 +218,8 @@ ui.play("enter")?;
 ui.animate(objective, Prop::Y, Animation::tween(0.0, 0.26, Ease::OUT).from(-14.0))?;
 // each simulation step:
 for event in ui.step() { /* Stick, Tap, Held, Click… */ }
+// a node set to a step's value, drawn there until the next step:
+ui.snap(bar)?;
 // each rendered frame, alpha between the last two steps:
 let list = ui.draw(alpha);
 if ui.take_atlas_changed() { let (side, texels) = ui.atlas(); pass.set_texture(0, side, side, UiTextureFormat::R8, texels); }

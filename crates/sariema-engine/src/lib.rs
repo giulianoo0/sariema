@@ -28,7 +28,7 @@ use sariema_ui::SafeArea;
 pub use anim::{Animation, Model};
 pub use assets::Assets;
 pub use audio::Sound;
-pub use hud::Hud;
+pub use hud::{Hud, KEEP_IN_CUTSCENES};
 pub use physics::{Physics, to_physics, to_runtime};
 pub use settings::{EngineSettings, HudSettings, SoundSettings};
 pub use view::ActorView;

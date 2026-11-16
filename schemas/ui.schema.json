@@ -122,6 +122,7 @@
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string", "minLength": 1, "description": "Unique; animations, --state and code find the node by it." },
+        "groups": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Sets of nodes the host finds the node by; the engine keeps a root node in \"cutscene\" shown while a cutscene plays." },
         "width": { "$ref": "#/$defs/length" }, "height": { "$ref": "#/$defs/length" },
         "min_width": { "$ref": "#/$defs/length" }, "max_width": { "$ref": "#/$defs/length" },
         "min_height": { "$ref": "#/$defs/length" }, "max_height": { "$ref": "#/$defs/length" },

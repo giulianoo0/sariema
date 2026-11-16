@@ -3,23 +3,41 @@
 //! The HUD stage: the screen the game drives with `ui_*` commands, its
 //! joystick and buttons read as the player's input, and the layer the
 //! engine draws over it from the runtime's screen state: the dialogue line,
-//! the cinema bars and the fade.
+//! the cinema bars and the fade. While a cutscene holds control the game's
+//! HUD steps aside.
 
 use glam::Vec2;
-use sariema_format::script::{Command, Entity, Event, name_id};
+use sariema_format::script::{Command, Controller, Entity, Event, name_id};
 use sariema_runtime::input::{Actions, InputSettings};
 use sariema_runtime::outbox::UiOp;
 use sariema_runtime::state::State;
-use sariema_ui::{DrawList, NodeDesc, NodeId, Prop, SafeArea, Ui, UiDesc, UiError};
-use serde_json::json;
+use sariema_ui::{
+    Color, Direction, DrawList, Justify, Length, NodeDesc, NodeId, Prop, Radius, SafeArea, Sides,
+    Ui, UiDesc, UiError,
+};
 
 use crate::settings::HudSettings;
 
+/// The group of a root node that stays on screen through a cutscene.
+pub const KEEP_IN_CUTSCENES: &str = "cutscene";
+
 struct Layer {
     fade: NodeId,
+    /// The top bar and the bottom one.
     bars: [NodeId; 2],
+    /// The bottom bar and, riding on it, the dialogue line.
+    dock: NodeId,
     /// The dialogue box and its text; none without a font.
     line: Option<(NodeId, NodeId)>,
+    /// The bars' height last set, in UI units.
+    bar: f32,
+}
+
+/// A node of the game's root that steps aside in cutscenes, and whether
+/// the game wants it shown.
+struct Panel {
+    node: NodeId,
+    shown: bool,
 }
 
 pub struct Hud {
@@ -32,6 +50,9 @@ pub struct Hud {
     buttons: Vec<(NodeId, usize)>,
     held: Vec<bool>,
     layer: Layer,
+    panels: Vec<Panel>,
+    /// Whether the panels are hidden for a cutscene.
+    aside: bool,
     /// The line shown, so its text is set once.
     shown: Option<u32>,
     /// The fade at the end of the step before.
@@ -65,6 +86,16 @@ impl Hud {
             .enumerate()
             .filter_map(|(i, b)| ui.node(&b.name).map(|id| (id, i)))
             .collect();
+        let panels = desc
+            .nodes
+            .iter()
+            .zip(ui.children(ui.root()))
+            .filter(|(d, _)| !d.groups.iter().any(|g| g == KEEP_IN_CUTSCENES))
+            .map(|(d, node)| Panel {
+                node,
+                shown: d.visible.unwrap_or(true),
+            })
+            .collect();
         let font = desc.fonts.keys().next().cloned();
         let layer = layer(&mut ui, font.as_deref(), &settings)?;
         ui.set_screen(settings.width, settings.height, SafeArea::default());
@@ -79,6 +110,8 @@ impl Hud {
             buttons,
             held: vec![false; input.buttons.len()],
             layer,
+            panels,
+            aside: false,
             shown: None,
             last_fade: 0.0,
             settings,
@@ -129,18 +162,13 @@ impl Hud {
     }
 
     /// The game's HUD commands of the step, and the engine's layer set to
-    /// the step's screen state. The fade and the bars are set, not
-    /// animated, so a frame never draws them between two steps' values. The
-    /// fade is drawn at the larger of this step's value and the one before:
-    /// the frames up to the next step show this step's moves, and the
-    /// no-jump rule lets a step move anything at once when the screen was
-    /// fully faded at its start or at its end.
+    /// the step's screen state; `docs/engine.md` has the fade contract.
     pub fn step(&mut self, s: &State) {
         for op in &s.outbox.ui {
             let result = match op {
-                UiOp::Visible { node, visible } => self
-                    .node(*node)
-                    .and_then(|id| self.ui.set_visible(id, *visible)),
+                UiOp::Visible { node, visible } => {
+                    self.node(*node).and_then(|id| self.show(id, *visible))
+                }
                 UiOp::Text { node, text } => {
                     self.node(*node).and_then(|id| self.ui.set_text(id, text))
                 }
@@ -162,7 +190,33 @@ impl Hud {
                 });
             }
         }
+        self.step_aside(s);
         self.draw_screen(s);
+    }
+
+    /// Shows or hides a node for the game; a panel hidden for a cutscene
+    /// takes the game's wish when it returns.
+    fn show(&mut self, id: NodeId, shown: bool) -> Result<(), UiError> {
+        match self.panels.iter_mut().find(|p| p.node == id) {
+            Some(panel) => {
+                panel.shown = shown;
+                self.ui.set_visible(id, shown && !self.aside)
+            }
+            None => self.ui.set_visible(id, shown),
+        }
+    }
+
+    fn step_aside(&mut self, s: &State) {
+        let aside = self.settings.hide_in_cutscenes && s.control.by == Controller::Cutscene;
+        if aside == self.aside {
+            return;
+        }
+        self.aside = aside;
+        for p in &self.panels {
+            self.ui
+                .set_visible(p.node, p.shown && !aside)
+                .expect("the game's root nodes live");
+        }
     }
 
     fn node(&self, name: u32) -> Result<NodeId, UiError> {
@@ -189,22 +243,31 @@ impl Hud {
         let screen = ui.screen();
         let bar = s.screen.letterbox.value() * self.settings.bar_fraction * screen.height
             / screen.scale.max(f32::EPSILON);
-        for id in self.layer.bars {
-            set(ui, id, Prop::Height, bar);
-        }
-        let Some((frame, text)) = self.layer.line else {
-            return;
-        };
-        let line = s.dialogue.line.as_ref();
-        let id = line.map(|l| l.line);
-        if id != self.shown {
-            if let Some(l) = line {
-                ui.set_text(text, &l.text)
-                    .expect("the engine's layer nodes live");
+        let mut moved = bar != self.layer.bar;
+        if moved {
+            for id in self.layer.bars {
+                set(ui, id, Prop::Height, bar);
             }
-            ui.set_visible(frame, line.is_some())
-                .expect("the engine's layer nodes live");
-            self.shown = id;
+            self.layer.bar = bar;
+        }
+        if let Some((frame, text)) = self.layer.line {
+            let line = s.dialogue.line.as_ref();
+            let id = line.map(|l| l.line);
+            if id != self.shown {
+                if let Some(l) = line {
+                    ui.set_text(text, &l.text)
+                        .expect("the engine's layer nodes live");
+                }
+                ui.set_visible(frame, line.is_some())
+                    .expect("the engine's layer nodes live");
+                self.shown = id;
+                moved = true;
+            }
+        }
+        if moved {
+            for id in [self.layer.bars[0], self.layer.dock] {
+                ui.snap(id).expect("the engine's layer nodes live");
+            }
         }
     }
 
@@ -218,44 +281,99 @@ impl Hud {
     }
 }
 
+/// The engine's layer over the game's nodes: the top bar, the bottom bar
+/// with the dialogue line riding on it, so the line is never under the bar,
+/// then the fade over everything.
 fn layer(ui: &mut Ui, font: Option<&str>, settings: &HudSettings) -> Result<Layer, UiError> {
     let root = ui.root();
-    let create = |ui: &mut Ui, parent: NodeId, value: serde_json::Value| {
-        let desc: NodeDesc =
-            serde_json::from_value(value).map_err(|e| UiError::Schema(e.to_string()))?;
-        ui.create(parent, &desc)
-    };
+    let zero = Some(Length::Units(0.0));
+    let black = Some(Color::BLACK);
+    let top = ui.create(
+        root,
+        &NodeDesc {
+            absolute: true,
+            left: zero,
+            right: zero,
+            top: zero,
+            height: zero,
+            fill: black,
+            ..NodeDesc::default()
+        },
+    )?;
+    let dock = ui.create(
+        root,
+        &NodeDesc {
+            absolute: true,
+            left: zero,
+            right: zero,
+            bottom: zero,
+            direction: Some(Direction::Column),
+            ..NodeDesc::default()
+        },
+    )?;
     let line = match font {
         Some(font) => {
-            let frame = create(
-                ui,
-                root,
-                json!({
-                    "absolute": true, "left": "12%", "right": "12%", "bottom": settings.line_margin,
-                    "padding": [10, 18], "radius": 12, "fill": "#000000B3", "justify": "center"
-                }),
+            let inset = Length::Percent(settings.line_inset);
+            let [v, h] = settings.line_padding.map(Length::Units);
+            let frame = ui.create(
+                dock,
+                &NodeDesc {
+                    margin: Some(Sides::Four([
+                        Length::Units(0.0),
+                        inset,
+                        Length::Units(settings.line_margin),
+                        inset,
+                    ])),
+                    padding: Some(Sides::Two([v, h])),
+                    radius: Some(Radius::All(settings.line_radius)),
+                    fill: Some(settings.line_fill),
+                    justify: Some(Justify::Center),
+                    visible: Some(false),
+                    ..NodeDesc::default()
+                },
             )?;
-            let text = create(
-                ui,
+            let text = ui.create(
                 frame,
-                json!({ "text": " ", "font": font, "size": settings.line_size, "fill": "#FFFFFF" }),
+                &NodeDesc {
+                    text: Some(" ".into()),
+                    font: Some(font.into()),
+                    size: Some(settings.line_size),
+                    fill: Some(settings.line_color),
+                    ..NodeDesc::default()
+                },
             )?;
-            ui.set_visible(frame, false)?;
             Some((frame, text))
         }
         None => None,
     };
-    let bar = |edge: &str| json!({ "absolute": true, "left": 0, "right": 0, edge: 0, "height": 0, "fill": "#000000" });
-    let bars = [
-        create(ui, root, bar("top"))?,
-        create(ui, root, bar("bottom"))?,
-    ];
-    let fade = create(
-        ui,
-        root,
-        json!({ "absolute": true, "left": 0, "top": 0, "right": 0, "bottom": 0, "fill": "#000000", "opacity": 0 }),
+    let bottom = ui.create(
+        dock,
+        &NodeDesc {
+            height: zero,
+            fill: black,
+            ..NodeDesc::default()
+        },
     )?;
-    Ok(Layer { fade, bars, line })
+    let fade = ui.create(
+        root,
+        &NodeDesc {
+            absolute: true,
+            left: zero,
+            top: zero,
+            right: zero,
+            bottom: zero,
+            fill: black,
+            opacity: Some(0.0),
+            ..NodeDesc::default()
+        },
+    )?;
+    Ok(Layer {
+        fade,
+        bars: [top, bottom],
+        dock,
+        line,
+        bar: 0.0,
+    })
 }
 
 fn opcode(op: &UiOp) -> u16 {

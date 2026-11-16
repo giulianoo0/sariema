@@ -6,6 +6,7 @@
 use sariema_anim::AnimSettings;
 use sariema_audio::MixerSettings;
 use sariema_physics::Settings as PhysicsSettings;
+use sariema_ui::Color;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct EngineSettings {
@@ -91,11 +92,23 @@ pub struct HudSettings {
     pub bar_fraction: f32,
     /// Size of a dialogue line's text, in UI pixels.
     pub line_size: f32,
-    /// Space between a dialogue line and the bottom of the screen, in UI pixels.
+    /// Space between a dialogue line and the bottom bar, or the bottom of
+    /// the screen without bars, in UI pixels.
     pub line_margin: f32,
+    /// Space either side of a dialogue line, as a fraction of the screen's width.
+    pub line_inset: f32,
+    /// Space around a line's text, vertical then horizontal, in UI pixels.
+    pub line_padding: [f32; 2],
+    pub line_radius: f32,
+    pub line_fill: Color,
+    pub line_color: Color,
     /// Screen size until the host gives one.
     pub width: f32,
     pub height: f32,
+    /// Hides the game's HUD while a cutscene holds control; a node of its
+    /// root in the group [`KEEP_IN_CUTSCENES`](crate::KEEP_IN_CUTSCENES)
+    /// stays.
+    pub hide_in_cutscenes: bool,
 }
 
 impl Default for HudSettings {
@@ -104,8 +117,14 @@ impl Default for HudSettings {
             bar_fraction: 0.12,
             line_size: 22.0,
             line_margin: 48.0,
+            line_inset: 0.12,
+            line_padding: [10.0, 18.0],
+            line_radius: 12.0,
+            line_fill: Color([0.0, 0.0, 0.0, 0.7]),
+            line_color: Color::WHITE,
             width: 1280.0,
             height: 720.0,
+            hide_in_cutscenes: true,
         }
     }
 }

@@ -235,6 +235,10 @@ pub struct StrokeDesc {
 #[serde(deny_unknown_fields)]
 pub struct NodeDesc {
     pub name: Option<String>,
+    /// Groups a host finds the node by, as Godot's node groups; the screen
+    /// itself does not read them.
+    #[serde(default)]
+    pub groups: Vec<String>,
 
     pub width: Option<Length>,
     pub height: Option<Length>,

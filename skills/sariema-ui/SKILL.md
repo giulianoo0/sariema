@@ -71,8 +71,11 @@ its fonts and its images in the game pack. The logic drives it by name:
 `ui_visible`, `ui_text`, `ui_value` (a node's progress) and `ui_play` (an
 animation). A joystick widget drives the move axis that takes the touch
 stick; a button node named like an input button (`action`) presses that
-button. Over the HUD the engine draws the dialogue line (with the HUD's
-first font), the cinema bars and the fade. Check the frames in the game,
+button. Over the HUD the engine draws the cinema bars, the dialogue line
+riding above the bottom one (with the HUD's first font) and the fade.
+While a cutscene holds control the engine hides the HUD's root nodes and
+brings them back after; put `"groups": ["cutscene"]` on one that must stay.
+Hide nothing yourself on `cutscene_started`. Check the frames in the game,
 not only the description:
 
 ```sh

@@ -37,7 +37,7 @@ collision pack the runtime's built-in mover is switched off
 | 6 | Runtime | followers, tweens, timers, screen, dialogue | resolved world, no-jump measurement, camera, zones |
 | 7 | Collision, after | the measurement's put-backs | the actor moved back before the next step |
 | 8 | Sound | the step's sound and music requests, the camera | mixer commands for sounds already decoded; the rest left to the feed |
-| 9 | HUD | the game's `ui_*` commands, the screen state, the dialogue | the screen for the next frames |
+| 9 | HUD | the game's `ui_*` commands, the screen state, the dialogue, who holds control | the screen for the next frames |
 | 10 | Rejections | what the modules refused | `rejected` events for the game's next step |
 
 1. **Input.** `Engine::step(actions)` takes them as they are (a replay);
@@ -85,8 +85,13 @@ collision pack the runtime's built-in mover is switched off
    feed. Headless, commands are stamped with the step's mixer frame; with a
    device the host takes the mixer and commands play at once.
 9. **HUD.** The game's `ui_visible`, `ui_text`, `ui_value` and `ui_play`
-   reach the screen. Over the game's own nodes the engine draws its layer:
-   the dialogue line (when the HUD has a font), the cinema bars and the fade.
+   reach the screen. While a cutscene holds control the game's HUD steps
+   aside: each node of the HUD's root is hidden and shown again when
+   control returns, as the game last asked, unless it is in the group
+   `cutscene` (`"groups": ["cutscene"]`). Over the game's own nodes the
+   engine draws its layer: the top cinema bar, the bottom one with the
+   dialogue line (when the HUD has a font) riding `line_margin` above it,
+   and the fade.
 10. **Rejections** from the collision module, the mixer and the screen are
     reported to the game as `rejected` events the next step; `REJECTED`
     lists their codes.
@@ -127,8 +132,9 @@ draws and uploads with the frame's.
 ## The fade contract
 
 The fade and the cinema bars are *set* on the HUD each step, never animated
-between steps, and the fade is drawn at the larger of this step's value and
-the step before's. The no-jump rule lets a step move anything at once when
+between steps: the bars, and the line riding on them, are drawn at the
+step's height until the next step, and the fade at the larger of this
+step's value and the step before's. The no-jump rule lets a step move anything at once when
 the screen was fully faded at the step's start or at its end; the frames up
 to the next step show that step's moves, so they draw the fade at its
 fuller value. A teleport under a cover fade is therefore never seen.
@@ -154,7 +160,11 @@ each module's own settings stay in its crate.
 | `audio.pending` | 16 | requests a step can leave to the feed; one more is `E_AUDIO_QUEUE_FULL` |
 | `mixer` | `MixerSettings::default()` | the mixer's; a host playing to a device sets `sample_rate` |
 | `hud.bar_fraction` | 0.12 | cinema bar height at `letterbox` 1 |
-| `hud.line_size`, `hud.line_margin` | 22, 48 | the dialogue line, in UI pixels |
+| `hud.line_size`, `hud.line_margin` | 22, 48 | the dialogue line's text, and its space above the bottom bar, in UI pixels |
+| `hud.line_inset` | 0.12 | the line's space either side, a fraction of the screen's width |
+| `hud.line_padding`, `hud.line_radius` | [10, 18], 12 | the line's box, in UI pixels |
+| `hud.line_fill`, `hud.line_color` | black at 0.7, white | the line's box and text |
+| `hud.hide_in_cutscenes` | true | the game's HUD steps aside while a cutscene holds control |
 | `hud.width`, `hud.height` | 1280, 720 | the screen until the host gives one |
 
 ## Determinism

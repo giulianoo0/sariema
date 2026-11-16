@@ -163,3 +163,35 @@ fn removed_ids_stay_dead_and_names_free() {
     ui.step();
     assert_rect(ui.rect(again).unwrap(), [0.0, 0.0, 5.0, 5.0]);
 }
+
+#[test]
+fn a_snapped_node_and_its_children_are_drawn_where_they_are_until_the_next_step() {
+    let mut ui = ui(json!({
+        "nodes": [
+            { "name": "dock", "absolute": true, "left": 0, "right": 0, "bottom": 0, "direction": "column",
+              "children": [
+                { "name": "line", "height": 20, "fill": "#FFFFFF" },
+                { "name": "bar", "height": 0, "fill": "#000000" }
+              ]}
+        ]
+    }));
+    ui.set_screen(844.0, 390.0, SafeArea::default());
+    ui.step();
+    ui.step();
+    let (dock, bar, line) = (id(&ui, "dock"), id(&ui, "bar"), id(&ui, "line"));
+    assert_eq!(ui.children(dock).collect::<Vec<_>>(), [line, bar]);
+    ui.set(bar, sariema_ui::Prop::Height, 40.0).unwrap();
+    let top = |ui: &mut Ui, alpha: f32| {
+        let list = ui.draw(alpha);
+        list.quads
+            .iter()
+            .map(|q| q.xform[5] + q.rect[1])
+            .fold(f32::MAX, f32::min)
+    };
+    let moving = top(&mut ui, 0.5);
+    ui.snap(dock).unwrap();
+    let snapped = [top(&mut ui, 0.0), top(&mut ui, 0.5), top(&mut ui, 1.0)];
+    assert_rect(rect(&ui, "line"), [0.0, 330.0, 844.0, 20.0]);
+    assert!((moving - 350.0).abs() < 0.01, "interpolated: {moving}");
+    assert_eq!(snapped, [330.0; 3]);
+}
