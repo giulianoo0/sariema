@@ -224,6 +224,9 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
         }
         C::SetCollider { entity, enabled } => {
             s.world.check(entity).map_err(refuse(entity))?;
+            if actor(s, entity).is_ok() {
+                s.motion.mover_mut(entity).body = enabled;
+            }
             s.outbox
                 .physics
                 .push(PhysicsIntent::Collider { entity, enabled });

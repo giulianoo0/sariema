@@ -54,6 +54,10 @@ batch_table! {
         0x0018 SetSpeedScale set_speed_scale { entity: Entity, scale: f32 }
         /// An impulse in m/s for the collision module.
         0x0019 Knockback knockback { entity: Entity, impulse: Vec3 }
+        /// Switches the collider of a room node, or an actor's body: an
+        /// actor whose body is off is in no other actor's way, neither
+        /// pushing nor pushed, and hinged pieces turn through it; it still
+        /// walks on the floors, stops at the walls and enters triggers.
         0x001A SetCollider set_collider { entity: Entity, enabled: bool }
         /// Carries an actor along the room's traversal `traversal` (a name in
         /// its collision pack) over `duration` seconds, collider off, its

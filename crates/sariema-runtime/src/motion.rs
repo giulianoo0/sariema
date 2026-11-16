@@ -60,6 +60,8 @@ pub struct Mover {
     pub speed_scale: f32,
     /// Degrees per second it turns at most; `motion.turn_rate` when none.
     pub turn_rate: Option<f32>,
+    /// Its body stands in other actors' way (`set_collider`).
+    pub body: bool,
 }
 
 const IDLE: Mover = Mover {
@@ -67,6 +69,7 @@ const IDLE: Mover = Mover {
     face: None,
     speed_scale: 1.0,
     turn_rate: None,
+    body: true,
 };
 
 /// Degrees about +Y of a horizontal direction; 0 is −Z.
