@@ -486,5 +486,12 @@ fn wanted_rooms(s: &State, rooms: &[RoomAssets], wanted: &mut Vec<usize>) {
     scenery.preloads().iter().rev().for_each(|&r| add(r));
     if let Some(room) = rooms.get(active) {
         room.neighbours.iter().for_each(|&r| add(r as usize));
+        for next in room
+            .neighbours
+            .iter()
+            .filter_map(|&r| rooms.get(r as usize))
+        {
+            next.beside.iter().for_each(|&r| add(r as usize));
+        }
     }
 }

@@ -101,8 +101,11 @@ on. The transition says how it is shown:
 
 Each frame the view keeps the rooms the engine wants
 (`Engine::wanted_rooms`: the active room, the one a switch is leaving, the
-ones beside it, the preloaded ones newest first, then the neighbours), at
-most `ViewSettings::max_resident`, and frees the others.
+ones beside it, the preloaded ones newest first, the neighbours, then the
+rooms beside the neighbours), at most `ViewSettings::max_resident`, and
+frees the others. The first room and the rooms beside it are loaded whole
+before the first frame, so a room beside never appears after the game has
+started.
 
 A room goes through four stages, none of which takes a frame's whole
 budget:
@@ -121,8 +124,8 @@ budget:
    second decoded in an audio feed with nothing else to open, never during
    a switch (`Audio::prepare`), so the switch only starts a voice.
 
-A switch to a room not loaded yet loads it at once in that frame
-(`RoomsFrame::loaded_at_once` reports it). A switch to a room whose world is
+A switch to a room not loaded yet loads it, and the rooms beside it, at
+once in that frame (`RoomsFrame::loaded_at_once` reports it). A switch to a room whose world is
 not built builds the world in the step, without its grids: they are built
 after the step, a share a frame (`Engine::grow_grids`), unless an actor's
 path search needs one first, which builds it whole. The world is the same
@@ -190,16 +193,18 @@ display's pace and prints each frame's step, CPU time, time since the last
 frame, passes and draws. Chromium 1248, ANGLE on Metal, 1920×1080, medium
 tier, 3 runs of 800 frames each:
 
-| Backend | Steady frame CPU, ms, p50 · max | Continuous switch (steps 170–229), max | Dissolve frames (steps 380–409), p50 · max | Longest time between frames |
-|---|---|---|---|---|
-| WebGL2 (downlevel path) | 0.5 · 2.0–5.3 | 4.0–6.9 | 0.5–0.6 · 0.8–0.9 | 16.8 ms |
-| WebGPU | 0.3 · 0.5–1.9 | 3.4–10.7 | 0.3–0.4 · 0.5–1.3 | 16.8 ms |
+| Backend | Steady frame CPU, ms, p50 · max | Continuous switch (steps 170–229), max | Dissolve frames (steps 380–409), p50 · max |
+|---|---|---|---|
+| WebGL2 (downlevel path) | 0.5 · 2.0–5.3 | 4.0–6.9 | 0.5–0.6 · 0.8–0.9 |
+| WebGPU | 0.3 · 0.5–1.9 | 3.4–10.7 | 0.3–0.4 · 0.5–1.3 |
 
 The switch's own frame (step 380) takes 0.6–0.8 ms on WebGL2 and 0.4–1.2
 ms on WebGPU, with one pass more than the frames of the dissolve, which
-have one pass more than the frames after it. No frame of any run missed
-the display's 16.7 ms. The peaks of the continuous switch are its first
-frames and the attic, beside nothing, loading after it.
+have one pass more than the frames after it. The peaks of the continuous
+switch are its first frames and the attic, beside nothing, loading after
+it. The time between frames does not show a frame missed in headless
+Chromium: it stays at 16.6–16.8 ms even after a frame of 30 ms of CPU, so
+these numbers are the frame's CPU, not its GPU.
 
 ## What was taken from other engines and games
 
@@ -246,10 +251,16 @@ frames and the attic, beside nothing, loading after it.
 - The world of a large room is built from its collision pack in one share
   (10–35 ms for a house with 124–236 colliders); only its walkable grids
   are built a share at a time.
-- A walkable grid covers the room's static bounds at `nav.cell_size`; a
-  room whose geometry reaches far (a street around a house) has a large
-  grid: 526,000 columns for 72 × 73 m at 0.1 m, about 2.6 s per body on one
-  core, over a minute of 2 ms shares on the web. A coarser cell, or
-  collision limited to where actors walk, shortens it.
+- A walkable grid covers the room's static bounds at `nav.cell_size`
+  unless the room declares `collision.nav_bounds` (`docs/physics.md`). A
+  room whose geometry reaches far has a large grid: a tree-house room with
+  ground 470 m across had 22.2 million columns, and the switch into it
+  stopped 17–32 s while an actor walking across built its grid in the
+  step; within its walls, 100,651 columns.
 - An actor mid-move at a switch to a room whose grid is not built needs the
-  grid at once, and builds it in the step.
+  grid at once, and builds it in the step: 0.37–0.49 s for that tree house
+  when the switch comes 3.7 s after the game starts, before the shares of
+  2 ms a frame reached it. Shares go to the active room's grids first,
+  including those of bodies no actor uses yet.
+- Grids are built for every body of the collision pack, whether an actor
+  of that body is in the room or not.

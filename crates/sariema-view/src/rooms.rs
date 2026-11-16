@@ -202,19 +202,29 @@ impl Rooms {
         }
     }
 
-    /// Loads room `r` whole now; its pack's camera.
+    /// Loads room `r` and the rooms beside it whole now; `r`'s pack's
+    /// camera.
     pub fn load_now(
         &mut self,
         renderer: &mut Renderer,
         r: usize,
     ) -> Result<Option<RoomCamera>, ViewError> {
-        let Some(bytes) = self.views.get(r).and_then(|v| v.bytes.clone()) else {
+        if self.views.get(r).is_none_or(|v| v.bytes.is_none()) {
             return Ok(None);
-        };
-        self.uploading(renderer, r, RoomDecoder::decode(bytes))?;
-        let (mut decode, mut upload) = (usize::MAX, u64::MAX);
-        self.advance(renderer, r, &mut decode, &mut upload)?;
-        renderer.set_drawn(&[r as u32]);
+        }
+        let beside = self.views[r].beside.clone();
+        let room = std::iter::once(r as u32).chain(beside);
+        let drawn: Vec<u32> = (room.take(self.settings.max_resident.max(1)))
+            .filter(|&b| {
+                self.views
+                    .get(b as usize)
+                    .is_some_and(|v| v.bytes.is_some())
+            })
+            .collect();
+        for &b in &drawn {
+            self.finish_now(renderer, b as usize)?;
+        }
+        renderer.set_drawn(&drawn);
         let base = self.views[r]
             .base
             .as_ref()
@@ -256,29 +266,46 @@ impl Rooms {
         for &r in &wanted {
             self.advance(renderer, r, &mut decode, &mut upload)?;
         }
-        let scenery = &engine.state().scenery;
-        let active = scenery.active();
-        if self
-            .views
-            .get(active)
-            .is_some_and(|v| v.bytes.is_some() && !matches!(v.load, Load::Resident))
-        {
-            self.frame.loaded_at_once = true;
-            let (mut decode, mut upload) = (usize::MAX, u64::MAX);
-            while !matches!(self.views[active].load, Load::Resident) {
-                #[cfg(not(target_arch = "wasm32"))]
-                if let Load::Threaded(rx) = &self.views[active].load {
-                    let decoded = rx.recv().expect("a decoding thread sends its room");
-                    self.uploading(renderer, active, *decoded)?;
-                    continue;
-                }
-                self.advance(renderer, active, &mut decode, &mut upload)?;
+        let active = engine.state().scenery.active();
+        let beside = self.views.get(active).map_or(0, |v| v.beside.len());
+        for i in 0..=beside {
+            let r = match i {
+                0 => active,
+                i => self.views[active].beside[i - 1] as usize,
+            };
+            let due = (self.views.get(r))
+                .is_some_and(|v| v.bytes.is_some() && !matches!(v.load, Load::Resident));
+            if due && wanted.contains(&r) {
+                self.frame.loaded_at_once = true;
+                self.finish_now(renderer, r)?;
             }
         }
         self.frame.rooms_resident = (self.views.iter())
             .filter(|v| matches!(v.load, Load::Resident))
             .count() as u32;
         self.show(renderer, engine, alpha);
+        Ok(())
+    }
+
+    /// Loads room `r` the rest of the way now, from wherever it is.
+    fn finish_now(&mut self, renderer: &mut Renderer, r: usize) -> Result<(), ViewError> {
+        let (mut decode, mut upload) = (usize::MAX, u64::MAX);
+        if matches!(self.views[r].load, Load::Absent) {
+            let bytes = self.views[r]
+                .bytes
+                .clone()
+                .expect("a room loaded has bytes");
+            self.uploading(renderer, r, RoomDecoder::decode(bytes))?;
+        }
+        while !matches!(self.views[r].load, Load::Resident) {
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Load::Threaded(rx) = &self.views[r].load {
+                let decoded = rx.recv().expect("a decoding thread sends its room");
+                self.uploading(renderer, r, *decoded)?;
+                continue;
+            }
+            self.advance(renderer, r, &mut decode, &mut upload)?;
+        }
         Ok(())
     }
 

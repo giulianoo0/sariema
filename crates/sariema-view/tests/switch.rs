@@ -420,3 +420,19 @@ fn rooms_beside_the_active_one_are_drawn_with_it_all_along() {
         );
     }
 }
+
+#[test]
+fn a_room_beside_the_first_one_is_drawn_from_the_first_frame() {
+    let alone = play(spread(), 3, false);
+    let beside = play_with(spread(), 3, false, true);
+    assert!(
+        beside[0].draws > alone[0].draws,
+        "{} draws beside, {} alone",
+        beside[0].draws,
+        alone[0].draws
+    );
+    assert!(
+        beside.iter().all(|f| !f.rooms.loaded_at_once),
+        "loaded with the first room, not by a frame"
+    );
+}
