@@ -5,6 +5,7 @@
 
 use sariema_format::script::{Controller, Entity, Event};
 
+use crate::aim::Aims;
 use crate::camera::Camera;
 use crate::clips::ClipClock;
 use crate::events::{EventQueue, Happening};
@@ -49,6 +50,7 @@ pub struct State {
     pub scenery: Scenery,
     pub followers: Followers,
     pub holds: Holds,
+    pub aims: Aims,
     pub timers: Timers,
     pub zones: Zones,
     pub camera: Camera,
@@ -82,6 +84,7 @@ impl State {
             scenery: Scenery::default(),
             followers: Followers::default(),
             holds: Holds::default(),
+            aims: Aims::default(),
             timers: Timers::default(),
             zones: Zones::default(),
             camera: Camera::new(settings.camera, &settings.motion),

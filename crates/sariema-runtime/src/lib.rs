@@ -3,6 +3,7 @@
 //! The game runtime: a fixed-step simulation of a world the game's logic
 //! describes through command batches and the engine executes natively.
 
+pub mod aim;
 pub mod apply;
 pub mod camera;
 pub mod clips;

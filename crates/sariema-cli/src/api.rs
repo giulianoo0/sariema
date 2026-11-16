@@ -281,6 +281,11 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "hold names an actor as the thing to hold",
     ),
     (
+        "E_NOT_LIGHT",
+        Kind::Rejected,
+        "light_aim names an entity that is not a light",
+    ),
+    (
         "E_SOCKET_UNKNOWN",
         Kind::Rejected,
         "hold names a socket or joint the actor's model lacks",

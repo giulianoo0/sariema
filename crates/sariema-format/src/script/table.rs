@@ -213,6 +213,14 @@ batch_table! {
         /// E_SOCKET_UNKNOWN, a step later, for a socket or joint the actor's
         /// model lacks; an actor drawn with no model keeps it where it is.
         0x00E0 Hold hold { entity: Entity, actor: Entity, socket: u32, offset: Vec3, keep: bool }
+        /// Points the spot light `entity` (a room light spawned as an
+        /// entity) at `target` in `at`'s frame, in metres of the world
+        /// whatever `at`'s scale, following `at` as it moves and turns: `at`
+        /// the light itself, held in a hand, lights where the hand points.
+        /// `at` NONE aims at a point of the world. A point light has no aim.
+        /// Despawning `at` leaves the light pointing where it last did.
+        /// Refused with E_NOT_LIGHT for an entity that is not a light.
+        0x00E1 LightAim light_aim { entity: Entity, at: Entity, target: Vec3 }
     }
     events {
         /// The first event of the first tick.

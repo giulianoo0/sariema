@@ -50,6 +50,9 @@ pub const HOLD_ACTOR: &str = "E_HOLD_ACTOR";
 /// The code of a `hold` at a socket or joint the actor's model lacks.
 pub const SOCKET_UNKNOWN: &str = "E_SOCKET_UNKNOWN";
 
+/// The code of a `light_aim` of an entity that is not a light.
+pub const NOT_LIGHT: &str = "E_NOT_LIGHT";
+
 fn refuse(entity: Entity) -> impl Fn(Reject) -> Refusal {
     move |r| Refusal {
         code: r.code(),
@@ -89,6 +92,7 @@ fn forget(s: &mut State, e: Entity) {
     s.tweens.forget(e);
     s.followers.forget(e);
     s.holds.forget(e);
+    s.aims.forget(e);
     s.motion.forget(e);
     if s.control.hero == e {
         s.control.hero = Entity::NONE;
@@ -406,6 +410,23 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             s.tweens.forget(entity);
             s.followers.unfollow(entity);
             s.holds.hold(entity, holder, socket, v3(offset), keep);
+        }
+        C::LightAim { entity, at, target } => {
+            let kind = s
+                .world
+                .node(entity)
+                .ok_or(refuse(entity)(Reject::Stale))?
+                .kind;
+            if kind != Kind::Light {
+                return Err(Refusal {
+                    code: NOT_LIGHT,
+                    entity,
+                });
+            }
+            if !at.is_none() {
+                s.world.check(at).map_err(refuse(at))?;
+            }
+            s.aims.aim(entity, at, v3(target));
         }
         C::PlaySound {
             sound,

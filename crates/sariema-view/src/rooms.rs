@@ -506,7 +506,7 @@ impl Rooms {
         let active = scenery.active();
         for (r, view) in self.views.iter_mut().enumerate() {
             if let (Load::Resident, Some(scene)) = (&view.load, scenery.room(r)) {
-                sync(renderer, r, view, scene, scenery, &state.world, alpha);
+                sync(renderer, r, view, scene, state, alpha);
             }
         }
         let resident = |r: usize| {
@@ -741,10 +741,10 @@ fn sync(
     r: usize,
     view: &mut RoomView,
     scene: &RoomScene,
-    scenery: &sariema_runtime::scenery::Scenery,
-    world: &sariema_runtime::world::World,
+    state: &sariema_runtime::state::State,
     alpha: f32,
 ) {
+    let (scenery, world) = (&state.scenery, &state.world);
     let slot = r as u32;
     let index = &scene.index;
     let applied = view.applied.get_or_insert_with(|| Applied {
@@ -803,7 +803,14 @@ fn sync(
                 }
             }
             Binding::Light { room, light } if room == r => {
-                renderer.set_light_position(slot, light, pose.position.into(), None);
+                let target = state.aims.target(world, entity, alpha);
+                renderer.set_light_position(
+                    slot,
+                    light,
+                    pose.position.into(),
+                    target.map(Into::into),
+                );
+                renderer.set_light_on(slot, light, visible);
             }
             _ => {}
         }
