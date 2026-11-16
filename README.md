@@ -15,6 +15,9 @@ the `sariema` command-line tool.
 - `crates/sariema-render` — the wgpu renderer: clustered forward scene pass,
   shadow atlas, post-processing chain, quality tiers, headless rendering and
   image comparison.
+- `crates/sariema-anim` — skeletal animation: clip sampling, crossfades,
+  events and skinning palettes for actor packs (`SRMK`, see
+  [docs/actors.md](docs/actors.md)).
 - `crates/sariema-cli` — the `sariema` tool: `build`, `inspect`, `run --headless`
   and `test`, each with `--json`. `examples/demo` is a project it can build.
 
