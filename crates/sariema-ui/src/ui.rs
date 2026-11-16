@@ -331,6 +331,7 @@ impl Ui {
     }
 
     /// Named nodes, in no particular order.
+    /// Named nodes, in no particular order.
     pub fn names(&self) -> impl Iterator<Item = (&str, NodeId)> {
         self.names.iter().map(|(n, &i)| (n.as_str(), self.id(i)))
     }

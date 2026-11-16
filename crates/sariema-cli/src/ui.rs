@@ -222,9 +222,13 @@ fn render(r: &Render) -> Result<Done, Failure> {
         imageops::replace(&mut strip, &image, i64::from(frame * w), 0);
     }
     strip.save(r.output).map_err(|e| Failure::io(r.output, e))?;
-    let missing: Vec<Value> = ui
+    let mut missing: Vec<(&str, usize)> = ui
         .names()
         .filter_map(|(name, id)| ui.missing_glyphs(id).filter(|&n| n > 0).map(|n| (name, n)))
+        .collect();
+    missing.sort_unstable();
+    let missing: Vec<Value> = missing
+        .into_iter()
         .map(|(name, n)| json!({ "node": name, "characters": n }))
         .collect();
     let (quads, batches, draw_calls) = last;

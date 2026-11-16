@@ -150,6 +150,45 @@ fn reports_what_happened_and_films_a_strip() {
 }
 
 #[test]
+fn missing_glyphs_are_listed_by_node_name() {
+    let tmp = TempDir::new().unwrap();
+    let desc = tmp.path().join("cjk.json");
+    let font = repo("crates/sariema-ui/fonts/Nunito.ttf");
+    let texts: Vec<String> = ["f", "e", "d", "c", "b", "a"]
+        .iter()
+        .map(|n| format!(r#"{{ "name": "{n}", "text": "漢字" }}"#))
+        .collect();
+    fs::write(
+        &desc,
+        format!(
+            r#"{{ "fonts": {{ "body": {{ "file": {font:?} }} }}, "nodes": [ {} ] }}"#,
+            texts.join(", ")
+        ),
+    )
+    .unwrap();
+    let out = tmp.path().join("cjk.png");
+    let (code, v) = sariema(&[
+        "ui",
+        "render",
+        desc.to_str().unwrap(),
+        "--width",
+        "200",
+        "--height",
+        "100",
+        "-o",
+        out.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "{v}");
+    let names: Vec<&str> = v["missing_glyphs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["node"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["a", "b", "c", "d", "e", "f"]);
+}
+
+#[test]
 fn errors_name_their_cause() {
     let tmp = TempDir::new().unwrap();
     let out = tmp.path().join("x.png");
