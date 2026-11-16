@@ -7,7 +7,6 @@
 
 use glam::{Mat3, Mat4, Vec2, Vec3};
 use sariema_core::Camera;
-use sariema_format::Aabb;
 use sariema_format::actor::{ActorPack, FaceAtlas, SkinnedVertex};
 
 use crate::resources::{self, MaterialGpu};
@@ -57,12 +56,11 @@ pub struct DiscShadow {
 }
 
 impl DiscShadow {
-    /// Half the mean horizontal side of `bounds` across, opacity 0.5,
-    /// softness 0.6 and a lift of 1 cm.
-    pub fn under(bounds: &Aabb) -> DiscShadow {
-        let side = |axis: usize| (bounds.max[axis] - bounds.min[axis]).max(0.0);
+    /// For an actor `height_m` tall: a radius of 0.22 × the height, opacity
+    /// 0.5, softness 0.6 and a lift of 1 cm.
+    pub fn for_height(height_m: f32) -> DiscShadow {
         DiscShadow {
-            radius_m: 0.25 * (side(0) + side(2)),
+            radius_m: 0.22 * height_m.max(0.0),
             opacity: 0.5,
             softness: 0.6,
             lift_m: 0.01,
@@ -287,7 +285,7 @@ impl Actors {
             joints,
             faces: pack.faces.clone(),
             bounds: (pack.bounds.min.into(), pack.bounds.max.into()),
-            disc: DiscShadow::under(&pack.bounds),
+            disc: DiscShadow::for_height(bind_height(pack)),
             rows,
             stride: rows.next_multiple_of(self.align_rows),
         });
@@ -295,7 +293,7 @@ impl Actors {
     }
 
     /// A hidden actor showing `model`, with its pack's part visibility and a
-    /// [`DiscShadow::under`] its bounds, until [`Actors::set`] places it.
+    /// [`DiscShadow::for_height`] its bind pose, until [`Actors::set`] places it.
     pub fn spawn(&mut self, gpu: &Gpu, model: ActorModel) -> Result<ActorId, RenderError> {
         let index = model.0 as usize;
         let m = self
@@ -532,6 +530,17 @@ impl Actors {
         }
         stats
     }
+}
+
+/// Height of the visible parts in the bind pose, which no clip stretches.
+fn bind_height(pack: &ActorPack) -> f32 {
+    let (low, high) = (pack.parts.iter())
+        .filter(|p| p.visible)
+        .flat_map(|p| &pack.meshes[p.mesh as usize].vertices)
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), v| {
+            (lo.min(v.pos[1]), hi.max(v.pos[1]))
+        });
+    (high - low).max(0.0)
 }
 
 /// `origin + (cell % columns, cell / columns) × step`.
