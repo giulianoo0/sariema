@@ -71,6 +71,10 @@ macro_rules! wire_enum {
                 const ALL: &[$Name] = &[$($Name::$Variant),*];
                 ALL[n as usize % ALL.len()]
             }
+
+            fn value<'a>(v: Self::Ref<'a>) -> Value<'a> {
+                Value::Enum(v.name())
+            }
         }
     };
 }
@@ -124,6 +128,13 @@ macro_rules! message_enum {
             pub fn size(&self) -> usize {
                 match *self {
                     $( $Enum::$Name { $( $f ),* } => 2 $( + <$ty as Wire>::size($f) )*, )*
+                }
+            }
+
+            /// Each field's name and value, in table order.
+            pub fn fields(&self, mut each: impl FnMut(&'static str, Value<'a>)) {
+                match *self {
+                    $( $Enum::$Name { $( $f ),* } => { $( each(stringify!($f), <$ty as Wire>::value($f)); )* } )*
                 }
             }
 

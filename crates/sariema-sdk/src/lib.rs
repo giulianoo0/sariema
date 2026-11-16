@@ -43,7 +43,7 @@ pub use rng::Pcg32 as Rng;
 pub use run::{EventIter, Events, Game, Runner};
 pub use table::{BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Event};
 pub use wire::{
-    Advance, Bus, ClipMode, Controller, Ease, Entity, Kind, Orientation, Property, Reader,
+    Advance, Bus, ClipMode, Controller, Ease, Entity, Kind, Orientation, Property, Reader, Value,
     WireError, name_id,
 };
 

@@ -67,7 +67,8 @@ impl Host for TestHost {
     }
 
     fn register(&mut self, kind: u32, bytes: &[u8]) -> i32 {
-        self.regions.push((kind, bytes.as_ptr() as usize, bytes.len()));
+        self.regions
+            .push((kind, bytes.as_ptr() as usize, bytes.len()));
         self.regions.len() as i32 - 1
     }
 

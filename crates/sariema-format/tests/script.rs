@@ -5,7 +5,7 @@ use std::collections::{BTreeSet, HashMap};
 use sariema_format::script::cutscene::{Block, Cutscene, Place, Role};
 use sariema_format::script::{
     BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Entity, Event, GAME_VERSION, GameFormatError,
-    GamePack, Message, Sink, WireError, decode_game, encode_game, name_id, records,
+    GamePack, Message, MessageSpec, Sink, WireError, decode_game, encode_game, name_id, records,
 };
 
 fn batch<M>(messages: impl IntoIterator<Item = M>, write: impl Fn(&M, &mut Vec<u8>)) -> Vec<u8> {
@@ -202,6 +202,21 @@ struct Count(usize);
 impl Sink for Count {
     fn put(&mut self, bytes: &[u8]) {
         self.0 += bytes.len();
+    }
+}
+
+#[test]
+fn fields_visits_every_field_of_the_spec_in_order() {
+    let listed = |spec: &MessageSpec| -> Vec<&str> { spec.fields.iter().map(|f| f.name).collect() };
+    for (c, spec) in Command::samples().zip(COMMANDS) {
+        let mut visited = Vec::new();
+        c.fields(|name, _| visited.push(name));
+        assert_eq!(visited, listed(spec), "{}", spec.name);
+    }
+    for (e, spec) in Event::samples().zip(EVENTS) {
+        let mut visited = Vec::new();
+        e.fields(|name, _| visited.push(name));
+        assert_eq!(visited, listed(spec), "{}", spec.name);
     }
 }
 

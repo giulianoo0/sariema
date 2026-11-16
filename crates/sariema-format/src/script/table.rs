@@ -12,7 +12,7 @@
 
 use super::wire::{
     Advance, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,
-    MessageSpec, Orientation, Property, Reader, Sink, Str, Vec3, Wire, WireError,
+    MessageSpec, Orientation, Property, Reader, Sink, Str, Value, Vec3, Wire, WireError,
 };
 
 batch_table! {

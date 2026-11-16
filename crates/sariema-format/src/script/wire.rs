@@ -100,6 +100,21 @@ pub trait Sink {
     fn put(&mut self, bytes: &[u8]);
 }
 
+/// A decoded field, for tools that print messages.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Value<'a> {
+    U64(u64),
+    I64(i64),
+    F32(f32),
+    Bool(bool),
+    Entity(Entity),
+    Vec3([f32; 3]),
+    Str(&'a str),
+    Bytes(&'a [u8]),
+    /// A variant of a table enum, by name.
+    Enum(&'static str),
+}
+
 /// A field type of the batch table. `Ref` is what a decoded message holds,
 /// borrowing from the batch for `Str` and `Bytes`.
 pub trait Wire {
@@ -110,10 +125,11 @@ pub trait Wire {
     fn size(v: Self::Ref<'_>) -> usize;
     /// A valid value derived from `n`, for generated tests.
     fn sample(n: u32) -> Self::Ref<'static>;
+    fn value<'a>(v: Self::Ref<'a>) -> Value<'a>;
 }
 
 macro_rules! wire_int {
-    ($($t:ident),*) => {$(
+    ($($t:ident => $variant:ident),*) => {$(
         impl Wire for $t {
             type Ref<'a> = $t;
             const NAME: &'static str = stringify!($t);
@@ -133,11 +149,15 @@ macro_rules! wire_int {
             fn sample(n: u32) -> $t {
                 n as $t
             }
+
+            fn value<'a>(v: Self::Ref<'a>) -> Value<'a> {
+                Value::$variant(v.into())
+            }
         }
     )*};
 }
 
-wire_int!(u8, u16, u32, u64, i32);
+wire_int!(u8 => U64, u16 => U64, u32 => U64, u64 => U64, i32 => I64);
 
 impl Wire for f32 {
     type Ref<'a> = f32;
@@ -163,6 +183,10 @@ impl Wire for f32 {
     fn sample(n: u32) -> f32 {
         (n % 1000) as f32 * 0.25 - 100.0
     }
+
+    fn value<'a>(v: Self::Ref<'a>) -> Value<'a> {
+        Value::F32(v)
+    }
 }
 
 impl Wire for bool {
@@ -187,6 +211,10 @@ impl Wire for bool {
 
     fn sample(n: u32) -> bool {
         n % 2 == 1
+    }
+
+    fn value<'a>(v: Self::Ref<'a>) -> Value<'a> {
+        Value::Bool(v)
     }
 }
 
@@ -216,6 +244,10 @@ impl Wire for Entity {
             generation: n / 4096,
         }
     }
+
+    fn value<'a>(v: Self::Ref<'a>) -> Value<'a> {
+        Value::Entity(v)
+    }
 }
 
 /// Three `f32`: a point or a direction in metres, or an RGB colour.
@@ -239,6 +271,10 @@ impl Wire for Vec3 {
 
     fn sample(n: u32) -> [f32; 3] {
         [f32::sample(n), f32::sample(n + 1), f32::sample(n + 2)]
+    }
+
+    fn value<'a>(v: Self::Ref<'a>) -> Value<'a> {
+        Value::Vec3(v)
     }
 }
 
@@ -268,6 +304,10 @@ impl Wire for Str {
         const WORDS: [&str; 4] = ["", "olá", "hero", "a longer line of text"];
         WORDS[n as usize % WORDS.len()]
     }
+
+    fn value<'a>(v: Self::Ref<'a>) -> Value<'a> {
+        Value::Str(v)
+    }
 }
 
 /// Opaque bytes.
@@ -294,6 +334,10 @@ impl Wire for Bytes {
     fn sample(n: u32) -> &'static [u8] {
         const BLOBS: [&[u8]; 3] = [&[], &[0, 255, 7], b"{\"k\":1}"];
         BLOBS[n as usize % BLOBS.len()]
+    }
+
+    fn value<'a>(v: Self::Ref<'a>) -> Value<'a> {
+        Value::Bytes(v)
     }
 }
 
