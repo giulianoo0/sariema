@@ -25,6 +25,7 @@ mod run;
 mod spot_check;
 mod stage;
 mod ui;
+mod web;
 
 #[derive(Parser)]
 #[command(
@@ -94,6 +95,9 @@ enum Command {
     Audio(audio::AudioArgs),
     /// Draw UI descriptions headless at a screen size and a moment.
     Ui(ui::UiArgs),
+    /// Build a project for the web package: every room and actor with ASTC
+    /// and with RGBA8 textures, its sound bank, and sariema-web.json.
+    Web(web::WebArgs),
 }
 
 #[derive(Args)]
@@ -190,6 +194,7 @@ fn main() -> ExitCode {
         Command::Bench(args) => bench::bench(args),
         Command::Audio(args) => audio::run(args),
         Command::Ui(args) => ui::run(args),
+        Command::Web(args) => web::run(args),
     });
     output::emit(cli.json, outcome)
 }
