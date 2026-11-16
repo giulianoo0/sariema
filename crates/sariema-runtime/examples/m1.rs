@@ -3,7 +3,7 @@
 //! The M1 load case, measured: a game of 2,000 objects deciding every step
 //! (`benches/swarm`), on each interpreter, placing its objects by one
 //! command each or through a bulk region; then the native systems driving
-//! 2,000 tweens. Prints one JSON object.
+//! 2,000 tweens, and 2,000 visible actors walking. Prints one JSON object.
 //!
 //! ```text
 //! sariema build crates/sariema-runtime/benches/swarm -o swarm.srmg
@@ -223,47 +223,70 @@ fn fuel_needed<I: Interpreter>(pack: &GamePack, settings: &Settings) -> u64 {
     high
 }
 
-/// A native game that sets 2,000 long tweens going on its first step.
-struct Tweener;
+/// A native game that gives each of 2,000 entities its commands on its first
+/// step.
+struct Opening(fn(Entity, &mut Vec<u8>));
 
-impl Logic for Tweener {
+impl Logic for Opening {
     fn tick(&mut self, events: &[u8], _: &[u32], commands: &mut Vec<u8>) -> Result<(), Stop> {
         commands.clear();
         let first = records::<sariema_format::script::Event>(events)
             .flatten()
             .any(|e| matches!(e, sariema_format::script::Event::Started { .. }));
         if first {
-            for i in 0..2_000 {
-                let entity = Entity {
-                    index: i,
-                    generation: 0,
-                };
-                Command::Spawn {
-                    entity,
-                    kind: Kind::Empty,
-                    asset: 0,
-                }
-                .write(commands);
-                Command::Tween {
-                    tween: i,
-                    entity,
-                    property: Property::PositionX,
-                    var: 0,
-                    to: 100.0,
-                    duration: 1_000.0,
-                    ease: Ease::InOutCubic,
-                }
-                .write(commands);
+            for index in 0..2_000 {
+                (self.0)(
+                    Entity {
+                        index,
+                        generation: 0,
+                    },
+                    commands,
+                );
             }
         }
         Ok(())
     }
 }
 
-fn tweens() -> Value {
+/// A long tween.
+fn tween(entity: Entity, commands: &mut Vec<u8>) {
+    Command::Spawn {
+        entity,
+        kind: Kind::Empty,
+        asset: 0,
+    }
+    .write(commands);
+    Command::Tween {
+        tween: entity.index,
+        entity,
+        property: Property::PositionX,
+        var: 0,
+        to: 100.0,
+        duration: 1_000.0,
+        ease: Ease::InOutCubic,
+    }
+    .write(commands);
+}
+
+/// A visible actor walking, judged by the no-jump measurement every step.
+fn walk(entity: Entity, commands: &mut Vec<u8>) {
+    Command::Spawn {
+        entity,
+        kind: Kind::Actor,
+        asset: 0,
+    }
+    .write(commands);
+    Command::MoveIntent {
+        entity,
+        velocity: [3.0, 0.0, 1.0],
+    }
+    .write(commands);
+}
+
+fn native(logic: Opening) -> Value {
     let settings = Settings::default();
     let actions = Actions::for_settings(&settings.input);
-    let mut sim = Simulation::new(settings, Vec::new(), Tweener, 1);
+    let mut sim = Simulation::new(settings, Vec::new(), logic, 1);
     for _ in 0..WARM_UP {
         sim.step(&actions);
     }
@@ -276,7 +299,6 @@ fn tweens() -> Value {
     }
     let allocations = ALLOCATIONS.load(Ordering::Relaxed) - allocations_before;
     json!({
-        "tweens": 2_000,
         "whole_step": summary(steps),
         "allocations_per_step": allocations as f64 / MEASURED as f64,
     })
@@ -304,7 +326,10 @@ fn main() {
         "batch_decode": decode_cost(&pack, &settings),
         "fuel_needed_per_step": fuel,
         "fuel_per_step_default": settings.vm.fuel_per_step,
-        "native": tweens(),
+        "native": {
+            "tweens": native(Opening(tween)),
+            "walking_actors": native(Opening(walk)),
+        },
     });
     println!("{}", serde_json::to_string_pretty(&report).expect("JSON"));
 }
