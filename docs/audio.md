@@ -21,8 +21,12 @@ Two halves joined by a lock-free queue:
 
 The mixer works in **blocks of `block_frames` aligned on its own clock**,
 whatever buffer size the device asks for, and splits each block at the
-exact frame of every command. The same commands therefore give the same
-samples, bit for bit, with device buffers of 1, 64, 480 or 4096 frames.
+exact frame of every command. A device asking for one frame gets the whole
+block holding it mixed, so the mixer runs up to a block ahead of what the
+device has read. A command that is in the queue before the block holding
+its frame is mixed lands on that frame; then the same commands give the
+same samples, bit for bit, with device buffers of 1, 64, 480 or 4096
+frames. The offline renderer sends each cue before its block is mixed.
 
 ```
 simulation ──commands (frame-stamped)──▶ ring ──▶ Mixer ──▶ device
@@ -171,9 +175,11 @@ audio.music(step_frame, theme, MusicFades::default(), None)?;
 audio.collect(); // once per step: frees what the mixer let go of
 ```
 
-Stamp commands with the frame of the simulation step that issues them
-(`step × sample_rate / 60`); a frame already mixed takes effect at the next
-block and counts as late, except frame 0, which means "as soon as possible".
+Stamp a live command at least one block plus one device buffer ahead of
+the mixer's clock (`Audio::stats().now`): by the time the command is read,
+the mixer may have mixed one more device buffer, rounded up to whole
+blocks. A frame already mixed takes effect at the next block and counts as
+late, except frame 0, which means "as soon as possible".
 
 ## Platforms
 

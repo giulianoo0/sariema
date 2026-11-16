@@ -178,6 +178,7 @@ pub fn render(
 ) -> Result<Render, AudioError> {
     let (settings, sounds) = runtime(bank, settings);
     let rate = settings.sample_rate;
+    let block = settings.block_frames.max(1) as usize;
     let buses: Vec<String> = settings.buses.iter().map(|b| b.name.clone()).collect();
     let (mut audio, mut mixer) = Audio::new(settings, sounds, Feeding::Manual)?;
     let total = audio.frames(cues.duration_s) as usize;
@@ -194,7 +195,10 @@ pub fn render(
     let mut last = MixStats::default();
     while pos < total {
         let n = buffer.min(total - pos);
-        while next < order.len() && (audio.frames(order[next].t) as usize) < pos + n {
+        // The mixer mixes whole blocks, so this call mixes up to the end of
+        // the block holding its last frame.
+        let mixed_to = (pos + n).next_multiple_of(block);
+        while next < order.len() && (audio.frames(order[next].t) as usize) < mixed_to {
             let cue = order[next];
             apply(&mut audio, cue, &mut ids, &buses)?;
             events.push(Event {

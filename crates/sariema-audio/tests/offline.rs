@@ -159,6 +159,36 @@ fn the_same_cues_render_bit_identical_whatever_the_buffer_size() {
 }
 
 #[test]
+fn cues_between_blocks_land_on_their_frame_whatever_the_buffer_size() {
+    let cues: CueList = serde_json::from_str(
+        r#"{"duration_s": 3.0, "cues": [
+            {"t": 0.0104, "do": "play", "sound": "line"},
+            {"t": 1.25, "do": "play", "sound": "step"},
+            {"t": 2.33, "do": "play", "sound": "step", "pan": 0.5}
+        ]}"#,
+    )
+    .unwrap();
+    let mut reference: Option<Vec<f32>> = None;
+    for buffer in [1, 64, 480, 4096] {
+        let options = RenderOptions {
+            buffer_frames: buffer,
+            ..RenderOptions::default()
+        };
+        let out = render(bank(), settings(), &cues, options).unwrap();
+        assert_eq!(out.timeline.stats.late, 0, "buffer {buffer}");
+        let first = out.samples.iter().position(|&s| s != 0.0).unwrap() / 2;
+        assert!(
+            (500..=501).contains(&first),
+            "buffer {buffer}: the line starts at frame {first}"
+        );
+        match &reference {
+            None => reference = Some(out.samples),
+            Some(r) => assert!(out.samples == *r, "buffer {buffer} differs"),
+        }
+    }
+}
+
+#[test]
 fn the_timeline_shows_ducking_and_bus_levels() {
     let out = render(bank(), settings(), &cues(), RenderOptions::default()).unwrap();
     let t = &out.timeline;

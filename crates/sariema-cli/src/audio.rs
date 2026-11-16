@@ -61,7 +61,8 @@ enum AudioCommand {
         /// Timeline to write. Default: the output with `.timeline.json`.
         #[arg(long)]
         timeline: Option<PathBuf>,
-        /// Frames per mixer call, like a device buffer; the output does not
+        /// Frames per mixer call, like a device buffer. Each cue is sent
+        /// before the mixer block holding its frame, so the output does not
         /// depend on it.
         #[arg(long, default_value_t = 480, value_parser = value_parser!(u32).range(1..))]
         buffer: u32,
