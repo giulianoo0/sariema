@@ -1,0 +1,22 @@
+[package]
+name = "wasm-replay"
+description = "The engine's step loop built for wasm32-unknown-unknown, to replay a game pack and an input log under a WebAssembly runtime and compare its hashes with a native run."
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Its own workspace: built for the web target apart from the engine's.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sariema-engine = { path = "../../crates/sariema-engine" }
+sariema-format = { path = "../../crates/sariema-format" }
+sariema-runtime = { path = "../../crates/sariema-runtime" }
+serde_json = "1.0.149"
+
+[profile.release]
+opt-level = 3
