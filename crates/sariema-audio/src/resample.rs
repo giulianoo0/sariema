@@ -28,14 +28,14 @@ impl Kernel {
         let cutoff = PASSBAND * (f64::from(out_rate) / f64::from(src_rate)).min(1.0);
         let taps = 2 * half;
         let mut table = Vec::with_capacity((PHASES + 1) * taps);
+        let mut row = Vec::with_capacity(taps);
         for j in 0..=PHASES {
             let frac = j as f64 / PHASES as f64;
-            let row: Vec<f64> = (0..taps)
-                .map(|k| {
-                    let d = k as f64 - half as f64 + 1.0 - frac;
-                    cutoff * sinc(cutoff * d) * kaiser(d / half as f64)
-                })
-                .collect();
+            row.clear();
+            row.extend((0..taps).map(|k| {
+                let d = k as f64 - half as f64 + 1.0 - frac;
+                cutoff * sinc(cutoff * d) * kaiser(d / half as f64)
+            }));
             let sum: f64 = row.iter().sum();
             table.extend(row.iter().map(|c| (c / sum) as f32));
         }
@@ -121,7 +121,11 @@ pub(crate) fn resample(
             }
         }
     };
-    let mut out = Vec::new();
+    let out_frames = match loop_points {
+        None => (frames * o).div_ceil(s),
+        Some((ls, le)) => to_out(ls) + to_out(le - ls).max(1) + ((frames - le) * o).div_ceil(s),
+    };
+    let mut out = Vec::with_capacity(out_frames as usize * channels);
     let mut run =
         |from: u64, count: u64, step_num: u64, step_den: u64, wrap: Option<(u64, u64)>| {
             for n in 0..count {
