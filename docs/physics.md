@@ -208,7 +208,9 @@ resting on the sill on the way.
   traversal, the start spot included. The traversal does not say which way
   the actor faces between points, so the bounds count turned to any facing.
 
-A contact passes only where the pose can really touch the room.
+The check is coarse: any point inside those turned bounds passes, including
+points the pose never touches. Sampling the clip's pose is the next step
+(see "Known limits").
 
 ### Queries and the camera
 
