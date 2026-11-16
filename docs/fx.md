@@ -133,7 +133,9 @@ never move. Each dot is a flat sprite, `fx.trail.lift` above the route,
 in the shape `fx.trail.sprite`. The wave is a bump of
 `exp(−2·(d / wave_length)²)` around crests `wave_every` metres apart,
 where `d` is a dot's distance to the nearest crest: a dot at a crest is
-`1 + wave_gain` times as bright and `1 + wave_grow` times as large. It
+`1 + wave_gain` times as bright, `1 + wave_grow` times as large and fully
+opaque, and one far from every crest keeps `1 − wave_alpha` of its
+opacity, so the wave reads as light and as presence. It
 moves with the step's time, so every host shows it in the same place.
 
 The owner's values for a route to a goal: `spacing` 1, `size` 0.2,
@@ -156,6 +158,7 @@ from then on. Every trail's points are allocated when the game loads.
 | `fx.trail.wave_length` | 1 | metres from a crest to where the wave has fallen to e⁻² of it |
 | `fx.trail.wave_every` | 8 | metres between crests |
 | `fx.trail.wave_gain`, `fx.trail.wave_grow` | 1, 0.25 | how much brighter and larger a dot is at a crest |
+| `fx.trail.wave_alpha` | 0.4 | how much of its opacity a dot far from every crest loses |
 | `fx.trail.additive` | 1 | 1 adds light to the floor, 0 covers it |
 
 ## Highlights
@@ -221,8 +224,8 @@ Trails and highlights live in `fx_hash` with the particles, never in
   particle so they batch into one draw, and only the properties that change
   uploaded each frame. Here the shapes share one texture array, and the
   frame's sprites are one upload of 48 bytes each.
-- **The Link's Awakening study** (`04-vfx-detalhes`, technique and numbers
-  only): opacity that rises fast (peak at 10–25 % of the life), holds and
+- **Measurements of hand-made effects in a top-down action game**
+  (technique and numbers only): opacity that rises fast (peak at 10–25 % of the life), holds and
   fades in the last 20–30 %; dust that grows from about 0.3 to 1 with a
   drag of 0.94–0.98 a frame and a light upward pull; item sparkles that
   rise slowly; four-pointed stars among the most used sprites; glows made
