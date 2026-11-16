@@ -59,8 +59,9 @@ enum Command {
         #[arg(long, value_enum)]
         textures: Option<Textures>,
     },
-    /// Show a room pack's stats, lights, materials and loose draws, or an
-    /// actor pack's joints, clips, parts, sockets and faces.
+    /// Show a room pack's stats, lights, materials and loose draws, an actor
+    /// pack's joints, clips, parts, sockets and faces, or a collision pack's
+    /// colliders, triggers, spots and routes.
     Inspect { pack: PathBuf },
     /// Draw a pack's room in a window, or offscreen with --headless.
     ///
