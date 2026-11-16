@@ -14,6 +14,9 @@ use sariema_render::{
     Renderer, compare_images, render_coverage, render_to_image,
 };
 
+mod common;
+use common::downlevel_dir;
+
 const W: u32 = 960;
 const H: u32 = 540;
 const GOLDEN: &str = concat!(
@@ -479,13 +482,6 @@ fn config(quality: Quality) -> RenderConfig {
         output_format: wgpu::TextureFormat::Rgba8Unorm,
         quality,
     }
-}
-
-/// Where the downlevel path's renders are kept, for comparing them by eye.
-fn downlevel_dir() -> String {
-    let dir = concat!(env!("CARGO_TARGET_TMPDIR"), "/downlevel");
-    std::fs::create_dir_all(dir).unwrap();
-    dir.to_string()
 }
 
 #[test]

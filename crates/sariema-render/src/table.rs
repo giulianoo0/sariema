@@ -15,7 +15,6 @@ const READ_BACK: wgpu::TextureUsages = if cfg!(test) {
     wgpu::TextureUsages::empty()
 };
 
-/// The texels of a data texture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Texel {
     /// Four 32-bit words, for records of whole 16-byte rows.
@@ -138,7 +137,6 @@ impl Table {
     }
 }
 
-/// A fragment-stage entry for a [`Table`] at `binding`.
 pub(crate) fn layout_entry(binding: u32, path: RenderPath) -> wgpu::BindGroupLayoutEntry {
     let ty = match path {
         RenderPath::Downlevel => wgpu::BindingType::Texture {

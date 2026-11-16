@@ -94,7 +94,6 @@ pub(crate) fn upload(gpu: &Gpu, layouts: &Layouts, room: &RoomPack) -> Result<Ro
 
     let mut vertices: Vec<Vertex> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
-    // Each mesh's first index and first vertex.
     let mut ranges = Vec::with_capacity(room.meshes.len());
     for mesh in &room.meshes {
         let base = vertices.len() as u32;

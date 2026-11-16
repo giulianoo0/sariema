@@ -12,8 +12,11 @@ use sariema_format::demo::demo_room;
 use sariema_format::{LightKind, Mobility, RoomPack, Sun};
 use sariema_render::{
     ActorId, ActorState, GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, RenderError,
-    RenderPath, compare_images,
+    compare_images,
 };
+
+mod common;
+use common::{downlevel, matches_golden_on_the_downlevel_path};
 
 const W: u32 = 960;
 const H: u32 = 540;
@@ -386,24 +389,4 @@ fn an_actor_given_the_wrong_palette_or_cell_is_an_actor_error() {
         h.renderer().load_actor(&pack),
         Err(RenderError::Actor(_))
     ));
-}
-
-/// Saves `img` among the downlevel path's renders and checks it against the golden `name`.
-fn matches_golden_on_the_downlevel_path(img: &RgbaImage, name: &str, golden: &str) {
-    let dir = concat!(env!("CARGO_TARGET_TMPDIR"), "/downlevel");
-    std::fs::create_dir_all(dir).unwrap();
-    img.save(format!("{dir}/{name}.png")).unwrap();
-    let golden = image::open(golden).unwrap().to_rgba8();
-    let d = compare_images(img, &golden).unwrap();
-    assert!(
-        d.max_channel_delta <= GOLDEN_MAX_DELTA || d.differing_pixels_ratio <= GOLDEN_MAX_RATIO,
-        "{name}: {d:?}"
-    );
-}
-
-fn downlevel() -> Quality {
-    Quality {
-        path: RenderPath::Downlevel,
-        ..Quality::high()
-    }
 }

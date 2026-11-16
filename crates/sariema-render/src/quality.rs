@@ -11,8 +11,8 @@ use crate::table::{Texel, data_texture_entries};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RenderPath {
     /// [`RenderPath::Full`] where the device has storage buffers in every
-    /// stage and can sample a multisampled depth texture, else
-    /// [`RenderPath::Downlevel`]. [`crate::Renderer::effective_quality`]
+    /// stage and the backend is not OpenGL, whose ES 3.0 and WebGL2 forms
+    /// cannot sample a multisampled texture; else [`RenderPath::Downlevel`]. [`crate::Renderer::effective_quality`]
     /// reports the one chosen.
     #[default]
     Auto,

@@ -6,9 +6,11 @@ use sariema_core::{Camera, room_camera};
 use sariema_format::demo::demo_room;
 use sariema_format::{Aabb, Ambient, Background, Look, RoomCamera, RoomPack, Shading};
 use sariema_render::{
-    GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, RenderPath, compare_images,
-    render_to_image,
+    GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, compare_images, render_to_image,
 };
+
+mod common;
+use common::{downlevel, matches_golden_on_the_downlevel_path};
 
 const W: u32 = 960;
 const H: u32 = 540;
@@ -563,24 +565,4 @@ fn render_still_creates_no_pipelines() {
     }
     assert_eq!(h.renderer().pipelines_created(), pipelines);
     assert_eq!(h.renderer().buffers_created(), buffers);
-}
-
-/// Saves `img` among the downlevel path's renders and checks it against the golden `name`.
-fn matches_golden_on_the_downlevel_path(img: &RgbaImage, name: &str, golden: &str) {
-    let dir = concat!(env!("CARGO_TARGET_TMPDIR"), "/downlevel");
-    std::fs::create_dir_all(dir).unwrap();
-    img.save(format!("{dir}/{name}.png")).unwrap();
-    let golden = image::open(golden).unwrap().to_rgba8();
-    let d = compare_images(img, &golden).unwrap();
-    assert!(
-        d.max_channel_delta <= GOLDEN_MAX_DELTA || d.differing_pixels_ratio <= GOLDEN_MAX_RATIO,
-        "{name}: {d:?}"
-    );
-}
-
-fn downlevel() -> Quality {
-    Quality {
-        path: RenderPath::Downlevel,
-        ..Quality::high()
-    }
 }
