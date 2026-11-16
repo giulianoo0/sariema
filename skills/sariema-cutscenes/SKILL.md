@@ -1,6 +1,6 @@
 ---
 name: sariema-cutscenes
-description: Use when writing, directing or fixing a Sariema cutscene JSON (traversals, insert shots, slow motion, clip markers, camera shake), when sariema check or build fails with E_CUTSCENE_TELEPORT, E_CUTSCENE_COVER, E_CUTSCENE_START, E_CUTSCENE_ABSENT, E_CUTSCENE_SPAWN, E_CUTSCENE_RACE, E_CUTSCENE_SPEED, E_CUTSCENE_ROLE or E_SETTINGS, or when a cutscene_play is rejected with E_CUTSCENE_UNBOUND, E_CUTSCENE_UNKNOWN or E_CUTSCENE_BUSY.
+description: Use when writing, directing or fixing a Sariema cutscene JSON (traversals bound to a clip with path spans, clips chained in a row, insert shots, slow motion, clip markers, camera shake), when sariema check or build fails with E_CUTSCENE_TELEPORT, E_CUTSCENE_COVER, E_CUTSCENE_START, E_CUTSCENE_ABSENT, E_CUTSCENE_SPAWN, E_CUTSCENE_RACE, E_CUTSCENE_SPEED, E_CUTSCENE_ROLE or E_SETTINGS, or when a cutscene_play is rejected with E_CUTSCENE_UNBOUND, E_CUTSCENE_UNKNOWN or E_CUTSCENE_BUSY.
 ---
 
 # Sariema cutscenes
@@ -59,9 +59,9 @@ The engine's directing rules (`docs/cutscenes.md`, "Directing"), as steps:
 | 2 Anticipation, impact, recovery | clips for the stumble, the fall and getting up; `camera_shake` on the impact marker |
 | 3 Insert shot on the beat | `wait_for: { clip_marker: { role, clip, marker } }`, then a `shot` with `"blend": 0` and `"bone"`/`"socket"`; cut back to the wide shot the same way |
 | 4 Set pieces keyed to clip time | the leaf (window, door) is a role with its own clip, started in the same `parallel` as the actor's clip; a real hinge binding is limit L4 |
-| 5 Traversal in clip segments | not expressible yet (L8); slow the beat with `time_scale` |
-| 6 Contact authored, not penetration | not expressible yet (L8): the pose is in the clip, the root placement and the contact check come with L8 |
-| 7 Clip time follows the step clock | automatic: clips are sought to `clip_time` (and drawn at `clip_time_at`, interpolated), so they slow with `time_scale` without still frames and `clip_finished` still comes; a clip shows frame 0 until the step after it begins, so start it one step before it must move |
+| 5 Traversal in clip segments | a `path` step: `spans` of the clip (`at: [t0, t1]`) are the only times the root moves, to each span's `to`; a span's `rate` (0.4) slows the body alone on that span; `from` starts part way in, `hold` freezes the first frame under a cut or fade |
+| 6 Contact authored, not penetration | the span's `to` is the point that puts the foot on the edge; the role is posed collider off over its spans and gets the collider back where it lands, so end the last span on free floor |
+| 7 Clip time follows the step clock | automatic: clips are sought to `clip_time` (and drawn at `clip_time_at`, interpolated), so they slow with `time_scale` without still frames and `clip_finished` still comes; a clip shows frame 0 until the step after it begins, so start it one step before it must move; chain the clips after a traversal in the `path`'s `then` (`after` cuts the one before short), not with `wait_for: clip_finished` + `clip`, which shows a held last frame |
 | 8 Cut on the action, position continuous | cuts change the camera only, never `teleport` to hide a move; `wait` counts world time (0.6 s on screen at 0.4× is `wait: 0.24`) |
 | 9 No HUD while covered | the game hides its HUD on `cutscene_started` and while it fades |
 
@@ -103,6 +103,29 @@ Entering through a window, the foot catching the sill
 }
 ```
 
+A traversal in clip spans, the foot catching the sill in slow motion, the
+landing and getting up chained without a still frame
+(`crates/sariema-runtime/tests/fixtures/cutscenes/sill_trip.json`):
+
+```json
+{ "path": { "role": "hero", "clip": "climb_trip", "from": 0.1, "spans": [
+    { "at": [0.3, 0.6], "to": [0, 0.9, 0.15], "ease": "out_quad" },
+    { "at": [0.6, 0.75], "to": [0, 0.9, -0.1] },
+    { "at": [0.75, 0.9], "rate": 0.4 },
+    { "at": [0.9, 1.2], "to": [0, 0, -0.8], "ease": "in_quad", "arc": 0.1 } ],
+  "then": [ { "clip": "land_belly" }, { "clip": "get_up", "after": 0.6 } ] } }
+```
+
+Put it in a `parallel` with a branch of `wait_for: clip_marker` and
+`shot`s to cut to the close on the catch. Copied into a project's
+`cutscenes/`, `sariema check <project> --json` gives `"ok":true`; a span
+too fast to be seen (say `"at": [0.6, 0.62]` to 2 m away) gives
+`E_CUTSCENE_SPEED` naming `steps[2].parallel[0][0].path`.
+
+From a game, the same is `clip_path` (spans written with
+`ClipSpan::put`) and `clip_next`; refused with `E_CLIP_SPANS` (out of
+order, past the clip's end) or `E_TELEPORT_VISIBLE` (too fast).
+
 ## Fixing a failed check
 
 The message names the file, cutscene and step: `cutscene meet, steps[4].teleport: …`.
@@ -116,7 +139,7 @@ The message names the file, cutscene and step: `cutscene meet, steps[4].teleport
 | `E_CUTSCENE_SPAWN` | spawn only roles without `start`, or after their `despawn` |
 | `E_CUTSCENE_ABSENT` | do not use a role after `despawn` |
 | `E_CUTSCENE_RACE` | move each role, and set each flag, in one `parallel` branch only |
-| `E_CUTSCENE_SPEED` | slow the `walk` (or `cutscene.start_walk_speed`) to `motion.max_visible_speed` or less; to cross faster, hide it or cut |
+| `E_CUTSCENE_SPEED` | slow the `walk` (or `cutscene.start_walk_speed`), or widen the `path` span (or lower its `rate`), to `motion.max_visible_speed` or less; to cross faster, hide it or cut |
 | `E_SETTINGS` | in `game.settings`, keep `min_time_scale` and `max_time_scale` positive, the minimum no larger |
 | `E_CUTSCENE_ROLE` | declare the role under `roles` |
 | `E_SCHEMA` | the message names the field; `shot` needs `blend`, an `auto` line needs `duration` |

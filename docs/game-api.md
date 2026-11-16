@@ -383,6 +383,34 @@ without `--headless` the pack plays in a window.
   its first frame until the next step: the frames drawn then lie between
   the step before, which had no clip, and the one that started it, so there
   is no earlier time to show. Start a clip one step before it must move.
+  The engine tells the runtime how long each actor's clips last.
+- **Clips bound to the root**: `clip_path` plays a clip from `from`
+  seconds into it, still for `hold` seconds first (under a fade or a cut:
+  the pose does not move), and moves the actor's root only within the
+  clip's spans (`ClipSpan`, written with `ClipSpan::put` into `spans`, in
+  order of the clip's time). Within a span the clip plays at the span's
+  `rate` (0.4 is slow motion on that span alone) and the root goes from
+  where it stood when the span began to the span's point, eased, rising
+  `arc` metres halfway, and turning to its `yaw`; outside the spans the
+  root stays while the clip anticipates or settles, at its own rate. The
+  root is placed each step from the clip's time, so a slowed span, slow
+  motion or the hold keep body and root together, and a rate due inside a
+  step takes over within it. With a collision module the actor is posed
+  with its collider off for the spans (over a sill, onto a ledge) and gets
+  it back where the root stands when the last span ends, pushed out of any
+  overlap, then hears `arrived`; a `move_to`, `move_intent`, `stop` or
+  `teleport` ends the path where the root stands, and another clip ends it
+  with `blocked`. Refused with `E_CLIP_SPANS` (out of order, overlapping,
+  past the clip's end, a rate of 0, not finite) or `E_TELEPORT_VISIBLE`
+  (a span faster than `motion.max_visible_speed`, or turning faster than
+  `motion.turn_rate`, for a visible actor).
+- **Clips in a row**: `clip_next` queues a clip after the one an actor
+  plays and those queued after it. It begins once the one before has
+  played `after` seconds, or at its end when `after` is 0, inside the step
+  that happens, with the time left over: the seam shows no still frame and
+  loses no time, where waiting for `clip_finished` and then playing loses a
+  step or two. The animation module crossfades over `blend`. A `play_clip`
+  or `clip_path` drops the queue; with no clip playing it plays at once.
 - **Time scale**: `time_scale` plays the world slower or faster than real
   time, reached over `blend` seconds. The display frames' time is scaled
   before it becomes steps: a step stays 1/60 s of world time, so play stays

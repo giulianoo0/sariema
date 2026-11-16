@@ -54,7 +54,9 @@ on (`E_SETTINGS`), since every actor would move twice.
    are applied before anything moves.
 3. **The sequencer** runs the cutscene's steps. A `walk` becomes a
    `move_to` intent; skipped, it becomes a placement plus a `SkippedWalk`
-   intent, so the collision module can check the place is reachable.
+   intent, so the collision module can check the place is reachable. Then the roots of clip paths (`clip_path`, a cutscene's `path`) are
+   placed for their clips' times; the collision module poses them with the
+   collider off and gets it back on where the last span lands.
 4. **Animation** runs where the runtime's built-in mover would, before the
    collision module, because a traversal's contact needs this step's pose
    (Godot runs an `AnimationTree` on the physics callback for the same

@@ -157,3 +157,10 @@ fn a_path_too_fast_or_moving_a_role_another_branch_moves_fails_the_check() {
     let (over, _) = compile_json(OVER).unwrap();
     assert_eq!(check(&over, &settings), []);
 }
+
+#[test]
+fn the_sill_trip_example_passes_the_rules() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/cutscenes/sill_trip.json");
+    let (cutscene, _) = compile_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(check(&cutscene, &Settings::default()), []);
+}
