@@ -12,8 +12,9 @@
 //!   faded. (`E_CUTSCENE_TELEPORT`, `E_CUTSCENE_COVER`)
 //! - Every role declares its start place, unless the cutscene spawns it
 //!   before using it. (`E_CUTSCENE_START`, `E_CUTSCENE_ABSENT`, `E_CUTSCENE_SPAWN`)
-//! - Parallel branches never move the same role or set the same flag, so
-//!   skipping gives the same end state as playing. (`E_CUTSCENE_RACE`)
+//! - Parallel branches never move the same role, set the same flag or tween
+//!   the same scene parameter, so skipping gives the same end state as
+//!   playing. (`E_CUTSCENE_RACE`)
 //! - No walk is faster than an actor may be seen to move: neither a `walk`
 //!   nor, for a role with a start, `cutscene.start_walk_speed` exceeds the
 //!   project's `motion.max_visible_speed`. (`E_CUTSCENE_SPEED`)
@@ -78,6 +79,7 @@ struct Known {
 struct Writes {
     moved: BTreeSet<u16>,
     flags: BTreeSet<u32>,
+    params: BTreeSet<u32>,
     fade: bool,
     shown: BTreeSet<u16>,
 }
@@ -257,7 +259,8 @@ impl Checker<'_> {
             | Block::SetFlag { .. }
             | Block::Call { .. }
             | Block::TimeScale { .. }
-            | Block::CameraShake { .. } => {}
+            | Block::CameraShake { .. }
+            | Block::Scene { .. } => {}
         }
     }
 
@@ -318,6 +321,18 @@ impl Checker<'_> {
                         "E_CUTSCENE_RACE",
                         &format!("{at}.parallel"),
                         format!("branches {i} and {j} set the same flag"),
+                    );
+                }
+                if writes[i]
+                    .params
+                    .intersection(&writes[j].params)
+                    .next()
+                    .is_some()
+                {
+                    self.fail(
+                        "E_CUTSCENE_RACE",
+                        &format!("{at}.parallel"),
+                        format!("branches {i} and {j} tween the same scene parameter"),
                     );
                 }
             }
@@ -401,6 +416,9 @@ fn collect(blocks: &[Block], w: &mut Writes) {
             }
             Block::SetFlag { flag, .. } => {
                 w.flags.insert(*flag);
+            }
+            Block::Scene { values, .. } => {
+                w.params.extend(values.iter().map(|(param, _)| param));
             }
             Block::Fade { .. } => w.fade = true,
             _ => {}

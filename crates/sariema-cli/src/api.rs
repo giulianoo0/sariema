@@ -271,6 +271,11 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "a group, piece, state or scene parameter the active room lacks",
     ),
     (
+        "E_SCENE_VALUES",
+        Kind::Rejected,
+        "scene_tween values torn short of a whole parameter or not finite",
+    ),
+    (
         "E_CUTSCENE_BUSY",
         Kind::Rejected,
         "cutscene_play while a cutscene plays",

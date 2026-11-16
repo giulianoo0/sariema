@@ -32,7 +32,7 @@ use std::time::Duration;
 use glam::Mat4;
 use sariema_core::Camera;
 use sariema_format::actor::ActorPack;
-use sariema_format::{AlphaMode, Background, CharacterLight, Light, Look, RoomPack, Sun};
+use sariema_format::{AlphaMode, Background, CharacterLight, Fog, Light, Look, RoomPack, Sun};
 
 mod actors;
 mod cluster;
@@ -277,6 +277,7 @@ pub struct Lighting {
     pub ambient: [[f32; 3]; 9],
     pub background: Background,
     pub character: CharacterLight,
+    pub fog: Fog,
 }
 
 impl Lighting {
@@ -287,6 +288,7 @@ impl Lighting {
             ambient: room.ambient.sh9,
             background: room.background.clone(),
             character: room.character.clone(),
+            fog: room.fog,
         }
     }
 }
@@ -340,6 +342,7 @@ pub struct Renderer {
     /// The drawn set or a light switched since `lights` was made.
     lights_stale: bool,
     lighting: Option<Lighting>,
+    look: Option<Look>,
     ui: UiPass,
     visible: Visible,
     stats: FrameStats,
@@ -403,6 +406,7 @@ impl Renderer {
             light_keys: Vec::new(),
             lights_stale: true,
             lighting: None,
+            look: None,
             ui,
             visible: Visible::default(),
             stats: FrameStats::default(),
@@ -748,6 +752,17 @@ impl Renderer {
 
     pub fn set_look(&mut self, look: &Look) {
         self.post.set_look(&self.gpu, look);
+        self.look = Some(look.clone());
+    }
+
+    /// The look set last.
+    pub fn look(&self) -> Option<&Look> {
+        self.look.as_ref()
+    }
+
+    /// The lighting set last; `None` draws with the first drawn room's own.
+    pub fn lighting(&self) -> Option<&Lighting> {
+        self.lighting.as_ref()
     }
 
     /// Shows or hides every draw called `name` in the drawn rooms; false if
@@ -803,8 +818,11 @@ impl Renderer {
                 ambient: r.ambient,
                 background: r.background.clone(),
                 character: r.character.clone(),
+                fog: r.fog,
             }),
         };
+        let fog = lighting.as_ref().map_or(Fog::default(), |l| l.fog);
+        self.post.set_fog(&self.gpu, scene::fog_params(&fog));
         let sun = lighting.as_ref().and_then(|l| l.sun.as_ref());
         self.shadows.assign(
             &self.gpu,

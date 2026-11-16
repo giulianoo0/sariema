@@ -5,7 +5,7 @@
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat3, Mat4, Vec3};
 use sariema_format::{
-    Background, CharacterLight, Group, Light, Material, RoomPack, Sun, Texture, TextureFormat,
+    Background, CharacterLight, Fog, Group, Light, Material, RoomPack, Sun, Texture, TextureFormat,
     Vertex,
 };
 
@@ -98,6 +98,7 @@ pub(crate) struct Room {
     pub ambient: [[f32; 3]; 9],
     pub background: Background,
     pub character: CharacterLight,
+    pub fog: Fog,
     groups: Vec<Group>,
     nodes: Vec<NodeGpu>,
     pieces: Vec<PieceGpu>,
@@ -552,6 +553,7 @@ impl PendingRoom {
             ambient: room.ambient.sh9,
             background: room.background.clone(),
             character: room.character.clone(),
+            fog: room.fog,
             groups: room.groups.clone(),
             nodes: (room.nodes.iter())
                 .map(|n| NodeGpu {

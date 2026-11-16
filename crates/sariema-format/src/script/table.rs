@@ -111,6 +111,14 @@ batch_table! {
         /// A sphere that reports actors entering and leaving it.
         0x0068 Zone zone { zone: u32, center: Vec3, radius: f32 }
         0x0069 RemoveZone remove_zone { zone: u32 }
+        /// Tweens scene parameters of the active room together, each from its
+        /// current value: `values` holds, for each, its name id then the value
+        /// it goes to (`u32` and `f32`; `put_scene_value` writes them). Each
+        /// replaces whatever drove its parameter, other tweens under `tween`
+        /// included; `tween_done` reports `tween` once the last of them is
+        /// there. A parameter the room lacks (`E_SCENE_UNKNOWN`), or values
+        /// torn or not finite (`E_SCENE_VALUES`), refuse the whole command.
+        0x006A SceneTween scene_tween { tween: u32, values: Bytes, duration: f32, ease: Ease }
 
         /// A camera rig that follows `subject` from `distance` m at `pitch`
         /// and `yaw`, aimed `height` m above it.

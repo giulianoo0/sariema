@@ -148,6 +148,14 @@ pub enum Block {
         frequency: f32,
         duration: f32,
     },
+    /// Tweens scene parameters of the active room, each a name id with the
+    /// value it goes to, as one `scene_tween`; ends at once. A skip lands
+    /// them, and every one still under way, at their values.
+    Scene {
+        values: Vec<(u32, f32)>,
+        duration: f32,
+        ease: u8,
+    },
 }
 
 /// The point of a role a shot aims at: its origin, or a bone or socket

@@ -133,12 +133,9 @@ impl Tweens {
         self.list.is_empty()
     }
 
-    fn take(&mut self, id: u32, target: &Target) -> Option<Anim> {
-        let at = self
-            .list
-            .iter()
-            .position(|a| a.id == id || a.target.same(target))?;
-        Some(self.list.remove(at))
+    /// Drops every animation under `id` or on `target`.
+    fn release(&mut self, id: u32, target: &Target) {
+        self.list.retain(|a| a.id != id && !a.target.same(target));
     }
 
     pub fn tween(
@@ -151,7 +148,7 @@ impl Tweens {
         ease: Ease,
     ) -> Result<(), Reject> {
         let from = read(world, store, scenery, &target)?;
-        self.take(id, &target);
+        self.release(id, &target);
         self.list.push(Anim {
             id,
             target,
@@ -167,6 +164,46 @@ impl Tweens {
         Ok(())
     }
 
+    /// Tweens each target to its value under `id`, together, each from its
+    /// current value. Each replaces only what drove its own target, so the
+    /// other animations under `id` go on; `id` is done once all are.
+    pub fn bundle(
+        &mut self,
+        (world, store, scenery): (&World, &Store, &Scenery),
+        id: u32,
+        targets: impl Iterator<Item = (Target, f32)>,
+        duration: f32,
+        ease: Ease,
+    ) -> Result<(), Reject> {
+        let steps = steps_of(duration);
+        for (target, to) in targets {
+            let from = read(world, store, scenery, &target)?;
+            self.list.retain(|a| !a.target.same(&target));
+            self.list.push(Anim {
+                id,
+                target,
+                drive: Drive::Tween {
+                    from,
+                    to,
+                    steps,
+                    elapsed: 0,
+                    ease,
+                },
+                last: from,
+            });
+        }
+        Ok(())
+    }
+
+    /// Makes every tween under `id` arrive at its value in the next step.
+    pub fn land(&mut self, id: u32) {
+        for anim in self.list.iter_mut().filter(|a| a.id == id) {
+            if let Drive::Tween { steps, elapsed, .. } = &mut anim.drive {
+                *elapsed = (*elapsed).max(*steps - 1);
+            }
+        }
+    }
+
     pub fn spring(
         &mut self,
         (world, store, scenery): (&World, &Store, &Scenery),
@@ -178,7 +215,7 @@ impl Tweens {
     ) -> Result<(), Reject> {
         let now = read(world, store, scenery, &target)?;
         let velocity = self.velocity(id, &target, now);
-        self.take(id, &target);
+        self.release(id, &target);
         self.list.push(Anim {
             id,
             target,
@@ -225,9 +262,9 @@ impl Tweens {
         self.list.len() != before
     }
 
-    /// Advances every animation one step; `done` receives each finished id.
-    /// A spring finishes once both its offset and its velocity are within
-    /// `rest`, landing exactly on its target.
+    /// Advances every animation one step; `done` receives each id whose
+    /// last animation finished. A spring finishes once both its offset and
+    /// its velocity are within `rest`, landing exactly on its target.
     pub fn step(
         &mut self,
         world: &mut World,
@@ -270,7 +307,8 @@ impl Tweens {
             };
             anim.last = value;
             let alive = write(world, values, &anim.target, value).is_ok();
-            if finished && alive {
+            let others = |list: &[Anim]| list.iter().any(|a| a.id == anim.id);
+            if finished && alive && !others(&self.list[..kept]) && !others(&self.list[i + 1..]) {
                 done(anim.id);
             }
             if !finished && alive {

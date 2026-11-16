@@ -71,6 +71,25 @@ pub enum Step {
     Call(String),
     TimeScale(TimeScale),
     CameraShake(CameraShake),
+    Scene(Scene),
+}
+
+/// Scene parameters of the active room tweened together; the step does
+/// not wait for them.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Scene {
+    /// Each parameter's name with the value it goes to.
+    pub set: BTreeMap<String, f32>,
+    pub duration: f32,
+    #[serde(default = "Scene::ease")]
+    pub ease: String,
+}
+
+impl Scene {
+    fn ease() -> String {
+        "in_out_sine".into()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -629,6 +648,23 @@ impl Compiler<'_> {
                 frequency: c.frequency,
                 duration: c.duration,
             },
+            Step::Scene(c) => {
+                let at = format!("{at}.scene");
+                if !(c.duration.is_finite() && c.duration >= 0.0) {
+                    return Err(self.error(
+                        "E_SCHEMA",
+                        &at,
+                        format!("duration is {}, not a duration", c.duration),
+                    ));
+                }
+                Block::Scene {
+                    values: (c.set.iter())
+                        .map(|(name, value)| (self.name(name), *value))
+                        .collect(),
+                    duration: c.duration,
+                    ease: self.pick(&at, "ease", Ease::from_name, &c.ease)? as u8,
+                }
+            }
         })
     }
 

@@ -24,11 +24,27 @@ pub use table::{BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Event};
 pub use wire::{
     Advance, Anchor, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,
     MessageSpec, Orientation, Property, Reader, RoomTransition, Sink, Str, Value, VariantSpec,
-    Vec3, Wire, WireError, name_id,
+    Vec3, Wire, WireError, name_id, put_scene_value,
 };
 
 use crate::scenery::RoomIndex;
 use cutscene::{Await, Block, Cutscene, Place, Point, Shot, Toward};
+
+/// Bytes of one parameter in a `scene_tween`'s `values`.
+const SCENE_VALUE: usize = 8;
+
+/// The parameters of a `scene_tween`'s `values` with the value each goes
+/// to, as [`put_scene_value`] writes them; `None` when its length is not a
+/// whole number of them.
+pub fn scene_values(values: &[u8]) -> Option<impl Iterator<Item = (u32, f32)> + Clone + '_> {
+    let (pairs, rest) = values.as_chunks::<SCENE_VALUE>();
+    rest.is_empty().then(|| {
+        pairs.iter().map(|&[a, b, c, d, e, f, g, h]| {
+            let param = u32::from_le_bytes([a, b, c, d]);
+            (param, f32::from_le_bytes([e, f, g, h]))
+        })
+    })
+}
 
 pub const GAME_MAGIC: [u8; 4] = *b"SRMG";
 pub const GAME_VERSION: u32 = 3;
@@ -460,6 +476,17 @@ fn validate_block(block: &Block, roles: usize) -> Result<(), String> {
             finite("shake amplitude", *amplitude)?;
             finite("shake frequency", *frequency)?;
             seconds("shake duration", *duration)
+        }
+        Block::Scene {
+            values,
+            duration,
+            ease,
+        } => {
+            values
+                .iter()
+                .try_for_each(|(_, v)| finite("scene value", *v))?;
+            seconds("scene duration", *duration)?;
+            known("ease", Ease::from_u8(*ease).is_some())
         }
     }
 }

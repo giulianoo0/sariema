@@ -63,6 +63,13 @@ impl WireError {
     }
 }
 
+/// Appends to a `scene_tween`'s `values` the parameter `param`, a
+/// [`name_id`], going to `value`.
+pub fn put_scene_value(out: &mut impl Sink, param: u32, value: f32) {
+    out.put(&param.to_le_bytes());
+    out.put(&value.to_le_bytes());
+}
+
 pub struct Reader<'a> {
     bytes: &'a [u8],
     pos: usize,

@@ -50,6 +50,10 @@ fn the_schema_and_the_compiler_refuse_the_same_mistakes() {
         r#"{ "name": "a", "roles": { "x": {} }, "steps": [ { "shot": { "frame": ["x", "x"], "bone": "head", "blend": 0 } } ] }"#,
         r#"{ "name": "a", "roles": {}, "steps": [ { "time_scale": { "blend": 1 } } ] }"#,
         r#"{ "name": "a", "roles": {}, "steps": [ { "shot": { "fixed": { "position": [0,0,0], "look_at": [0,0,1] }, "socket": "hand", "blend": 0 } } ] }"#,
+        r#"{ "name": "a", "roles": {}, "steps": [ { "scene": { "duration": 1 } } ] }"#,
+        r#"{ "name": "a", "roles": {}, "steps": [ { "scene": { "set": { "look.exposure": 2 }, "duration": 1, "ease": "bouncy" } } ] }"#,
+        r#"{ "name": "a", "roles": {}, "steps": [ { "scene": { "set": { "look.exposure": "bright" }, "duration": 1 } } ] }"#,
+        r#"{ "name": "a", "roles": {}, "steps": [ { "scene": { "set": { "look.exposure": 2 }, "duration": -1 } } ] }"#,
     ] {
         let value: Value = serde_json::from_str(text).unwrap();
         assert!(
@@ -93,4 +97,27 @@ fn the_schemas_enums_are_the_tables() {
         list(&step("line")["properties"]["advance"]),
         names(&Advance::SPEC)
     );
+}
+
+#[test]
+fn a_scene_step_names_its_parameters_and_eases_in_and_out_by_default() {
+    use sariema_format::script::cutscene::Block;
+    use sariema_format::script::name_id;
+    let text = r#"{ "name": "dusk", "roles": {}, "steps": [
+        { "scene": { "set": { "look.exposure": 0.6, "fog.density": 0.05 }, "duration": 2 } } ] }"#;
+    let value: Value = serde_json::from_str(text).unwrap();
+    jsonschema::validate(&schema(), &value).unwrap();
+    let (cutscene, names) = compile_json(text).unwrap();
+    assert_eq!(
+        cutscene.body,
+        [Block::Scene {
+            values: vec![
+                (name_id("fog.density"), 0.05),
+                (name_id("look.exposure"), 0.6)
+            ],
+            duration: 2.0,
+            ease: Ease::InOutSine as u8,
+        }]
+    );
+    assert!(names.iter().any(|n| n == "look.exposure"), "{names:?}");
 }

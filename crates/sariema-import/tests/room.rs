@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use common::write_glb;
 use sariema_format::{
-    AlphaMode, CharacterLight, Draw, LightKind, Look, Mobility, RoomPack, Shading, TextureFormat,
-    decode, encode, eval_sh9,
+    AlphaMode, CharacterLight, Draw, Fog, LightKind, Look, Mobility, RoomPack, Shading,
+    TextureFormat, decode, encode, eval_sh9,
 };
 use sariema_import::{ImportError, RoomSource, build_room};
 use serde_json::{Value, json};
@@ -704,5 +704,33 @@ fn a_character_light_keeps_the_defaults_it_leaves_out() {
         sala_min(),
         json!({ "character_light": { "room_tint": 2.0 } }),
     ));
+    assert_eq!(e.code(), "E_SCHEMA");
+}
+
+#[test]
+fn fog_is_off_unless_described_and_takes_the_background_below_for_its_colour() {
+    let plain = build(sala_min());
+    assert_eq!(plain.fog.density, 0.0);
+    assert!(plain.fog.end <= plain.fog.start);
+    assert_eq!(plain.fog.color, plain.background.bottom);
+    let room = build(with(
+        sala_min(),
+        json!({ "fog": { "density": 0.04, "start": 3.0 } }),
+    ));
+    assert_eq!(
+        room.fog,
+        Fog {
+            color: room.background.bottom,
+            density: 0.04,
+            start: 3.0,
+            end: 0.0,
+        }
+    );
+    let room = build(with(
+        sala_min(),
+        json!({ "fog": { "color": [0.5, 0.5, 0.6], "start": 2.0, "end": 12.0 } }),
+    ));
+    assert_eq!((room.fog.color, room.fog.end), ([0.5, 0.5, 0.6], 12.0));
+    let e = build_err(with(sala_min(), json!({ "fog": { "density": -1.0 } })));
     assert_eq!(e.code(), "E_SCHEMA");
 }

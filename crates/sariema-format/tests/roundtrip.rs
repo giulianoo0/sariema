@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use sariema_format::demo::demo_room;
-use sariema_format::{CharacterLight, FormatError, decode, encode, eval_sh9, hemisphere_sh9};
+use sariema_format::{CharacterLight, Fog, FormatError, decode, encode, eval_sh9, hemisphere_sh9};
 
 #[test]
 fn roundtrip_demo() {
@@ -181,6 +181,51 @@ fn a_bad_character_light_is_invalid() {
         assert!(
             matches!(decode(&encode(&r)), Err(FormatError::Invalid(_))),
             "{character:?}"
+        );
+    }
+}
+
+#[test]
+fn fog_round_trips_and_is_off_by_default() {
+    let mut r = demo_room();
+    assert_eq!(r.fog, Fog::default());
+    assert_eq!(r.fog.density, 0.0);
+    assert!(r.fog.end <= r.fog.start, "no ramp by default");
+    r.fog = Fog {
+        color: [0.4, 0.45, 0.5],
+        density: 0.08,
+        start: 2.0,
+        end: 30.0,
+    };
+    assert_eq!(decode(&encode(&r)).unwrap(), r);
+}
+
+#[test]
+fn a_bad_fog_is_invalid() {
+    let bad = [
+        Fog {
+            density: -0.1,
+            ..Fog::default()
+        },
+        Fog {
+            start: -1.0,
+            ..Fog::default()
+        },
+        Fog {
+            color: [f32::NAN, 0.0, 0.0],
+            ..Fog::default()
+        },
+        Fog {
+            end: f32::INFINITY,
+            ..Fog::default()
+        },
+    ];
+    for fog in bad {
+        let mut r = demo_room();
+        r.fog = fog;
+        assert!(
+            matches!(decode(&encode(&r)), Err(FormatError::Invalid(_))),
+            "{fog:?}"
         );
     }
 }

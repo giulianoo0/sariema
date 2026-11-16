@@ -22,15 +22,22 @@ pub enum SceneReject {
     UnknownRoom,
     /// The active room has no group, piece, state or parameter of that name.
     Unknown,
+    /// A `scene_tween`'s values are torn or not finite.
+    Values,
 }
 
 impl SceneReject {
-    pub const ALL: [SceneReject; 2] = [SceneReject::UnknownRoom, SceneReject::Unknown];
+    pub const ALL: [SceneReject; 3] = [
+        SceneReject::UnknownRoom,
+        SceneReject::Unknown,
+        SceneReject::Values,
+    ];
 
     pub const fn code(self) -> &'static str {
         match self {
             SceneReject::UnknownRoom => "E_ROOM_UNKNOWN",
             SceneReject::Unknown => "E_SCENE_UNKNOWN",
+            SceneReject::Values => "E_SCENE_VALUES",
         }
     }
 }
@@ -46,6 +53,9 @@ pub struct RoomScene {
     pub pieces: Vec<u32>,
     /// By parameter, its value.
     pub params: Vec<f32>,
+    /// By parameter, its value when the step began: a frame between two
+    /// steps draws the value between these and `params`.
+    pub previous: Vec<f32>,
     group_ids: Vec<(u32, u32)>,
     piece_ids: Vec<(u32, u32)>,
     /// By piece, its states' ids, the start look's as 0.
@@ -85,6 +95,7 @@ impl RoomScene {
             groups: index.groups.iter().map(|g| g.1).collect(),
             pieces: index.pieces.iter().map(|p| p.state).collect(),
             params: index.params.iter().map(|p| p.value).collect(),
+            previous: index.params.iter().map(|p| p.value).collect(),
             group_ids: sorted_ids(index.groups.iter().map(|g| g.0.as_str())),
             piece_ids: sorted_ids(index.pieces.iter().map(|p| p.name.as_str())),
             state_ids,
@@ -227,6 +238,9 @@ impl Scenery {
 
     pub fn begin_step(&mut self) {
         self.requests.clear();
+        for room in &mut self.rooms {
+            room.previous.copy_from_slice(&room.params);
+        }
     }
 
     pub fn step(&mut self) {

@@ -23,7 +23,7 @@ pub mod sound;
 pub mod stream;
 
 pub const MAGIC: [u8; 4] = *b"SRMA";
-pub const VERSION: u32 = 7;
+pub const VERSION: u32 = 8;
 
 pub(crate) const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
@@ -287,6 +287,24 @@ impl Default for CharacterLight {
     }
 }
 
+/// Haze between the camera and what is drawn, which takes a share of its
+/// colour towards the fog's: `1 − e^(−density × beyond)`, where `beyond` is
+/// how far past `start` it is, or the ramp from `start` to `end`, whichever
+/// is thicker. Off while `density` is 0 and `end` is not past `start`. The
+/// background stays as it is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Fog {
+    /// Linear RGB.
+    pub color: [f32; 3],
+    /// The share of light lost per metre past `start`.
+    pub density: f32,
+    /// Metres from the camera where the fog begins.
+    pub start: f32,
+    /// Metres from the camera where the ramp from `start` covers everything.
+    pub end: f32,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RoomCamera {
     pub fov_y_deg: f32,
@@ -444,6 +462,7 @@ pub struct RoomPack {
     pub nodes: Vec<Node>,
     pub pieces: Vec<Piece>,
     pub character: CharacterLight,
+    pub fog: Fog,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -498,8 +517,9 @@ pub fn encode(room: &RoomPack) -> Vec<u8> {
 /// Decodes a pack and validates it: every mesh, material, texture and vertex
 /// index must exist, every draw's bounds must be finite with `min <= max`,
 /// every light's importance finite and at least 0, the look's `ao_strength`
-/// in [0, 1] and its `ao_radius_m` finite and positive, and the character
-/// light finite, not negative, its `room_tint` in [0, 1].
+/// in [0, 1] and its `ao_radius_m` finite and positive, the character
+/// light finite, not negative, its `room_tint` in [0, 1], and the fog
+/// finite and not negative.
 ///
 /// Never panics. A length read from the input cannot cause a large
 /// allocation: postcard only reports a sequence length as a size hint when
@@ -585,6 +605,11 @@ pub(crate) fn validate_rest(room: &RoomPack) -> Result<(), FormatError> {
         ));
     }
     validate_character(&room.character).map_err(FormatError::Invalid)?;
+    let fog = &room.fog;
+    let mut numbers = fog.color.iter().chain([&fog.density, &fog.start, &fog.end]);
+    if !numbers.all(|v| v.is_finite() && *v >= 0.0) {
+        return invalid(format!("fog {fog:?} is not finite or has a negative value"));
+    }
     for (i, draw) in room.draws.iter().enumerate() {
         if draw.mesh as usize >= room.meshes.len() {
             return invalid(format!(
@@ -747,6 +772,15 @@ pub fn hemisphere_sh9(sky: [f32; 3], ground: [f32; 3], intensity: f32) -> [[f32;
     sh9[0] = std::array::from_fn(|c| 0.5 * (sky[c] + ground[c]) * intensity / SH_Y00);
     sh9[1] = std::array::from_fn(|c| 0.5 * (sky[c] - ground[c]) * intensity / SH_Y1);
     sh9
+}
+
+/// The sky and ground colours, intensity included, that [`hemisphere_sh9`]
+/// turns into `sh9`'s first band and the vertical term of its second: what
+/// the ambient gives straight up and straight down without its other terms.
+pub fn sh9_hemisphere(sh9: &[[f32; 3]; 9]) -> ([f32; 3], [f32; 3]) {
+    let sky = std::array::from_fn(|c| sh9[0][c] * SH_Y00 + sh9[1][c] * SH_Y1);
+    let ground = std::array::from_fn(|c| sh9[0][c] * SH_Y00 - sh9[1][c] * SH_Y1);
+    (sky, ground)
 }
 
 /// Ambient light reaching a surface with unit `normal`.

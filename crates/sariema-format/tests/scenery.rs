@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use sariema_format::demo::demo_room;
-use sariema_format::scenery::{LightField, RoomIndex, Target, sun_angles, sun_direction};
-use sariema_format::{FormatError, Group, Hinge, Node, Piece, PieceState, decode, encode};
+use sariema_format::scenery::{Channel, LightField, RoomIndex, Target, sun_angles, sun_direction};
+use sariema_format::{
+    Fog, FormatError, Group, Hinge, Node, Piece, PieceState, decode, encode, eval_sh9,
+    hemisphere_sh9,
+};
 
 const IDENTITY: [f32; 16] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -154,5 +157,68 @@ fn sun_angles_and_direction_invert_each_other() {
         for k in 0..3 {
             assert!((back[k] - unit[k]).abs() < 1e-5, "{back:?} vs {unit:?}");
         }
+    }
+}
+
+#[test]
+fn the_index_holds_the_rooms_fog_and_its_hemisphere() {
+    let mut room = scenery_room();
+    room.fog = Fog {
+        color: [0.3, 0.35, 0.4],
+        density: 0.05,
+        start: 1.5,
+        end: 25.0,
+    };
+    let (sky, ground) = ([0.6, 0.7, 0.9], [0.2, 0.15, 0.1]);
+    room.ambient.sh9 = hemisphere_sh9(sky, ground, 0.8);
+    room.ambient.sh9[4] = [0.05, 0.0, 0.02];
+    let index = RoomIndex::of(&room);
+    let param = |name: &str| {
+        let p = (index.params.iter())
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("no parameter {name}"));
+        (p.value, p.target)
+    };
+    assert_eq!(param("fog.density"), (0.05, Target::FogDensity));
+    assert_eq!(param("fog.start"), (1.5, Target::FogStart));
+    assert_eq!(param("fog.end"), (25.0, Target::FogEnd));
+    assert_eq!(param("fog.color.g"), (0.35, Target::FogColor(Channel::G)));
+    assert_eq!(param("hemisphere.intensity"), (1.0, Target::Hemisphere));
+    for (k, (n, c)) in [("r", Channel::R), ("g", Channel::G), ("b", Channel::B)]
+        .into_iter()
+        .enumerate()
+    {
+        let (value, target) = param(&format!("hemisphere.sky.{n}"));
+        assert_eq!(target, Target::HemisphereSky(c));
+        assert!((value - 0.8 * sky[k]).abs() < 1e-6, "{value}");
+        let (value, target) = param(&format!("hemisphere.ground.{n}"));
+        assert_eq!(target, Target::HemisphereGround(c));
+        assert!((value - 0.8 * ground[k]).abs() < 1e-6, "{value}");
+    }
+    // What the hemisphere reads is what the ambient gives straight up and down.
+    let up = eval_sh9(&room.ambient.sh9, [0.0, 1.0, 0.0]);
+    let down = eval_sh9(&room.ambient.sh9, [0.0, -1.0, 0.0]);
+    let band2 = |n: [f32; 3]| {
+        let mut only = [[0.0; 3]; 9];
+        only[4..].copy_from_slice(&room.ambient.sh9[4..]);
+        eval_sh9(&only, n)
+    };
+    for k in 0..3 {
+        let sky_read = param(["hemisphere.sky.r", "hemisphere.sky.g", "hemisphere.sky.b"][k]).0;
+        let ground_read = param(
+            [
+                "hemisphere.ground.r",
+                "hemisphere.ground.g",
+                "hemisphere.ground.b",
+            ][k],
+        )
+        .0;
+        let up_k = up[k] - band2([0.0, 1.0, 0.0])[k];
+        let down_k = down[k] - band2([0.0, -1.0, 0.0])[k];
+        assert!((sky_read - up_k).abs() < 1e-5, "{sky_read} vs {up_k}");
+        assert!(
+            (ground_read - down_k).abs() < 1e-5,
+            "{ground_read} vs {down_k}"
+        );
     }
 }

@@ -14,9 +14,9 @@ use std::path::{Path, PathBuf};
 
 use glam::{Mat3, Mat4, Quat, Vec3};
 use sariema_format::{
-    Aabb, AlphaMode, Ambient, Background, CharacterLight, Draw, Group, Hinge, Light, LightKind,
-    Look, Material, Mesh, Mobility, Node, Piece, PieceState, RoomCamera, RoomPack, Stats, Sun,
-    Texture, Vertex, hemisphere_sh9,
+    Aabb, AlphaMode, Ambient, Background, CharacterLight, Draw, Fog, Group, Hinge, Light,
+    LightKind, Look, Material, Mesh, Mobility, Node, Piece, PieceState, RoomCamera, RoomPack,
+    Stats, Sun, Texture, Vertex, hemisphere_sh9,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -61,12 +61,25 @@ pub struct RoomSource {
     pub extra_hemisphere: Option<Hemisphere>,
     #[serde(default)]
     pub character_light: CharacterLight,
+    /// Off when absent.
+    #[serde(default)]
+    pub fog: FogSource,
     /// ASTC 4×4 when absent.
     #[serde(default)]
     pub textures: Option<TextureMode>,
     /// What to bake into the room's collision pack; no pack when absent.
     #[serde(default)]
     pub collision: Option<CollisionSource>,
+}
+
+/// The room's [`Fog`]; its colour is the background's bottom when absent.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct FogSource {
+    pub color: Option<[f32; 3]>,
+    pub density: f32,
+    pub start: f32,
+    pub end: f32,
 }
 
 /// A hemisphere light, added to the one luz.json gives the first shown room;
@@ -296,6 +309,12 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         nodes,
         pieces,
         character: source.character_light.clone(),
+        fog: Fog {
+            color: source.fog.color.unwrap_or(source.background.bottom),
+            density: source.fog.density,
+            start: source.fog.start,
+            end: source.fog.end,
+        },
     };
     room.stats = Stats::of_room(&room);
     Ok(room)

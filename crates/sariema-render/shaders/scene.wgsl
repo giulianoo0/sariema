@@ -68,6 +68,8 @@ override DITHER: bool = false;
 // Actors take the character light, and the colour of the room's light only
 // as far as its room tint says.
 override ACTOR: bool = false;
+// Additive: fog fades what it adds instead of turning it the fog's colour.
+override GLOW: bool = false;
 
 struct VertexOut {
     @builtin(position) clip: vec4<f32>,
@@ -128,6 +130,10 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     color += emissive;
     if material.rim > 0.0 {
         color += material.rim * pow(1.0 - saturate(dot(n, v)), 5.2);
+    }
+    if frame.fog.w > 0.0 {
+        let f = fog_share(distance(frame.camera_pos.xyz, in.world), frame.fog);
+        color = select(mix(color, frame.fog_color.rgb, f), color * (1.0 - f), GLOW);
     }
     if BLEND {
         return vec4(color * base.a, base.a) * presence;

@@ -124,6 +124,17 @@
         "room_tint": { "type": "number", "minimum": 0, "maximum": 1, "description": "How much of the room's light colour tints actors: 0 keeps the albedo's hue. 1 when absent." }
       }
     },
+    "fog": {
+      "type": "object",
+      "description": "Haze that takes a share of what is drawn towards its colour with the distance from the camera: 1 - e^(-density x metres past start), or the ramp from start to end, whichever is thicker. The background stays as it is. Off when absent; a game tweens fog.density, fog.color.r/g/b, fog.start and fog.end.",
+      "additionalProperties": false,
+      "properties": {
+        "color": { "$ref": "#/$defs/rgb", "description": "Linear RGB. The background's bottom when absent." },
+        "density": { "type": "number", "minimum": 0, "description": "The share of light lost per metre past start. 0 when absent." },
+        "start": { "type": "number", "minimum": 0, "description": "Metres from the camera where the fog begins. 0 when absent." },
+        "end": { "type": "number", "minimum": 0, "description": "Metres from the camera where the ramp from start covers everything; at or before start, no ramp. 0 when absent." }
+      }
+    },
     "textures": {
       "enum": ["rgba8", "astc"],
       "description": "How colour textures are stored. ASTC 4x4 (the default) needs a GPU that samples ASTC; RGBA8 is four times larger."

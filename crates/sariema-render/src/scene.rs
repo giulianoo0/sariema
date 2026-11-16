@@ -6,7 +6,7 @@
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use sariema_core::Camera;
-use sariema_format::{AlphaMode, CharacterLight, Light, Shading};
+use sariema_format::{AlphaMode, CharacterLight, Fog, Light, Shading};
 
 use crate::cluster::{self, Bins, Grid, Visible};
 use crate::lights::{GPU_LIGHT_SIZE, GpuLight, gpu_light};
@@ -35,6 +35,7 @@ pub(crate) fn source(quality: &Quality) -> String {
     [
         include_str!("../shaders/common.wgsl"),
         include_str!("../shaders/scene.wgsl"),
+        include_str!("../shaders/fog.wgsl"),
         &tables,
     ]
     .concat()
@@ -57,6 +58,8 @@ struct FrameUniform {
     character_dir: [f32; 4],
     character_color: [f32; 4],
     character: [f32; 4],
+    fog_color: [f32; 4],
+    fog: [f32; 4],
 }
 
 /// What picks a draw's pipeline. There is one pipeline per kind; nothing
@@ -501,6 +504,7 @@ fn frame_uniform(
         bottom = rgb_w(lighting.background.bottom, 0.0);
         top = rgb_w(lighting.background.top, 0.0);
     }
+    let fog = lighting.map_or(Fog::default(), |l| l.fog);
     let (scale, bias) = grid.slicing();
     FrameUniform {
         view_proj: (camera.proj * camera.view).to_cols_array_2d(),
@@ -521,7 +525,20 @@ fn frame_uniform(
             character.min_brightness,
             character.room_tint,
         ],
+        fog_color: rgb_w(fog.color, 0.0),
+        fog: fog_params(&fog),
     }
+}
+
+/// `fog` as fog.wgsl's `fog_share` takes it, with 1 in w while there is fog.
+pub(crate) fn fog_params(fog: &Fog) -> [f32; 4] {
+    let ramp = if fog.end > fog.start {
+        (1.0 / (fog.end - fog.start)).min(f32::MAX)
+    } else {
+        0.0
+    };
+    let on = fog.density > 0.0 || ramp > 0.0;
+    [fog.start, ramp, fog.density, on as u8 as f32]
 }
 
 fn rgb_w(rgb: [f32; 3], w: f32) -> [f32; 4] {
@@ -672,6 +689,7 @@ pub(crate) fn mesh_pipeline(
         ("PCF_SIDE", pcf_side as f64),
         ("DITHER", dither as u8 as f64),
         ("ACTOR", actor as u8 as f64),
+        ("GLOW", (kind.alpha == AlphaMode::Additive) as u8 as f64),
     ];
     let options = wgpu::PipelineCompilationOptions {
         constants: &constants,

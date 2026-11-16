@@ -13,9 +13,9 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    Ambient, Background, CharacterLight, Draw, FormatError, Group, HEADER_LEN, Light, Look, MAGIC,
-    Material, Mesh, Node, Piece, RoomCamera, RoomPack, Stats, Sun, Texture, VERSION, validate_mesh,
-    validate_rest,
+    Ambient, Background, CharacterLight, Draw, Fog, FormatError, Group, HEADER_LEN, Light, Look,
+    MAGIC, Material, Mesh, Node, Piece, RoomCamera, RoomPack, Stats, Sun, Texture, VERSION,
+    validate_mesh, validate_rest,
 };
 
 /// The fields of [`RoomPack`] after its textures, in its order.
@@ -33,6 +33,7 @@ struct Tail {
     nodes: Vec<Node>,
     pieces: Vec<Piece>,
     character: CharacterLight,
+    fog: Fog,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -184,6 +185,7 @@ impl<B: AsRef<[u8]>> RoomDecoder<B> {
             nodes: tail.nodes,
             pieces: tail.pieces,
             character: tail.character,
+            fog: tail.fog,
         };
         validate_rest(&room)?;
         Ok(room)

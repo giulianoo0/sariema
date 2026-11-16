@@ -22,6 +22,8 @@ struct Params {
     _pad0: u32,
     _pad1: u32,
     _pad2: u32,
+    // As fog_share takes it, with 1 in w while there is fog.
+    fog: vec4<f32>,
 }
 
 @group(0) @binding(0) var scene: texture_2d<f32>;
@@ -47,9 +49,15 @@ fn fs(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
     let uv = pixel.xy / vec2<f32>(textureDimensions(scene));
     var c = textureLoad(scene, p, 0);
     // Before the miniature blur, whose blurred levels have none, so that
-    // the occlusion blurs out with the scene.
+    // the occlusion blurs out with the scene. Fog in front of a crease hides
+    // its darkening as it hides the surface; the view depth stands in for the
+    // distance the scene's fog is measured with.
     if params.ao_strength > 0.0 {
-        c = vec4(c.rgb * mix(1.0, ambient_left(p), params.ao_strength), c.a);
+        var strength = params.ao_strength;
+        if params.fog.w > 0.0 {
+            strength *= 1.0 - fog_share(textureLoad(view_depth, p, 0).r, params.fog);
+        }
+        c = vec4(c.rgb * mix(1.0, ambient_left(p), strength), c.a);
     }
     if params.tilt > 0.0 {
         // The bottom 28% of the screen blurs over a ramp of 0.2 of its

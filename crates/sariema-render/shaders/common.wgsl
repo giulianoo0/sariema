@@ -22,6 +22,10 @@ struct Frame {
     character_dir: vec4<f32>,
     character_color: vec4<f32>,
     character: vec4<f32>,
+    // The fog's colour; then where it begins, the inverse of its ramp's
+    // length, its density, and in w 1 while there is fog.
+    fog_color: vec4<f32>,
+    fog: vec4<f32>,
 }
 
 struct Draw {

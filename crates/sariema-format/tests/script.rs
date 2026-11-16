@@ -6,7 +6,7 @@ use sariema_format::script::cutscene::{Block, Cutscene, Place, Role};
 use sariema_format::script::{
     BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Entity, Event, GAME_VERSION, GameAssets,
     GameFormatError, GamePack, GameRoom, Hud, Message, MessageSpec, Sink, WireError, decode_game,
-    encode_game, name_id, records,
+    encode_game, name_id, put_scene_value, records, scene_values,
 };
 
 fn batch<M>(messages: impl IntoIterator<Item = M>, write: impl Fn(&M, &mut Vec<u8>)) -> Vec<u8> {
@@ -372,4 +372,63 @@ fn names_with_the_same_id_are_refused() {
     let error = decode_game(&encode_game(&g)).unwrap_err();
     assert_eq!(error.code(), "E_SCHEMA");
     assert!(error.to_string().contains("same id"), "{error}");
+}
+
+#[test]
+fn scene_values_read_back_what_was_put_and_refuse_a_torn_list() {
+    let mut bytes = Vec::new();
+    put_scene_value(&mut bytes, name_id("look.exposure"), 2.5);
+    put_scene_value(&mut bytes, name_id("fog.density"), 0.04);
+    assert_eq!(bytes.len(), 16);
+    let read: Vec<(u32, f32)> = scene_values(&bytes).unwrap().collect();
+    assert_eq!(
+        read,
+        [
+            (name_id("look.exposure"), 2.5),
+            (name_id("fog.density"), 0.04)
+        ]
+    );
+    assert_eq!(scene_values(&[]).unwrap().count(), 0);
+    assert!(scene_values(&bytes[..15]).is_none());
+    let command = Command::SceneTween {
+        tween: 3,
+        values: &bytes,
+        duration: 1.5,
+        ease: sariema_format::script::Ease::InOutSine,
+    };
+    let encoded = batch([command], |c, out| c.write(out));
+    let decoded = decode_all::<Command>(&encoded).unwrap();
+    assert_eq!(decoded, [command]);
+}
+
+#[test]
+fn a_scene_block_needs_finite_values_a_duration_and_a_known_ease() {
+    let scene = |values: Vec<(u32, f32)>, duration: f32, ease: u8| {
+        let mut g = game();
+        g.cutscenes[0].body.push(Block::Scene {
+            values,
+            duration,
+            ease,
+        });
+        decode_game(&encode_game(&g))
+    };
+    let exposure = name_id("look.exposure");
+    let fine = scene(vec![(exposure, 0.5)], 2.0, 0).unwrap();
+    assert_eq!(
+        fine.cutscenes[0].body.last(),
+        Some(&Block::Scene {
+            values: vec![(exposure, 0.5)],
+            duration: 2.0,
+            ease: 0
+        })
+    );
+    for (values, duration, ease) in [
+        (vec![(exposure, f32::NAN)], 1.0, 0),
+        (vec![(exposure, 1.0)], -1.0, 0),
+        (vec![(exposure, 1.0)], 1.0, 200),
+    ] {
+        let error = scene(values, duration, ease).unwrap_err();
+        assert_eq!(error.code(), "E_SCHEMA", "{error}");
+        assert!(error.to_string().contains("cutscene meet"), "{error}");
+    }
 }

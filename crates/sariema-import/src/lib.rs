@@ -15,7 +15,7 @@ mod texture;
 pub use actor::{ActorSource, FaceSource, KeySettings, MaterialLook, SocketSource, build_actor};
 pub use collision::{BakeSettings, CollisionSource, build_collision};
 pub use kit::{Kit, KitHinge, KitImage, KitPiece, KitPrimitive, load_kit};
-pub use room::{Hemisphere, RoomSource, build_room};
+pub use room::{FogSource, Hemisphere, RoomSource, build_room};
 pub use texture::{TextureMode, encode_texture, mip_chain_rgba8};
 
 #[derive(Debug)]
