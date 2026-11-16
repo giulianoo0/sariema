@@ -1,0 +1,18 @@
+[package]
+name = "sariema-view"
+description = "A game in the Sariema engine drawn by the renderer: its room, an actor per animated entity, the camera at the frame's alpha, and the HUD pass; shared by every host."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+bytemuck.workspace = true
+glam.workspace = true
+sariema-core = { path = "../sariema-core" }
+sariema-engine = { path = "../sariema-engine" }
+sariema-format = { path = "../sariema-format" }
+sariema-render = { path = "../sariema-render" }
+sariema-runtime = { path = "../sariema-runtime" }
+sariema-ui = { path = "../sariema-ui" }
+wgpu.workspace = true

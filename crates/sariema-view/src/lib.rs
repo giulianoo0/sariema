@@ -10,10 +10,38 @@ use sariema_engine::Engine;
 use sariema_format::script::{Entity, GameAssets};
 use sariema_format::{RoomCamera, RoomPack};
 use sariema_render::ui::{UiBatch, UiInstance, UiTextureFormat};
-use sariema_render::{ActorId, ActorModel, ActorState, Renderer};
+use sariema_render::{ActorId, ActorModel, ActorState, RenderError, Renderer};
 use sariema_runtime::sim::Logic;
 
-use crate::output::Failure;
+/// Why a game cannot be drawn, with the stable code of the CLI's errors.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ViewError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl ViewError {
+    fn new(code: &'static str, message: impl Into<String>) -> ViewError {
+        ViewError {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for ViewError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for ViewError {}
+
+impl From<RenderError> for ViewError {
+    fn from(e: RenderError) -> ViewError {
+        ViewError::new(e.code(), e.to_string())
+    }
+}
 
 pub struct GameView {
     /// By the engine's model index, with a palette of as many joints.
@@ -25,18 +53,21 @@ pub struct GameView {
     free: Vec<(usize, ActorId)>,
     batches: Vec<UiBatch>,
     images: usize,
+    /// Whether this view's renderer has the HUD's glyph atlas, which a
+    /// new renderer for a running game lacks.
+    atlas: bool,
     room: RoomCamera,
 }
 
 /// The room a game pack carries.
-pub fn room(assets: &GameAssets) -> Result<RoomPack, Failure> {
+pub fn room(assets: &GameAssets) -> Result<RoomPack, ViewError> {
     let bytes = assets.room.as_ref().ok_or_else(|| {
-        Failure::new(
+        ViewError::new(
             "E_SCHEMA",
             "game pack: it has no room to draw; give the project a room",
         )
     })?;
-    sariema_format::decode(bytes).map_err(|e| Failure::new(e.code(), format!("game pack: {e}")))
+    sariema_format::decode(bytes).map_err(|e| ViewError::new(e.code(), format!("game pack: {e}")))
 }
 
 impl GameView {
@@ -45,7 +76,7 @@ impl GameView {
         renderer: &mut Renderer,
         assets: &GameAssets,
         engine: &Engine<L>,
-    ) -> Result<GameView, Failure> {
+    ) -> Result<GameView, ViewError> {
         GameView::load_room(renderer, &room(assets)?, assets, engine)
     }
 
@@ -56,9 +87,9 @@ impl GameView {
         room: &RoomPack,
         assets: &GameAssets,
         engine: &Engine<L>,
-    ) -> Result<GameView, Failure> {
+    ) -> Result<GameView, ViewError> {
         let failed = |code: &'static str, e: &dyn std::fmt::Display| {
-            Failure::new(code, format!("game pack: {e}"))
+            ViewError::new(code, format!("game pack: {e}"))
         };
         renderer.load_room(room)?;
         let (mut models, mut rest) = (Vec::new(), Vec::new());
@@ -69,7 +100,7 @@ impl GameView {
                 .find(|(name, _)| *name == model.name)
                 .map(|(_, bytes)| bytes)
                 .ok_or_else(|| {
-                    Failure::new("E_SCHEMA", format!("game pack: no actor {}", model.name))
+                    ViewError::new("E_SCHEMA", format!("game pack: no actor {}", model.name))
                 })?;
             let pack = sariema_format::actor::decode(bytes).map_err(|e| failed(e.code(), &e))?;
             models.push(renderer.load_actor(&pack)?);
@@ -82,6 +113,7 @@ impl GameView {
             free: Vec::new(),
             batches: Vec::new(),
             images: 0,
+            atlas: false,
             room: room.camera.clone(),
         })
     }
@@ -110,7 +142,7 @@ impl GameView {
         alpha: f32,
         aspect: f32,
         target: &wgpu::TextureView,
-    ) -> Result<(), Failure> {
+    ) -> Result<(), ViewError> {
         self.world(renderer, engine, alpha, aspect, target)?;
         self.hud(renderer, engine, alpha, target);
         Ok(())
@@ -124,7 +156,7 @@ impl GameView {
         alpha: f32,
         aspect: f32,
         target: &wgpu::TextureView,
-    ) -> Result<(), Failure> {
+    ) -> Result<(), ViewError> {
         self.pose(renderer, engine, alpha)?;
         let camera = self.camera(engine, alpha, aspect);
         let time_s = engine.steps() as f32 * sariema_core::STEP_SECONDS;
@@ -142,7 +174,8 @@ impl GameView {
         target: &wgpu::TextureView,
     ) {
         let ui = &mut engine.hud_mut().ui;
-        if ui.take_atlas_changed() {
+        if ui.take_atlas_changed() || !self.atlas {
+            self.atlas = true;
             let (side, texels) = ui.atlas();
             renderer.set_ui_texture(
                 sariema_ui::ATLAS_TEXTURE,
@@ -181,7 +214,7 @@ impl GameView {
         renderer: &mut Renderer,
         engine: &mut Engine<L>,
         alpha: f32,
-    ) -> Result<(), Failure> {
+    ) -> Result<(), ViewError> {
         for slot in &mut self.drawn {
             if let Some((entity, model, id)) = *slot
                 && !engine.state().world.is_alive(entity)
@@ -223,12 +256,12 @@ impl GameView {
     }
 }
 
-fn hide(renderer: &mut Renderer, id: ActorId, rest: &[Mat4]) -> Result<(), Failure> {
+fn hide(renderer: &mut Renderer, id: ActorId, rest: &[Mat4]) -> Result<(), ViewError> {
     let state = ActorState {
         model: Mat4::IDENTITY,
         palette: rest,
         faces: &[],
         visible: false,
     };
-    renderer.set_actor(id, &state).map_err(Failure::from)
+    Ok(renderer.set_actor(id, &state)?)
 }

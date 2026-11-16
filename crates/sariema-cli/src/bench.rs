@@ -19,7 +19,6 @@ use sariema_render::{
 use serde_json::{Value, json};
 
 use crate::Tier;
-use crate::game_view;
 use crate::output::{Done, Failure};
 
 mod alloc;
@@ -112,7 +111,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     };
     let (mut room, game) = if bytes.starts_with(&GAME_MAGIC) {
         let pack = decode_game(&bytes).map_err(|e| failed(e.code(), &e))?;
-        (game_view::room(&pack.assets)?, Some(pack))
+        (sariema_view::room(&pack.assets)?, Some(pack))
     } else if args.input.is_some() {
         return Err(failed(
             "E_USAGE",

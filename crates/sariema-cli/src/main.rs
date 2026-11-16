@@ -20,7 +20,6 @@ mod filmstrip;
 mod game;
 mod game_frames;
 mod game_player;
-mod game_view;
 mod golden;
 mod output;
 mod pack;

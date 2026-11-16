@@ -47,12 +47,13 @@ impl From<ImportError> for Failure {
 
 impl From<RenderError> for Failure {
     fn from(e: RenderError) -> Failure {
-        let code = match e {
-            // Like a pack that fails `decode` validation.
-            RenderError::Room(_) | RenderError::Actor(_) => "E_SCHEMA",
-            RenderError::NoAdapter | RenderError::Device(_) => "E_GPU",
-        };
-        Failure::new(code, e.to_string())
+        Failure::new(e.code(), e.to_string())
+    }
+}
+
+impl From<sariema_view::ViewError> for Failure {
+    fn from(e: sariema_view::ViewError) -> Failure {
+        Failure::new(e.code, e.message)
     }
 }
 

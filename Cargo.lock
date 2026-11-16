@@ -2362,6 +2362,7 @@ dependencies = [
  "sariema-render",
  "sariema-runtime",
  "sariema-ui",
+ "sariema-view",
  "sariema-vm",
  "serde",
  "serde_json",
@@ -2486,6 +2487,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "sariema-view"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "glam",
+ "sariema-core",
+ "sariema-engine",
+ "sariema-format",
+ "sariema-render",
+ "sariema-runtime",
+ "sariema-ui",
+ "wgpu",
+]
+
+[[package]]
 name = "sariema-vm"
 version = "0.1.0"
 dependencies = [
@@ -2508,13 +2524,17 @@ dependencies = [
  "sariema-anim",
  "sariema-audio",
  "sariema-core",
+ "sariema-engine",
  "sariema-format",
  "sariema-render",
+ "sariema-runtime",
  "sariema-ui",
+ "sariema-view",
  "serde",
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wat",
  "web-sys",
  "wgpu",
 ]

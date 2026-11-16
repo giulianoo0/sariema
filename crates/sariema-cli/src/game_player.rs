@@ -24,11 +24,11 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::WindowId;
 
 use crate::RunArgs;
-use crate::game_view::GameView;
 use crate::output::{Done, Failure};
 use crate::player::PlayerSettings;
 use crate::run::frame_stats_json;
 use crate::window::{FrameClock, Outcome, Screen, Stop, caught, window_error};
+use sariema_view::GameView;
 
 /// The mouse, as the HUD's one pointer.
 const MOUSE: u64 = 0;
@@ -292,7 +292,7 @@ impl GamePlayer<'_> {
         let alpha = self.engine.alpha();
         let engine = &mut self.engine;
         let paint = |renderer: &mut sariema_render::Renderer, target: &wgpu::TextureView| {
-            view.draw(renderer, engine, alpha, aspect, target)
+            Ok(view.draw(renderer, engine, alpha, aspect, target)?)
         };
         match screen.draw(self.skipped, self.max_skipped, paint)? {
             Outcome::Presented => {

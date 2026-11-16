@@ -32,6 +32,7 @@ sariema-physics = { path = "../sariema-physics" }
 sariema-render = { path = "../sariema-render" }
 sariema-runtime = { path = "../sariema-runtime" }
 sariema-ui = { path = "../sariema-ui" }
+sariema-view = { path = "../sariema-view" }
 serde.workspace = true
 serde_json.workspace = true
 wgpu.workspace = true

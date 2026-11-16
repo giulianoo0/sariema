@@ -16,8 +16,8 @@ use serde_json::{Value, json};
 
 use crate::RunArgs;
 use crate::filmstrip;
-use crate::game_view::GameView;
 use crate::output::Failure;
+use sariema_view::GameView;
 
 pub struct Frames {
     headless: Headless,

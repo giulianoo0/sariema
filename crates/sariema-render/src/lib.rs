@@ -76,6 +76,17 @@ pub enum RenderError {
     Actor(String),
 }
 
+impl RenderError {
+    /// The stable error code: a room or actor that cannot be drawn is
+    /// treated like a pack that fails `decode`.
+    pub fn code(&self) -> &'static str {
+        match self {
+            RenderError::Room(_) | RenderError::Actor(_) => "E_SCHEMA",
+            RenderError::NoAdapter | RenderError::Device(_) => "E_GPU",
+        }
+    }
+}
+
 impl fmt::Display for RenderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

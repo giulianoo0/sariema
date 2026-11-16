@@ -16,9 +16,9 @@ use sariema_runtime::input::{InputLog, Replay};
 use sariema_ui::SafeArea;
 use serde_json::{Value, json};
 
-use crate::game_view::GameView;
 use crate::output::Failure;
 use crate::simulate::read_log;
+use sariema_view::GameView;
 
 pub struct GameFrame {
     name: String,
