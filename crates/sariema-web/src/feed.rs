@@ -12,11 +12,21 @@ use serde::Deserialize;
 pub struct FeedSettings {
     /// Seconds mixed ahead of what the worklet has played: the latency of a
     /// sound started now, and how long the main thread may stall before the
-    /// output runs dry. Default 0.1.
+    /// output runs dry. At least two blocks, so the next block is queued
+    /// when the worklet reports one played. Default 0.1.
     pub lead_s: f32,
     /// Frames per block posted to the worklet, a multiple of its 128-frame
-    /// quantum. Default 1024.
+    /// quantum; the worklet reports what it has played once a block.
+    /// Default 1024.
     pub block_frames: u32,
+}
+
+impl FeedSettings {
+    /// [`FeedSettings::block_frames`] rounded up to whole 128-frame quanta.
+    pub fn whole_block_frames(&self) -> u32 {
+        let quantum = 128;
+        self.block_frames.max(quantum).next_multiple_of(quantum)
+    }
 }
 
 impl Default for FeedSettings {
@@ -38,9 +48,8 @@ pub struct Feed {
 
 impl Feed {
     pub fn new(settings: FeedSettings, sample_rate: u32) -> Feed {
-        let quantum = 128;
         let settings = FeedSettings {
-            block_frames: settings.block_frames.max(quantum).next_multiple_of(quantum),
+            block_frames: settings.whole_block_frames(),
             ..settings
         };
         Feed {
@@ -57,24 +66,23 @@ impl Feed {
         self.mixed
     }
 
-    /// Takes the worklet's count of frames played; it never goes back.
+    /// It never goes back.
     pub fn played(&mut self, frames: u64) {
         self.played = self.played.max(frames).min(self.mixed);
     }
 
     /// Blocks to mix now to stay `lead_s` ahead of what has been played.
     pub fn due_blocks(&self) -> u32 {
+        let block = self.settings.block_frames as u64;
         let lead = (self.settings.lead_s.max(0.0) * self.sample_rate as f32).ceil() as u64;
         let queued = self.mixed - self.played;
-        let block = self.settings.block_frames as u64;
-        lead.saturating_sub(queued).div_ceil(block) as u32
+        lead.max(2 * block).saturating_sub(queued).div_ceil(block) as u32
     }
 
     pub fn block_frames(&self) -> u32 {
         self.settings.block_frames
     }
 
-    /// Counts a block mixed and posted.
     pub fn mixed_block(&mut self) {
         self.mixed += self.settings.block_frames as u64;
     }
@@ -112,6 +120,21 @@ mod tests {
         assert_eq!(feed.queued(), 124);
         feed.played(5000);
         assert_eq!(feed.queued(), 0);
+    }
+
+    #[test]
+    fn the_lead_holds_two_blocks_at_least() {
+        let short = FeedSettings {
+            lead_s: 0.001,
+            block_frames: 128,
+        };
+        let feed = Feed::new(short, 48_000);
+        assert_eq!(feed.due_blocks(), 2);
+        let none = FeedSettings {
+            lead_s: 0.0,
+            block_frames: 1024,
+        };
+        assert_eq!(Feed::new(none, 48_000).due_blocks(), 2);
     }
 
     #[test]

@@ -60,6 +60,12 @@ pub struct WebSettings {
     pub shadows: bool,
     /// Screen-space ambient occlusion where the tier has it. Default true.
     pub ambient_occlusion: bool,
+    /// Texels per row of the downlevel path's light, cluster and shadow
+    /// tables instead of the tier's (1024).
+    pub data_texture_width: Option<u32>,
+    /// Rows of one actor's uniform record on the downlevel path instead of
+    /// the tier's (1024, 16 KiB); the device's uniform limit caps it.
+    pub actor_uniform_rows: Option<u32>,
 }
 
 impl Default for WebSettings {
@@ -76,6 +82,8 @@ impl Default for WebSettings {
             compressed_textures: true,
             shadows: true,
             ambient_occlusion: true,
+            data_texture_width: None,
+            actor_uniform_rows: None,
         }
     }
 }
@@ -106,6 +114,8 @@ impl WebSettings {
                 PathChoice::Full => RenderPath::Full,
                 PathChoice::Downlevel => RenderPath::Downlevel,
             },
+            data_texture_width: self.data_texture_width.unwrap_or(tier.data_texture_width),
+            actor_uniform_rows: self.actor_uniform_rows.unwrap_or(tier.actor_uniform_rows),
             ..tier
         }
     }
@@ -144,6 +154,24 @@ mod tests {
         assert!(!s.compressed_textures);
         let wrong = WebSettings::from_json(r#"{"quallity":"high"}"#).unwrap_err();
         assert!(wrong.contains("quallity"), "{wrong}");
+    }
+
+    #[test]
+    fn the_downlevel_tables_are_set_by_option() {
+        let s = WebSettings::from_json(r#"{"data_texture_width":2048,"actor_uniform_rows":512}"#)
+            .unwrap();
+        let q = s.render_quality();
+        assert_eq!(q.data_texture_width, 2048);
+        assert_eq!(q.actor_uniform_rows, 512);
+        let tier = WebSettings::default().render_quality();
+        assert_eq!(
+            tier.data_texture_width,
+            Quality::medium().data_texture_width
+        );
+        assert_eq!(
+            tier.actor_uniform_rows,
+            Quality::medium().actor_uniform_rows
+        );
     }
 
     #[test]

@@ -22,6 +22,10 @@ export interface Options {
   shadows?: boolean;
   /** False turns screen-space ambient occlusion off. Default true. */
   ambientOcclusion?: boolean;
+  /** Texels per row of the downlevel path's light, cluster and shadow tables. Default the tier's, 1024. */
+  dataTextureWidth?: number;
+  /** Rows of one actor's uniform record on the downlevel path. Default the tier's, 1024 (16 KiB). */
+  actorUniformRows?: number;
   step?: { step_s?: number; max_steps_per_frame?: number };
   audio?: { lead_s?: number; block_frames?: number };
   /** Where `sariema_web_bg.wasm` is; by default next to this module. */
@@ -92,6 +96,7 @@ export class SariemaError extends Error {
 
   /** The engine's errors read `E_CODE: message`. */
   static from(e: unknown): SariemaError {
+    if (e instanceof SariemaError) return e;
     const text = e instanceof Error ? e.message : String(e);
     const m = /^(E_[A-Z0-9_]+): ([\s\S]*)$/.exec(text);
     return m ? new SariemaError(m[1], m[2]) : new SariemaError("E_INTERNAL", text);
@@ -130,8 +135,6 @@ export class Sariema {
   #listeners = new Map<keyof Events, Set<(e: never) => void>>();
   #audio: AudioOut | null = null;
   #detach: (() => void)[] = [];
-  #models = 0;
-  #actors = 0;
   backend = "";
 
   constructor(canvas: HTMLCanvasElement, options: Options) {
@@ -155,6 +158,8 @@ export class Sariema {
       compressed_textures: o.compressedTextures,
       shadows: o.shadows,
       ambient_occlusion: o.ambientOcclusion,
+      data_texture_width: o.dataTextureWidth,
+      actor_uniform_rows: o.actorUniformRows,
       step: o.step,
       audio: o.audio,
     });
@@ -175,12 +180,10 @@ export class Sariema {
     this.#engine?.free();
     this.#engine = null;
     const css = this.#canvas.getBoundingClientRect();
-    const ratio = Math.min(devicePixelRatio, this.#options.maxPixelRatio ?? 1.5);
-    this.#canvas.width = Math.max(1, Math.round((css.width || this.#canvas.width) * ratio));
-    this.#canvas.height = Math.max(1, Math.round((css.height || this.#canvas.height) * ratio));
+    const [width, height] = [css.width || this.#canvas.width, css.height || this.#canvas.height];
     let engine: Engine;
     try {
-      engine = await Engine.create(this.#canvas, this.#settings());
+      engine = await Engine.create(this.#canvas, this.#settings(), width, height, devicePixelRatio);
     } catch (e) {
       throw SariemaError.from(e);
     }
@@ -190,8 +193,6 @@ export class Sariema {
     this.#audio?.restart();
     const loads = this.#loads;
     this.#loads = [];
-    this.#models = 0;
-    this.#actors = 0;
     for (const load of loads) await this.#replay(load);
   }
 
@@ -291,14 +292,12 @@ export class Sariema {
     const bytes = await this.#bytes(source);
     const model = this.#call((e) => e.load_actor(bytes));
     this.#loads.push({ kind: "actor", source });
-    this.#models++;
     return model;
   }
 
   spawnActor(model: number): number {
     const actor = this.#call((e) => e.spawn_actor(model));
     this.#loads.push({ kind: "spawn", model });
-    this.#actors++;
     return actor;
   }
 
@@ -316,9 +315,11 @@ export class Sariema {
     const bytes = await this.#bytes(source);
     this.#audio ??= new AudioOut(
       this.#options.workletUrl ?? new URL("./audio-worklet.js", import.meta.url),
+      this.#call((e) => e.audio_block_frames()),
       (played) => this.#engine?.mix(played) ?? new Float32Array(),
     );
     const rate = await this.#audio.open();
+    this.#audio.restart();
     this.#call((e) => e.load_sounds(bytes, rate));
     this.#loads = this.#loads.filter((l) => l.kind !== "sounds");
     this.#loads.push({ kind: "sounds", source });
@@ -390,28 +391,35 @@ export class Sariema {
     try {
       steps = engine.frame(now);
     } catch (e) {
-      const err = SariemaError.from(e);
-      this.stop();
-      this.#emit("error", { code: err.code, message: err.message });
+      this.#fail(e);
       return;
     }
     if (steps < 0) {
-      void this.#recover();
+      const wasRunning = this.#running;
+      this.stop();
+      this.#emit("lost", { backend: this.backend });
+      void this.#restore(wasRunning);
       return;
     }
-    if (steps > 0) {
-      const events = JSON.parse(engine.take_events()) as UiEvent[];
-      for (const event of events) this.#emit("ui", event);
-    }
+    const events = steps > 0 ? engine.take_events() : undefined;
+    if (events) for (const event of JSON.parse(events) as UiEvent[]) this.#emit("ui", event);
   }
 
-  async #recover(): Promise<void> {
-    const wasRunning = this.#running;
+  #fail(e: unknown): void {
+    const err = SariemaError.from(e);
     this.stop();
-    this.#emit("lost", { backend: this.backend });
-    await this.rebuild();
+    this.#emit("error", { code: err.code, message: err.message });
+  }
+
+  async #restore(start: boolean): Promise<void> {
+    try {
+      await this.rebuild();
+    } catch (e) {
+      this.#fail(e);
+      return;
+    }
     this.#emit("restored", { backend: this.backend });
-    if (wasRunning) this.start();
+    if (start) this.start();
   }
 
   /** Draws the current frame offscreen and reads it back as RGBA rows. */
@@ -476,8 +484,12 @@ export class Sariema {
       this.#engine?.pointer(e.type, e.pointerId, e.offsetX, e.offsetY);
     };
     for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) add(c, type, pointer);
+    // Keys are the engine's while nothing else on the page has the focus;
+    // a key released elsewhere still reaches it, so none stays held.
     const key = (e: KeyboardEvent) => {
-      if (this.#engine?.key(e.code, e.type === "keydown")) e.preventDefault();
+      const ours = e.target === document.body || e.target === document.documentElement || e.target === c;
+      if (!ours && e.type === "keydown") return;
+      if (this.#engine?.key(e.code, e.type === "keydown") && ours) e.preventDefault();
     };
     add(window, "keydown", key);
     add(window, "keyup", key);
@@ -485,6 +497,16 @@ export class Sariema {
     const observer = new ResizeObserver(resize);
     observer.observe(c);
     this.#detach.push(() => observer.disconnect());
+    const watchRatio = () => {
+      const query = matchMedia(`(resolution: ${devicePixelRatio}dppx)`);
+      const changed = () => {
+        resize();
+        watchRatio();
+      };
+      query.addEventListener("change", changed, { once: true });
+      this.#detach.push(() => query.removeEventListener("change", changed));
+    };
+    watchRatio();
     let wasRunning = false;
     add(document, "visibilitychange", () => {
       if (document.hidden) {
@@ -501,12 +523,7 @@ export class Sariema {
       this.stop();
       this.#emit("lost", { backend: this.backend });
     });
-    add(c, "webglcontextrestored", () => {
-      void this.rebuild().then(() => {
-        this.#emit("restored", { backend: this.backend });
-        this.start();
-      });
-    });
+    add(c, "webglcontextrestored", () => void this.#restore(true));
   }
 
   /** Stops everything and lets go of the GPU and the audio. */

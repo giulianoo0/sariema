@@ -48,12 +48,22 @@ pub struct Engine {
 
 #[wasm_bindgen]
 impl Engine {
-    /// Makes the engine on `canvas`, whose width and height must already be
-    /// its size in physical pixels. `options` is the JSON of the settings;
-    /// see `docs/web.md`.
-    pub async fn create(canvas: HtmlCanvasElement, options: String) -> Result<Engine, JsError> {
+    /// Makes the engine on `canvas`, `css_width × css_height` CSS pixels at
+    /// `pixel_ratio`, and sizes it in physical pixels as
+    /// [`Engine::physical_size`] does. `options` is the JSON of the
+    /// settings; see `docs/web.md`.
+    pub async fn create(
+        canvas: HtmlCanvasElement,
+        options: String,
+        css_width: f32,
+        css_height: f32,
+        pixel_ratio: f32,
+    ) -> Result<Engine, JsError> {
         let settings =
             WebSettings::from_json(&options).map_err(|e| js(StageError::new("E_USAGE", e)))?;
+        let (width, height) = settings.physical_size((css_width, css_height), pixel_ratio);
+        canvas.set_width(width);
+        canvas.set_height(height);
         let gpu = Gpu::new(canvas, &settings).await.map_err(js)?;
         let size = (gpu.config.width, gpu.config.height);
         let format = gpu.config.format;
@@ -159,11 +169,16 @@ impl Engine {
         self.stage.play(sound).map_err(js)
     }
 
+    /// Frames per audio block, which the worklet reports played once each.
+    pub fn audio_block_frames(&self) -> u32 {
+        self.stage.settings().audio.whole_block_frames()
+    }
+
     /// The audio blocks due, interleaved stereo; empty if none.
-    pub fn mix(&mut self, frames_played: f64) -> Vec<f32> {
+    pub fn mix(&mut self, frames_played: f64) -> js_sys::Float32Array {
         self.stage.audio_played(frames_played as u64);
         self.stage.mix(&mut self.mixed);
-        self.mixed.clone()
+        js_sys::Float32Array::from(self.mixed.as_slice())
     }
 
     /// `kind` is the DOM event type; positions in CSS pixels from the canvas's corner.
@@ -245,9 +260,10 @@ impl Engine {
         }
     }
 
-    /// JSON array of the UI events since the last call.
-    pub fn take_events(&mut self) -> String {
-        serde_json::Value::from(self.stage.take_events()).to_string()
+    /// JSON array of the UI events since the last call; undefined if none.
+    pub fn take_events(&mut self) -> Option<String> {
+        let events = self.stage.take_events();
+        (!events.is_empty()).then(|| serde_json::Value::from(events).to_string())
     }
 
     /// JSON of the last frame: steps, path, passes, draws, uploads, audio.

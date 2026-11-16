@@ -17,11 +17,13 @@
 //   SARIEMA_CHROMIUM   Chromium executable (default Playwright's chromium-1248)
 
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 import { chromium, webkit } from "playwright";
 
 const MAX_DELTA = 6;
@@ -80,6 +82,21 @@ const base = await new Promise((ok, fail) => {
   createInterface({ input: server.stdout }).once("line", (line) => ok(JSON.parse(line).url));
   server.once("exit", (code) => fail(new Error(`the server exited with ${code}`)));
 });
+
+// Another origin that gzips the game folder, as a CDN does. Cross-origin,
+// the page sees Content-Length (the gzipped size) but not Content-Encoding.
+const game = join(fixtures, "game");
+const cdn = createServer((req, res) => {
+  const file = resolve(game, decodeURIComponent(new URL(req.url, "http://cdn").pathname).slice(1));
+  const cors = { "Access-Control-Allow-Origin": "*" };
+  if (!file.startsWith(game + sep) || !existsSync(file)) {
+    res.writeHead(404, cors).end();
+    return;
+  }
+  const body = gzipSync(readFileSync(file));
+  res.writeHead(200, { ...cors, "Content-Encoding": "gzip", "Content-Length": body.length }).end(body);
+});
+const cdnUrl = await new Promise((ok) => cdn.listen(0, "127.0.0.1", () => ok(`http://127.0.0.1:${cdn.address().port}/`)));
 
 const checks = [];
 function check(browser, name, pass, detail) {
@@ -144,13 +161,26 @@ async function runBrowser(name, { engine, hideWebGpu }) {
       max_channel_delta: game.max_channel_delta,
     });
 
+    const there = await page
+      .evaluate(([url]) => window.suite.crossOrigin(url), [cdnUrl])
+      .catch((e) => ({ error: e.message.split("\n")[0] }));
+    check(name, "loads a gzipped game folder from another origin", there.max_channel_delta === 0, there);
+
     const audio = await page.evaluate(() => window.suite.audio());
     const a = audio.after ?? {};
-    check(name, "plays a sound through the worklet", a.received > 0 && a.played > (audio.before?.played ?? 0) && a.peak > 0.05, {
+    check(name, "plays a sound through the worklet", a.received > 0 && a.played > (audio.before?.played ?? 0) && a.peak > 0.05 && a.underruns === 0, {
       received: a.received,
       played: a.played,
       peak: Number((a.peak ?? 0).toFixed(3)),
       underruns: a.underruns,
+    });
+
+    const second = await page.evaluate(() => window.suite.secondBank());
+    const lead = Math.ceil((0.1 * (second.rate ?? 48000)) / 1024) * 1024 + 1024;
+    check(name, "a second sound bank keeps the lead", second.queued <= lead && second.underruns === 0, {
+      queued: second.queued,
+      lead,
+      underruns: second.underruns,
     });
 
     await page.evaluate(() => window.suite.scene("demo_lit"));
@@ -170,6 +200,33 @@ async function runBrowser(name, { engine, hideWebGpu }) {
     const events = await page.evaluate(() => window.suite.uiEvents());
     const of = (t) => events.some((e) => e.type === t && e.node === "action");
     check(name, "a tap reaches the UI", of("press") && of("tap"), { events: events.map((e) => `${e.type}:${e.node}`) });
+
+    await page.evaluate(() => window.suite.listen());
+    await page.focus("#field");
+    await page.keyboard.type("ab");
+    await page.keyboard.press("Tab");
+    const typed = await page.evaluate(() => ({ value: document.getElementById("field").value, focus: document.activeElement?.id ?? "" }));
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press("KeyW");
+    const keys = await page.evaluate(() => window.suite.keys());
+    const inField = keys.filter((k) => k.target === "field");
+    check(name, "keys typed into a page input stay there", typed.value === "ab" && typed.focus !== "field" && inField.every((k) => !k.taken), {
+      ...typed,
+      taken: inField.filter((k) => k.taken).map((k) => k.code),
+    });
+    check(name, "keys reach the engine while the page has no focus", keys.some((k) => k.code === "KeyW" && k.target === "BODY" && k.taken), {
+      keys: keys.map((k) => `${k.code}@${k.target}${k.taken ? "!" : ""}`),
+    });
+
+    const small = await page.evaluate(() => window.suite.smallLead({ lead_s: 0.018, block_frames: 128 }));
+    check(name, "a lead shorter than 1024 frames plays without underruns", small.received > 0 && small.underruns === 0, {
+      received: small.received,
+      queued: small.queued,
+      underruns: small.underruns,
+    });
+
+    const failed = await page.evaluate(() => window.suite.failedRebuild());
+    check(name, "a rebuild that fails emits error", failed.error !== null, failed);
 
     await page.goto(new URL("dist/probe/?auto", base).href);
     const probe = await page.waitForFunction(() => window.probeResult?.smoke && window.probeResult, null, { timeout: 30_000 });
@@ -209,6 +266,7 @@ try {
   }
 } finally {
   server.kill();
+  cdn.close();
 }
 
 const failed = checks.filter((c) => !c.pass);

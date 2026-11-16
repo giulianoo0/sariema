@@ -133,21 +133,25 @@ impl Input {
     /// Hands the queued events to `ui` and empties the queue: pointers as
     /// they are, Tab and Shift+Tab to move the focus, Enter and Space to
     /// activate what has it.
-    pub fn deliver(&mut self, ui: Option<&mut Ui>) {
-        if let Some(ui) = ui {
-            for event in &self.queued {
-                match *event {
-                    InputEvent::PointerDown { id, x, y } => ui.pointer_down(id, x, y),
-                    InputEvent::PointerMove { id, x, y } => ui.pointer_move(id, x, y),
-                    InputEvent::PointerUp { id, x, y } => ui.pointer_up(id, x, y),
-                    InputEvent::PointerCancel { id } => ui.pointer_cancel(id),
-                    InputEvent::KeyDown(Key::Shift) => self.shift = true,
-                    InputEvent::KeyUp(Key::Shift) => self.shift = false,
-                    InputEvent::KeyDown(Key::Tab) if self.shift => ui.focus_prev(),
-                    InputEvent::KeyDown(Key::Tab) => ui.focus_next(),
-                    InputEvent::KeyDown(Key::Enter | Key::Space) => ui.activate(),
-                    _ => {}
-                }
+    pub fn deliver(&mut self, mut ui: Option<&mut Ui>) {
+        for event in &self.queued {
+            match *event {
+                InputEvent::KeyDown(Key::Shift) => self.shift = true,
+                InputEvent::KeyUp(Key::Shift) => self.shift = false,
+                _ => {}
+            }
+            let Some(ui) = ui.as_deref_mut() else {
+                continue;
+            };
+            match *event {
+                InputEvent::PointerDown { id, x, y } => ui.pointer_down(id, x, y),
+                InputEvent::PointerMove { id, x, y } => ui.pointer_move(id, x, y),
+                InputEvent::PointerUp { id, x, y } => ui.pointer_up(id, x, y),
+                InputEvent::PointerCancel { id } => ui.pointer_cancel(id),
+                InputEvent::KeyDown(Key::Tab) if self.shift => ui.focus_prev(),
+                InputEvent::KeyDown(Key::Tab) => ui.focus_next(),
+                InputEvent::KeyDown(Key::Enter | Key::Space) => ui.activate(),
+                _ => {}
             }
         }
         self.queued.clear();
@@ -211,6 +215,17 @@ mod tests {
         assert_eq!(input.queued().len(), 2);
         input.deliver(None);
         assert!(input.queued().is_empty());
+    }
+
+    #[test]
+    fn shift_is_held_while_no_ui_is_loaded() {
+        let mut input = Input::new();
+        assert!(input.key("ShiftLeft", true));
+        input.deliver(None);
+        assert!(input.shift);
+        assert!(input.key("ShiftLeft", false));
+        input.deliver(None);
+        assert!(!input.shift);
     }
 
     #[test]

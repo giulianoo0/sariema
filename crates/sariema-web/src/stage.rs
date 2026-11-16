@@ -327,7 +327,7 @@ impl Stage {
         Ok(())
     }
 
-    /// Takes the worklet's count of frames played.
+    /// `frames` counts what the output has played since this bank was loaded.
     pub fn audio_played(&mut self, frames: u64) {
         if let Some(sound) = &mut self.sound {
             sound.feed.played(frames);

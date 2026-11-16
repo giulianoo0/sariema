@@ -13,6 +13,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let sariema = null;
 let manifest = null;
 const uiEvents = [];
+const keys = [];
 
 async function referencePixels(url) {
   const blob = await (await fetch(url)).blob();
@@ -122,6 +123,69 @@ window.suite = {
     await sleep(800);
     const after = await sariema.audioStats();
     return { before, after };
+  },
+
+  async secondBank() {
+    await sariema.loadSounds(at(manifest.sounds));
+    await sleep(500);
+    return sariema.audioStats();
+  },
+
+  async smallLead(audio) {
+    await this.remount({ audio });
+    await sariema.loadSounds(at(manifest.sounds));
+    await sariema.resumeAudio();
+    sariema.play("beep");
+    await sleep(1000);
+    return sariema.audioStats();
+  },
+
+  async crossOrigin(url) {
+    const manifest = await sariema.loadGame(url);
+    const there = await sariema.capture();
+    await sariema.loadGame(at("game/"));
+    const here = await sariema.capture();
+    return { start: manifest.start, ...compare(there.data, here.data) };
+  },
+
+  async listen() {
+    keys.length = 0;
+    window.addEventListener("keydown", (e) => keys.push({ code: e.code, target: e.target.id || e.target.tagName, taken: e.defaultPrevented }));
+    sariema.start();
+    await sleep(50);
+  },
+
+  keys() {
+    sariema.stop();
+    return keys.slice();
+  },
+
+  async failedRebuild() {
+    const scene = manifest.scenes.find((s) => s.name === "demo_lit");
+    const bytes = await (await fetch(at(scene.room))).arrayBuffer();
+    const url = URL.createObjectURL(new Blob([bytes]));
+    await sariema.loadRoom(url);
+    URL.revokeObjectURL(url);
+    sariema.start();
+    await sleep(50);
+    const backend = sariema.backend;
+    const failed = once("error", 8000);
+    const lost = once("lost", 5000);
+    if (backend === "webgl2") {
+      const ext = canvas.getContext("webgl2").getExtension("WEBGL_lose_context");
+      ext.loseContext();
+      await lost;
+      await sleep(50);
+      ext.restoreContext();
+    } else {
+      sariema.loseDevice();
+      await lost;
+    }
+    try {
+      return { backend, error: await failed };
+    } catch (e) {
+      return { backend, error: null, why: e.message };
+    }
   },
 
   async ui() {

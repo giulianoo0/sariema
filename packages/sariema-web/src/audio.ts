@@ -16,6 +16,7 @@ export class AudioOut {
 
   constructor(
     readonly workletUrl: string | URL,
+    readonly blockFrames: number,
     readonly pull: (played: number) => Float32Array,
   ) {}
 
@@ -32,6 +33,7 @@ export class AudioOut {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [2],
+      processorOptions: { reportFrames: this.blockFrames },
     });
     node.port.onmessage = (e: MessageEvent) => {
       if (e.data.stats) {
@@ -66,7 +68,7 @@ export class AudioOut {
     if (this.#context?.state === "running") await this.#context.suspend();
   }
 
-  /** Frames played and received, frames queued, underruns and the loudest sample. */
+  /** Frames played and received, frames queued, underruns, the loudest sample and the rate. */
   stats(): Promise<Record<string, number> | null> {
     if (!this.#node) return Promise.resolve(null);
     return new Promise((resolve) => {
