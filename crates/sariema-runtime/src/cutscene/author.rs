@@ -654,6 +654,17 @@ impl Compiler<'_> {
             },
             Step::Hinge(h) => {
                 let at = format!("{at}.hinge");
+                let [start, end] = h.span;
+                if !(start >= 0.0 && end > start && end.is_finite() && h.to.is_finite()) {
+                    return Err(self.error(
+                        "E_SCHEMA",
+                        &at,
+                        format!(
+                            "span {:?} must start at 0 s or later and end after it starts, to {} must be a number",
+                            h.span, h.to
+                        ),
+                    ));
+                }
                 Block::Hinge {
                     hinge: self.name(&format!("hinge.{}", h.node)),
                     role: self.role(&h.role, &at)?,

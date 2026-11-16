@@ -117,3 +117,27 @@ fn unknown_roles_and_missing_choices_are_compile_errors() {
     let bad = r#"{"name":"x","roles":{},"steps":[{"teleprot":{}}]}"#;
     assert_eq!(compile_json(bad).unwrap_err().code, "E_SCHEMA");
 }
+
+#[test]
+fn a_hinge_step_names_a_cast_role_and_a_span_that_ends_after_it_starts() {
+    let step = |role: &str, span: &str| {
+        format!(
+            r#"{{"name":"x","roles":{{"hero":{{"start":{{"position":[0,0,0]}}}}}},"steps":[{{"hinge":{{"node":"a.door_leaf","role":"{role}","clip":"push","span":{span},"to":90}}}}]}}"#
+        )
+    };
+    let (cutscene, _) = compile_json(&step("hero", "[0.2, 0.6]")).unwrap();
+    assert_eq!(check(&cutscene, &Settings::default()), Vec::new());
+    let e = compile_json(&step("heroo", "[0.2, 0.6]")).unwrap_err();
+    assert_eq!(
+        (e.code, e.at.as_str()),
+        ("E_CUTSCENE_ROLE", "steps[0].hinge")
+    );
+    for span in ["[0.6, 0.2]", "[-0.1, 0.2]"] {
+        let e = compile_json(&step("hero", span)).unwrap_err();
+        assert_eq!(
+            (e.code, e.at.as_str()),
+            ("E_SCHEMA", "steps[0].hinge"),
+            "{span}"
+        );
+    }
+}
