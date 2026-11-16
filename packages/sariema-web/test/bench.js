@@ -44,7 +44,19 @@ window.bench = {
     sariema.start();
     await sleep(warmMs);
     sariema.stop();
+    const paced = [];
+    await new Promise((resolve) => {
+      const tick = (t) => {
+        const start = performance.now();
+        sariema.frame(t);
+        paced.push(performance.now() - start);
+        if (paced.length < 120) requestAnimationFrame(tick);
+        else resolve();
+      };
+      requestAnimationFrame(tick);
+    });
+    paced.sort((a, b) => a - b);
     const burst = await sariema.bench(frames);
-    return { ...burst, stats: sariema.stats() };
+    return { ...burst, paced_cpu_ms: paced[59], paced_frames: paced.length, stats: sariema.stats() };
   },
 };

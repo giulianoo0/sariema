@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Times the engine in a browser on one room pack: the steps to its first
-// frame, then a burst of draws of the frame back to back up to one read
-// back, as the perf lane timed three.js's render call. One JSON line a run.
+// frame; the CPU of a frame at the display's pace (median of 120, steps and
+// draw); then a burst of draws of the frame back to back up to one read
+// back, as the perf lane timed three.js's render call. In a burst WebGL2's
+// CPU also waits on the browser's command buffer once the GPU falls behind.
+// One JSON line a run.
 //
 //   node test/bench.mjs --pack <room.srma> [--backend webgpu|webgl2]
 //     [--viewport 1920,1080,1] [--quality medium] [--msaa 1] [--no-shadows]

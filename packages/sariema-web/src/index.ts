@@ -372,6 +372,11 @@ export class Sariema {
     this.#raf = requestAnimationFrame(tick);
   }
 
+  /** One frame at `now` (ms), for a page that runs its own loop instead of `start()`. */
+  frame(now: number = performance.now()): void {
+    this.#frame(now);
+  }
+
   stop(): void {
     this.#running = false;
     cancelAnimationFrame(this.#raf);

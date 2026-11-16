@@ -4,7 +4,10 @@
 // the shrunk .wasm, the typed API, the audio worklet, the probe page and the
 // demo game it draws. Prints the .wasm's sizes as JSON.
 //
-//   node scripts/build.mjs [--debug] [--no-opt]
+//   node scripts/build.mjs [--speed] [--debug] [--no-opt]
+//
+// The default optimises for size; --speed for speed (opt-level 3, wasm-opt
+// -O3), a larger download for less CPU a frame.
 //
 // CARGO_TARGET_DIR is honoured; SARIEMA_CARGO names a cargo to use instead
 // of the repository's pinned toolchain.
@@ -23,6 +26,7 @@ const dist = join(pkg, "dist");
 const args = new Set(process.argv.slice(2));
 const debug = args.has("--debug");
 const optimise = !debug && !args.has("--no-opt");
+const speed = args.has("--speed");
 
 function run(cmd, argv, env = {}) {
   execFileSync(cmd, argv, { stdio: ["ignore", "inherit", "inherit"], cwd: repo, env: { ...process.env, ...env } });
@@ -42,12 +46,12 @@ function toolchain() {
 const { cargo, env } = toolchain();
 const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : join(repo, "target");
 const profile = debug ? "dev" : "release";
-// Size first: the page downloads the binary before its first frame. Set as
-// environment overrides so the workspace's own release profile stays as it is.
+// Set as environment overrides so the workspace's own release profile stays
+// as it is.
 const sizeProfile = debug
   ? {}
   : {
-      CARGO_PROFILE_RELEASE_OPT_LEVEL: process.env.CARGO_PROFILE_RELEASE_OPT_LEVEL ?? "s",
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: speed ? "3" : "s",
       CARGO_PROFILE_RELEASE_LTO: "true",
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1",
       CARGO_PROFILE_RELEASE_PANIC: "abort",
@@ -78,7 +82,7 @@ const wasm = join(dist, "wasm", "sariema_web_bg.wasm");
 const bindgenBytes = statSync(wasm).size;
 if (optimise) {
   run(join(pkg, "node_modules", ".bin", "wasm-opt"), [
-    "-Oz",
+    speed ? "-O3" : "-Oz",
     "--enable-bulk-memory",
     "--enable-nontrapping-float-to-int",
     "--enable-sign-ext",
@@ -103,6 +107,7 @@ const bytes = readFileSync(wasm);
 const sizes = {
   wasm: wasm.slice(pkg.length + 1),
   profile,
+  for: speed ? "speed" : "size",
   wasm_opt: optimise,
   bindgen_bytes: bindgenBytes,
   bytes: bytes.length,
