@@ -160,7 +160,6 @@ impl Physics {
         }
     }
 
-    /// Whether `e` is in the middle of a traversal.
     fn traversing(&self, e: Entity) -> bool {
         self.traversals.iter().any(|t| t.entity == e)
     }
