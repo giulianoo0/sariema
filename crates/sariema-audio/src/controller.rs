@@ -92,6 +92,13 @@ pub struct MusicFades {
     pub curve: Option<Curve>,
 }
 
+struct Prepared {
+    sound: u32,
+    looped: bool,
+    feeder: Feeder,
+    reader: StreamReader,
+}
+
 pub struct Audio {
     settings: MixerSettings,
     commands: Producer<Timed>,
@@ -104,6 +111,8 @@ pub struct Audio {
     next_voice: u64,
     music: Option<u32>,
     feeders: Vec<Feeder>,
+    /// Streams opened ahead of their play.
+    prepared: Vec<Prepared>,
     #[cfg(not(target_arch = "wasm32"))]
     thread: Option<FeedThread>,
     stream_errors: Arc<Mutex<Vec<String>>>,
@@ -134,6 +143,7 @@ impl Audio {
             next_voice: 1,
             music: None,
             feeders: Vec::new(),
+            prepared: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
             thread: None,
             stream_errors: Arc::new(Mutex::new(Vec::new())),
@@ -201,6 +211,34 @@ impl Audio {
         );
         self.loaded[i] = Some(Arc::new(pcm));
         Ok(())
+    }
+
+    /// Opens a streamed sound ahead of its play and decodes its first
+    /// `buffer_s`, so the play that takes it, looped as `looped` says, only
+    /// starts a voice. Does nothing for a sound that is not streamed or is
+    /// open already.
+    pub fn prepare(&mut self, sound: SoundId, looped: bool) -> Result<(), AudioError> {
+        if !self.def(sound)?.stream || self.is_prepared(sound, looped) {
+            return Ok(());
+        }
+        let (mut feeder, reader) = self.open(sound, looped)?;
+        feeder.pump()?;
+        self.prepared.push(Prepared {
+            sound: sound.0,
+            looped,
+            feeder,
+            reader,
+        });
+        Ok(())
+    }
+
+    pub fn is_prepared(&self, sound: SoundId, looped: bool) -> bool {
+        (self.prepared.iter()).any(|p| p.sound == sound.0 && p.looped == looped)
+    }
+
+    /// Closes the streams opened ahead for sounds `keep` refuses.
+    pub fn release_prepared(&mut self, keep: impl Fn(SoundId) -> bool) {
+        self.prepared.retain(|p| keep(SoundId(p.sound)));
     }
 
     /// Releases a sound's samples once no voice plays them any more.
@@ -440,20 +478,13 @@ impl Audio {
                 .map(Src::Static)
                 .ok_or_else(|| AudioError::NotLoaded(def.name.clone()));
         }
-        let loop_points = looped.then(|| {
-            def.loop_points.unwrap_or(LoopPoints {
-                start: 0,
-                end: def.frames,
-            })
-        });
-        let (mut feeder, reader) = Feeder::open(
-            def.data.clone(),
-            def.container,
-            loop_points,
-            self.settings.sample_rate,
-            &self.settings.stream,
-        )
-        .map_err(|e| AudioError::Decode(format!("{}: {e}", def.name)))?;
+        let opened = (self.prepared.iter())
+            .position(|p| p.sound == sound.0 && p.looped == looped)
+            .map(|i| self.prepared.swap_remove(i));
+        let (mut feeder, reader) = match opened {
+            Some(p) => (p.feeder, p.reader),
+            None => self.open(sound, looped)?,
+        };
         match self.feeding {
             Feeding::Manual => {
                 feeder.pump()?;
@@ -466,6 +497,24 @@ impl Audio {
             }
         }
         Ok(Src::Stream(reader))
+    }
+
+    fn open(&self, sound: SoundId, looped: bool) -> Result<(Feeder, StreamReader), AudioError> {
+        let def = self.def(sound)?;
+        let loop_points = looped.then(|| {
+            def.loop_points.unwrap_or(LoopPoints {
+                start: 0,
+                end: def.frames,
+            })
+        });
+        Feeder::open(
+            def.data.clone(),
+            def.container,
+            loop_points,
+            self.settings.sample_rate,
+            &self.settings.stream,
+        )
+        .map_err(|e| AudioError::Decode(format!("{}: {e}", def.name)))
     }
 
     fn send(&mut self, at: u64, op: Op) -> Result<(), AudioError> {
