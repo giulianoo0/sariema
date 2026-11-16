@@ -44,6 +44,17 @@ pub struct GameHost {
     live: Option<Live>,
     replay: Option<Replay>,
     shadows: bool,
+    /// Made by replayed steps, counted with the `alloc-count` feature.
+    step_allocations: u64,
+    /// Made by page frames' steps and audio feeds, likewise.
+    frame_allocations: u64,
+}
+
+fn allocations() -> u64 {
+    #[cfg(feature = "alloc-count")]
+    return crate::alloc::so_far();
+    #[cfg(not(feature = "alloc-count"))]
+    0
 }
 
 fn failed(code: &'static str) -> impl Fn(String) -> StageError {
@@ -103,6 +114,8 @@ impl GameHost {
             live,
             replay: None,
             shadows,
+            step_allocations: 0,
+            frame_allocations: 0,
         };
         host.resize(size.0, size.1);
         Ok(host)
@@ -149,9 +162,11 @@ impl GameHost {
     pub fn advance(&mut self, now_ms: f64) -> Result<Tick, StageError> {
         let dt = self.last_ms.map_or(0.0, |last| (now_ms - last).max(0.0));
         self.last_ms = Some(now_ms);
+        let before = allocations();
         let tick = self
             .engine
             .frame(Duration::from_secs_f64(dt / 1000.0), &self.raw);
+        self.frame_allocations += allocations() - before;
         self.alpha = self.engine.alpha();
         self.last_steps = tick.steps;
         self.check()?;
@@ -176,7 +191,9 @@ impl GameHost {
         }
         let replay = self.replay.as_mut().expect("set above");
         for step in self.engine.steps()..to {
+            let before = allocations();
             self.engine.step(replay.actions(step));
+            self.step_allocations += allocations() - before;
             self.engine.feed_audio();
         }
         self.alpha = 1.0;
@@ -245,6 +262,8 @@ impl GameHost {
             "hero": hero,
             "stopped": self.engine.simulation().stopped().map(|s| s.code),
             "audio_queued_frames": self.live.as_ref().map(|l| l.feed.queued()),
+            "step_allocations": cfg!(feature = "alloc-count").then_some(self.step_allocations),
+            "frame_allocations": cfg!(feature = "alloc-count").then_some(self.frame_allocations),
         })
     }
 }

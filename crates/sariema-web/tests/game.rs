@@ -136,3 +136,15 @@ fn a_new_renderer_takes_the_game_on_where_it_was() {
     game.replay(NO_INPUT, 46).unwrap();
     assert_eq!(game.steps(), 46);
 }
+
+#[cfg(feature = "alloc-count")]
+#[test]
+fn a_replayed_step_allocates_nothing_once_steady() {
+    let target = Target::new();
+    let mut stage = target.stage("");
+    let mut game = host(&mut stage, &pack(IDLE));
+    game.replay(NO_INPUT, 60).unwrap();
+    let warm = game.stats()["step_allocations"].as_u64().unwrap();
+    game.replay(NO_INPUT, 600).unwrap();
+    assert_eq!(game.stats()["step_allocations"].as_u64().unwrap() - warm, 0);
+}

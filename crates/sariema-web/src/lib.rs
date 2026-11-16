@@ -7,6 +7,7 @@
 //! the browser has no WebGPU, and the page drives it from its
 //! `requestAnimationFrame` loop. See `docs/web.md`.
 
+mod alloc;
 pub mod clock;
 pub mod feed;
 pub mod float_targets;

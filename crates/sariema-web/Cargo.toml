@@ -9,6 +9,10 @@ license.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# A global allocator that counts, for the tests of a steady step.
+alloc-count = []
+
 [dependencies]
 bytemuck.workspace = true
 glam.workspace = true
