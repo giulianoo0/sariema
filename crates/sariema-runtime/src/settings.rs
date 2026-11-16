@@ -133,7 +133,7 @@ pub const DOCS: &[(&str, &str)] = &[
     ),
     (
         "motion.turn_rate",
-        "Degrees per second an actor turns; nothing turns faster, and a larger turn in one step is a jump.",
+        "Degrees per second an actor turns unless set_turn_rate gives it a slower rate of its own; nothing turns faster, and a larger turn in one step is a jump.",
     ),
     (
         "motion.min_carrier_scale",

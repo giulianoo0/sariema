@@ -255,6 +255,7 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "more HUD animations at once than the HUD's settings allow",
     ),
     ("E_NOT_ACTOR", Kind::Rejected, Reject::NotActor.message()),
+    ("E_TURN_RATE", Kind::Rejected, Reject::TurnRate.message()),
     (
         "E_RIG_UNKNOWN",
         Kind::Rejected,

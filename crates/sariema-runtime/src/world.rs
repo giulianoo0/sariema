@@ -23,16 +23,19 @@ pub enum Reject {
     TeleportVisible,
     /// The command needs an actor and the entity is another kind.
     NotActor,
+    /// A turn rate below 0 or faster than `motion.turn_rate`.
+    TurnRate,
 }
 
 impl Reject {
-    pub const ALL: [Reject; 6] = [
+    pub const ALL: [Reject; 7] = [
         Reject::Stale,
         Reject::InUse,
         Reject::Limit,
         Reject::Cycle,
         Reject::TeleportVisible,
         Reject::NotActor,
+        Reject::TurnRate,
     ];
 
     pub const fn code(self) -> &'static str {
@@ -43,6 +46,7 @@ impl Reject {
             Reject::Cycle => "E_PARENT_CYCLE",
             Reject::TeleportVisible => "E_TELEPORT_VISIBLE",
             Reject::NotActor => "E_NOT_ACTOR",
+            Reject::TurnRate => "E_TURN_RATE",
         }
     }
 
@@ -56,6 +60,9 @@ impl Reject {
                 "a visible actor may not move faster than motion.max_visible_speed nor turn faster than motion.turn_rate, except under a full fade, in the step of a camera cut, or by a forced teleport"
             }
             Reject::NotActor => "the command needs an actor",
+            Reject::TurnRate => {
+                "an actor's turn rate is 0 (the setting) or positive and at most motion.turn_rate"
+            }
         }
     }
 }

@@ -91,6 +91,12 @@ pub enum PhysicsIntent {
         entity: Entity,
         target: Vec3,
     },
+    /// Turn no faster than `rate` degrees per second; none is
+    /// `motion.turn_rate`.
+    TurnRate {
+        entity: Entity,
+        rate: Option<f32>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

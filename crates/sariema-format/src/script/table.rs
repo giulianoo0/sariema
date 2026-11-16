@@ -173,6 +173,12 @@ batch_table! {
         0x00A4 SaveLoad save_load {}
         /// A message on a topic the host and game agreed on.
         0x00A5 HostSend host_send { topic: Str, payload: Bytes }
+
+        /// Degrees per second `entity`, an actor, turns at most, in place
+        /// of `motion.turn_rate`, which stays the fastest anything turns; 0
+        /// gives it the setting back. A faster rate, or one below 0, is
+        /// refused with E_TURN_RATE.
+        0x00D0 SetTurnRate set_turn_rate { entity: Entity, rate: f32 }
     }
     events {
         /// The first event of the first tick.

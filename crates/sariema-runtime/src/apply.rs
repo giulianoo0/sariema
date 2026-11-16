@@ -554,6 +554,18 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             topic: topic.into(),
             payload: payload.into(),
         }),
+        C::SetTurnRate { entity, rate } => {
+            actor(s, entity)?;
+            let setting = s.settings.motion.turn_rate;
+            if !(0.0..=setting).contains(&rate) {
+                return Err(refuse(entity)(Reject::TurnRate));
+            }
+            let own = (rate > 0.0).then_some(rate);
+            s.motion.mover_mut(entity).turn_rate = own;
+            s.outbox
+                .physics
+                .push(PhysicsIntent::TurnRate { entity, rate: own });
+        }
     }
     Ok(())
 }

@@ -58,6 +58,7 @@ game!(Hello);
 | a new entity | `ctx.spawn(kind, asset)`; place it in the same tick with `set_transform` |
 | the player to walk it | `SetHero { entity, speed }`; the move axis drives it natively |
 | walk somewhere | `MoveTo { entity, target, speed }`, then `Event::Arrived` |
+| one actor to turn slower than the rest | `SetTurnRate { entity, rate }` in degrees per second, at most `motion.turn_rate` (set that to the fastest actor's rate); `rate: 0.0` goes back to the setting |
 | later | `Timer { timer, duration, repeat }`, then `Event::TimerFired` |
 | a smooth value | `Tween { … ease }` or `Spring { … }`, then `Event::TweenDone` |
 | a button's index | `ctx.button(id("action"))` in `Game::new`; never copy its place in `input.buttons` |
@@ -83,6 +84,7 @@ with `sariema run --headless … --json`.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `rejected` with `E_TELEPORT_VISIBLE` | something would move a visible actor faster than `motion.max_visible_speed`: `set_transform`, `teleport`, a fast `tween` or walk (at its speed scale), a rigid `follow`, `set_parent`, or moving what carries it. Opcode 0: the step's measurement put the actor back and stopped what moved it; the first event names the actor, the next ones each carrier stopped (a fast move begun under a fade or cut that lifted, or while hidden; a spring; a carrier turning or growing, even one spawned or placed this step; moves that add up). A walk stopped this way also ends with `blocked` | walk or ease it slower; hide it a step before; or keep the fade or cut over the whole move |
+| `rejected` with `E_TURN_RATE` | `SetTurnRate` faster than `motion.turn_rate` or below 0 | raise `motion.turn_rate` to the fastest actor's rate in `game.settings` |
 | `rejected` with `E_ENTITY_STALE` | a handle kept after `despawn` or a `despawned` event | drop handles when they die |
 | `E_GAME_TRAP` at step 0 with "time not implemented" | `std::time` | count steps (`ctx.step()`) |
 | `E_GAME_BUDGET` | heavy work in one tick | spread it over steps; bulk regions for many placements |
