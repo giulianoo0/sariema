@@ -10,8 +10,8 @@ use clap::Args;
 use glam::{Mat4, Quat, Vec3};
 use sariema_anim::{AnimSettings, Animator, ClipId, FaceId, Play, Rig, SocketId};
 use sariema_core::Camera;
-use sariema_format::RoomCamera;
-use sariema_render::{ActorId, ActorModel, ActorState, Renderer};
+use sariema_format::{RoomCamera, RoomPack};
+use sariema_render::{ActorId, ActorModel, ActorState, CutState, Renderer};
 use serde_json::{Value, json};
 
 use crate::actor;
@@ -483,4 +483,25 @@ fn face(rig: &Rig, pack: &Path, change: &FaceChange) -> Result<(f32, FaceId, u32
 /// The camera of the room's `camera` overridden by `args`.
 pub fn camera(args: &StageArgs, room: &RoomCamera, aspect: f32) -> Camera {
     sariema_core::room_camera(&args.camera(room), aspect)
+}
+
+/// Cuts the room's cutaways around the first actor, as a game whose hero it
+/// is would once the line settles, seen by the room's camera.
+pub fn cut_around(renderer: &mut Renderer, room: &RoomPack, actors: &[Placement]) {
+    let Some(hero) = actors.first().map(|a| [a.position.x, a.position.z]) else {
+        return;
+    };
+    let toward = sariema_runtime::scenery::toward(0.0);
+    for (c, cutaway) in room.cutaways.iter().enumerate() {
+        if let Some(line) = cutaway.line.at(hero, toward) {
+            let height = cutaway.height;
+            let state = CutState {
+                toward,
+                line,
+                height,
+                hero,
+            };
+            renderer.set_cutaway(0, c, state);
+        }
+    }
 }

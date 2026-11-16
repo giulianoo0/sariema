@@ -21,7 +21,7 @@ use serde_json::{Value, json};
 
 use crate::Tier;
 use crate::output::{Done, Failure};
-use crate::stage::{Placement, Stage, StageArgs};
+use crate::stage::{self, Placement, Stage, StageArgs};
 
 mod alloc;
 mod game;
@@ -169,6 +169,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
         )?),
         None => {
             renderer.load_room(&room)?;
+            stage::cut_around(&mut renderer, &room, &args.actors);
             let placed = StageArgs {
                 actors: args.actors.clone(),
                 clip: args.clip.clone(),

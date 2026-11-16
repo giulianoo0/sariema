@@ -43,6 +43,25 @@ pub fn inspect(path: &Path) -> Result<Done, Failure> {
     let params: Vec<Value> = (RoomIndex::of(&room).params.iter())
         .map(|p| json!({ "name": p.name, "value": p.value }))
         .collect();
+    let cutaways: Vec<Value> = (room.cutaways.iter())
+        .map(|c| {
+            json!({
+                "name": c.name,
+                "draws": c.draws.len(),
+                "height": c.height,
+                "areas": c.line.areas.len(),
+                "offset": c.line.offset,
+                "follow": c.line.follow,
+                "radius": c.radius,
+                "soft": c.soft,
+                "cap": c.cap,
+                "cut_shadows": c.cut_shadows,
+            })
+        })
+        .collect();
+    let cut: Vec<String> = (room.cutaways.iter())
+        .map(|c| format!("{} ({} draws above {} m)", c.name, c.draws.len(), c.height))
+        .collect();
     let stats = &room.stats;
     Ok(Done {
         json: json!({
@@ -52,16 +71,18 @@ pub fn inspect(path: &Path) -> Result<Done, Failure> {
             "materials": materials,
             "draws": loose,
             "params": params,
+            "cutaways": cutaways,
         }),
         text: format!(
-            "{}: {} triangles in {} draws, {} texture bytes\nlights: {}\nmaterials: {}\nloose draws: {}",
+            "{}: {} triangles in {} draws, {} texture bytes\nlights: {}\nmaterials: {}\nloose draws: {}\ncutaways: {}",
             room.name,
             stats.triangles,
             stats.draws,
             stats.texture_bytes,
             list(&lights),
             list(&materials),
-            list(&loose)
+            list(&loose),
+            list(&cut)
         ),
     })
 }

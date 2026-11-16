@@ -71,6 +71,25 @@ fn build_then_inspect_demo() {
     assert_eq!(param("hemisphere.intensity"), 1.0);
 }
 
+#[test]
+fn inspect_lists_a_rooms_cutaways_and_their_heights() {
+    let tmp = TempDir::new().unwrap();
+    let pack = tmp.path().join("house.srma");
+    let example = demo().join("../cutaway");
+    let (code, out) = sariema(&["build", arg(&example), "--room", "house", "-o", arg(&pack)]);
+    assert_eq!(code, 0, "{out}");
+    let (code, inspected) = sariema(&["inspect", arg(&pack)]);
+    assert_eq!(code, 0, "{inspected}");
+    let walls = &inspected["cutaways"][0];
+    assert_eq!(walls["name"], "walls");
+    assert_eq!(walls["draws"], 1, "the crates merge into one draw");
+    assert_eq!(walls["areas"], 2);
+    assert_eq!(walls["cut_shadows"], true);
+    let params = inspected["params"].as_array().unwrap();
+    let height = params.iter().find(|p| p["name"] == "cutaway.walls.height");
+    assert_eq!(height.unwrap()["value"].as_f64().unwrap(), 0.4f32 as f64);
+}
+
 fn built_light_range(pack: &Path) -> f64 {
     let room = sariema_format::decode(&std::fs::read(pack).unwrap()).unwrap();
     room.lights[0].range as f64
