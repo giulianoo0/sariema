@@ -2158,6 +2158,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sariema-physics"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "libm",
+ "sariema-format",
+]
+
+[[package]]
 name = "sariema-render"
 version = "0.1.0"
 dependencies = [
