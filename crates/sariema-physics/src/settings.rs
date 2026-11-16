@@ -6,8 +6,15 @@
 //! radians, speeds metres per second.
 
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields, default)
+)]
 pub struct Settings {
-    /// Seconds simulated by one [`crate::World::step`].
+    /// Seconds simulated by one [`crate::World::step`]. A host that steps
+    /// the world sets it, so a game's settings leave it out.
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub step_seconds: f32,
     pub collision: CollisionSettings,
     pub controller: ControllerSettings,
@@ -16,6 +23,11 @@ pub struct Settings {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields, default)
+)]
 pub struct CollisionSettings {
     /// Gap the controller leaves between an actor and what stopped it.
     pub skin: f32,
@@ -39,6 +51,11 @@ pub struct CollisionSettings {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields, default)
+)]
 pub struct ControllerSettings {
     /// Downward acceleration, m/s².
     pub gravity: f32,
@@ -79,11 +96,18 @@ pub struct ControllerSettings {
     /// Changes of the wanted facing smaller than this, in radians, are ignored.
     pub yaw_filter: f32,
     /// Radians per second an actor turns at most, whatever `yaw_rate` asks;
-    /// infinite leaves turning to `yaw_rate` alone.
+    /// infinite leaves turning to `yaw_rate` alone. A host that caps turning
+    /// sets it, so a game's settings leave it out.
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub max_yaw_speed: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields, default)
+)]
 pub struct NavSettings {
     /// Side of a walkable-grid cell.
     pub cell_size: f32,
@@ -94,6 +118,11 @@ pub struct NavSettings {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields, default)
+)]
 pub struct MoveToSettings {
     /// Distance to the target that counts as arrived.
     pub arrive_distance: f32,
@@ -107,53 +136,121 @@ pub struct MoveToSettings {
     pub stuck_progress: f32,
 }
 
+impl Settings {
+    /// Why these settings cannot run, if they cannot: a size or count that
+    /// would make a step or a grid divide by zero or never end, a length or
+    /// angle out of range.
+    pub fn validate(&self) -> Result<(), String> {
+        let (c, k, n, m) = (&self.collision, &self.controller, &self.nav, &self.move_to);
+        let length = |x: f32| x.is_finite() && x >= 0.0;
+        let positive = |x: f32| x.is_finite() && x > 0.0;
+        let checks = [
+            ("step_seconds", positive(self.step_seconds)),
+            ("collision.skin", length(c.skin)),
+            ("collision.max_depenetration", length(c.max_depenetration)),
+            ("controller.gravity", length(k.gravity)),
+            ("controller.max_fall_speed", length(k.max_fall_speed)),
+            ("controller.slide_iterations", k.slide_iterations > 0),
+            ("controller.step_height", length(k.step_height)),
+            ("controller.ground_snap", length(k.ground_snap)),
+            (
+                "controller.max_slope_deg",
+                length(k.max_slope_deg) && k.max_slope_deg < 90.0,
+            ),
+            (
+                "controller.corner_assist_distance",
+                length(k.corner_assist_distance),
+            ),
+            (
+                "controller.stick_full",
+                k.stick_full > k.stick_dead_zone && k.stick_full <= 1.0,
+            ),
+            ("controller.stick_exponent", positive(k.stick_exponent)),
+            ("controller.yaw_rate", length(k.yaw_rate)),
+            ("nav.cell_size", positive(n.cell_size)),
+            ("nav.max_layers", n.max_layers > 0),
+            ("nav.snap_radius", length(n.snap_radius)),
+            ("move_to.arrive_distance", length(m.arrive_distance)),
+            ("move_to.waypoint_distance", length(m.waypoint_distance)),
+        ];
+        match checks.iter().find(|(_, ok)| !ok) {
+            Some((name, _)) => Err(format!("physics.{name} is out of range")),
+            None => Ok(()),
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
             step_seconds: 1.0 / 60.0,
-            collision: CollisionSettings {
-                skin: 0.01,
-                contact_tolerance: 1e-4,
-                sweep_tolerance: 1e-5,
-                sweep_iterations: 24,
-                tangent_tolerance: 1e-4,
-                flat_edge_deg: 0.5,
-                depenetration_iterations: 8,
-                max_depenetration: 1.0,
-            },
-            controller: ControllerSettings {
-                gravity: 9.81,
-                max_fall_speed: 30.0,
-                slide_iterations: 4,
-                step_height: 0.20,
-                ground_snap: 0.25,
-                max_slope_deg: 40.0,
-                corner_assist_angle_deg: 25.0,
-                corner_assist_distance: 0.15,
-                corner_assist_speed: 0.6,
-                corner_assist_probes: 3,
-                wall_slide_preservation: 0.85,
-                wall_slide_full_angle_deg: 45.0,
-                stick_dead_zone: 0.15,
-                stick_full: 0.7,
-                stick_exponent: 1.0,
-                accel_steps: 0,
-                yaw_rate: 14.0,
-                yaw_filter: 0.1,
-                max_yaw_speed: f32::INFINITY,
-            },
-            nav: NavSettings {
-                cell_size: 0.1,
-                max_layers: 4,
-                snap_radius: 0.5,
-            },
-            move_to: MoveToSettings {
-                arrive_distance: 0.02,
-                waypoint_distance: 0.1,
-                face_tolerance: 0.05,
-                stuck_steps: 30,
-                stuck_progress: 0.2,
-            },
+            collision: CollisionSettings::default(),
+            controller: ControllerSettings::default(),
+            nav: NavSettings::default(),
+            move_to: MoveToSettings::default(),
+        }
+    }
+}
+
+impl Default for CollisionSettings {
+    fn default() -> CollisionSettings {
+        CollisionSettings {
+            skin: 0.01,
+            contact_tolerance: 1e-4,
+            sweep_tolerance: 1e-5,
+            sweep_iterations: 24,
+            tangent_tolerance: 1e-4,
+            flat_edge_deg: 0.5,
+            depenetration_iterations: 8,
+            max_depenetration: 1.0,
+        }
+    }
+}
+
+impl Default for ControllerSettings {
+    fn default() -> ControllerSettings {
+        ControllerSettings {
+            gravity: 9.81,
+            max_fall_speed: 30.0,
+            slide_iterations: 4,
+            step_height: 0.20,
+            ground_snap: 0.25,
+            max_slope_deg: 40.0,
+            corner_assist_angle_deg: 25.0,
+            corner_assist_distance: 0.15,
+            corner_assist_speed: 0.6,
+            corner_assist_probes: 3,
+            wall_slide_preservation: 0.85,
+            wall_slide_full_angle_deg: 45.0,
+            stick_dead_zone: 0.15,
+            stick_full: 0.7,
+            stick_exponent: 1.0,
+            accel_steps: 0,
+            yaw_rate: 14.0,
+            yaw_filter: 0.1,
+            max_yaw_speed: f32::INFINITY,
+        }
+    }
+}
+
+impl Default for NavSettings {
+    fn default() -> NavSettings {
+        NavSettings {
+            cell_size: 0.1,
+            max_layers: 4,
+            snap_radius: 0.5,
+        }
+    }
+}
+
+impl Default for MoveToSettings {
+    fn default() -> MoveToSettings {
+        MoveToSettings {
+            arrive_distance: 0.02,
+            waypoint_distance: 0.1,
+            face_tolerance: 0.05,
+            stuck_steps: 30,
+            stuck_progress: 0.2,
         }
     }
 }
