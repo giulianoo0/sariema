@@ -265,6 +265,56 @@ fn each_rooms_ambience_fades_into_the_next() {
 }
 
 #[test]
+fn the_next_rooms_ambience_is_opened_before_the_switch_and_out_of_it() {
+    let logic = native(|n, _, out| {
+        if n == 30 {
+            send(
+                out,
+                Command::RoomSwitch {
+                    room: name_id("hall"),
+                    transition: RoomTransition::Continuous,
+                    duration: 0.5,
+                },
+            );
+        }
+    });
+    let mut engine = two_rooms(logic);
+    let actions = Actions::for_settings(&engine.state().settings.input);
+    let mut prepared = Vec::new();
+    let mut switching = Vec::new();
+    for _ in 0..80 {
+        engine.step(&actions);
+        engine.feed_audio();
+        let sound = engine.sound().unwrap();
+        prepared.push((sound.ambience_prepared(0), sound.ambience_prepared(1)));
+        switching.push(engine.state().scenery.switch().is_some());
+    }
+    assert_eq!(
+        prepared[0],
+        (false, false),
+        "the first feed plays the sill's wind and opens nothing else"
+    );
+    assert_eq!(
+        prepared[1],
+        (false, true),
+        "then the hall's theme is opened"
+    );
+    assert_eq!(prepared[29], (false, true));
+    let over = (30..80).find(|&n| !switching[n]).unwrap();
+    assert!(over > 50, "the switch lasts: {over}");
+    assert!(
+        prepared[30..over].iter().all(|&p| p == (false, false)),
+        "the switch plays the theme opened and opens nothing: {:?}",
+        &prepared[30..over]
+    );
+    assert_eq!(
+        prepared[over + 1],
+        (true, false),
+        "then the sill's wind, a neighbour now"
+    );
+}
+
+#[test]
 fn an_unknown_ambience_is_a_load_error() {
     let mut assets = assets();
     assets.rooms = rooms();

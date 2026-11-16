@@ -64,6 +64,8 @@ pub struct Engine<L> {
     actions: Actions,
     touch: Actions,
     rejected: Vec<Event<'static>>,
+    /// The rooms wanted, kept between feeds.
+    wanted: Vec<usize>,
 }
 
 /// The modules run inside the runtime's step, where its built-in mover
@@ -212,6 +214,7 @@ impl<L: Logic> Engine<L> {
             sound,
             hud,
             rejected: Vec::new(),
+            wanted: Vec::new(),
             sim,
         })
     }
@@ -234,6 +237,18 @@ impl<L: Logic> Engine<L> {
             return;
         };
         sound.feed(self.sim.steps());
+        if sound.has_ambiences() {
+            let mut wanted = std::mem::take(&mut self.wanted);
+            wanted_rooms(self.sim.state(), &self.rooms.assets, &mut wanted);
+            let switching = self.sim.state().scenery.switch().is_some();
+            if let Some(sound) = &mut self.sound {
+                sound.prepare_ambiences(&wanted, switching);
+            }
+            self.wanted = wanted;
+        }
+        let Some(sound) = &mut self.sound else {
+            return;
+        };
         for event in sound.rejected.drain(..) {
             self.sim.report(event);
         }
@@ -323,24 +338,8 @@ impl<L: Logic> Engine<L> {
     /// asked to preload (the latest first), then the active one's
     /// neighbours.
     pub fn wanted_rooms(&self) -> Vec<usize> {
-        let scenery = &self.sim.state().scenery;
-        let active = scenery.active();
-        let mut wanted = vec![active];
-        let mut add = |r: usize| {
-            if !wanted.contains(&r) {
-                wanted.push(r);
-            }
-        };
-        if let Some(switch) = scenery.switch() {
-            add(switch.from);
-        }
-        if let Some(room) = self.rooms.assets.get(active) {
-            room.beside.iter().for_each(|&r| add(r as usize));
-        }
-        scenery.preloads().iter().rev().for_each(|&r| add(r));
-        if let Some(room) = self.rooms.assets.get(active) {
-            room.neighbours.iter().for_each(|&r| add(r as usize));
-        }
+        let mut wanted = Vec::new();
+        wanted_rooms(self.sim.state(), &self.rooms.assets, &mut wanted);
         wanted
     }
 
@@ -435,5 +434,27 @@ impl Fnv {
         for b in v.to_le_bytes() {
             self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3);
         }
+    }
+}
+
+fn wanted_rooms(s: &State, rooms: &[RoomAssets], wanted: &mut Vec<usize>) {
+    let scenery = &s.scenery;
+    let active = scenery.active();
+    wanted.clear();
+    wanted.push(active);
+    let mut add = |r: usize| {
+        if !wanted.contains(&r) {
+            wanted.push(r);
+        }
+    };
+    if let Some(switch) = scenery.switch() {
+        add(switch.from);
+    }
+    if let Some(room) = rooms.get(active) {
+        room.beside.iter().for_each(|&r| add(r as usize));
+    }
+    scenery.preloads().iter().rev().for_each(|&r| add(r));
+    if let Some(room) = rooms.get(active) {
+        room.neighbours.iter().for_each(|&r| add(r as usize));
     }
 }

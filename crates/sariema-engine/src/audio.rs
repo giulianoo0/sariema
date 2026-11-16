@@ -70,6 +70,8 @@ pub struct Sound {
     ambiences: Vec<Option<SoundId>>,
     /// The room whose ambience plays, and its voice once playing.
     ambience: Option<(usize, Option<VoiceId>)>,
+    /// The last feed played what the steps left.
+    played: bool,
 }
 
 impl Sound {
@@ -101,6 +103,7 @@ impl Sound {
             rejected: Vec::with_capacity(settings.pending),
             ambiences: Vec::new(),
             ambience: None,
+            played: false,
         })
     }
 
@@ -143,6 +146,42 @@ impl Sound {
     /// The room whose ambience plays, and whether its voice started.
     pub fn ambience_room(&self) -> Option<(usize, bool)> {
         self.ambience.map(|(r, v)| (r, v.is_some()))
+    }
+
+    /// Whether room `room`'s ambience stream is open ahead of its play.
+    pub fn ambience_prepared(&self, room: usize) -> bool {
+        (self.ambiences.get(room).copied().flatten())
+            .is_some_and(|id| self.audio.is_prepared(id, true))
+    }
+
+    pub(crate) fn has_ambiences(&self) -> bool {
+        self.ambiences.iter().any(Option::is_some)
+    }
+
+    /// Opens ahead the ambience of the first room of `wanted` but the active
+    /// one whose ambience is not open yet, and closes those of the rooms no
+    /// longer wanted. Opens nothing while a switch lasts or in a feed that
+    /// played something, so no feed opens more than one stream and none
+    /// during a switch.
+    pub(crate) fn prepare_ambiences(&mut self, wanted: &[usize], switching: bool) {
+        let active = self.ambience.map(|(r, _)| r);
+        let ambiences = &self.ambiences;
+        let next = |r: &usize| Some(*r) != active;
+        let ahead = |id: SoundId| {
+            (wanted.iter().filter(|r| next(r))).any(|&r| ambiences.get(r) == Some(&Some(id)))
+        };
+        self.audio.release_prepared(ahead);
+        if self.played || switching {
+            return;
+        }
+        let closed = (wanted.iter().filter(|r| next(r)))
+            .filter_map(|&r| self.ambiences.get(r).copied().flatten())
+            .find(|&id| !self.audio.is_prepared(id, true));
+        if let Some(id) = closed
+            && let Err(e) = self.audio.prepare(id, true)
+        {
+            reject(&mut self.rejected, &PLAY_SOUND, e, Entity::NONE);
+        }
     }
 
     /// The mixer, for a device to pull from; the engine then stops mixing
@@ -200,6 +239,7 @@ impl Sound {
     /// demand, opening a stream), decodes the streams ahead, and without a
     /// device mixes every step up to `steps`. It allocates; the steps do not.
     pub fn feed(&mut self, steps: u64) {
+        self.played = !self.pending.is_empty();
         for k in 0..self.pending.len() {
             match self.pending[k] {
                 Pending::Sound {
