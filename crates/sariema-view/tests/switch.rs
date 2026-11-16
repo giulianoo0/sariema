@@ -44,6 +44,11 @@ fn examples() -> PathBuf {
 /// and, with `hall_red`, its materials reddened, so the two look apart; each
 /// the other's neighbour.
 fn rooms(hall_red: bool, beside: bool) -> Vec<RoomAssets> {
+    rooms_with(hall_red, beside, None)
+}
+
+/// As [`rooms`], the hall's camera looking at `hall_focus` when given.
+fn rooms_with(hall_red: bool, beside: bool, hall_focus: Option<[f32; 3]>) -> Vec<RoomAssets> {
     let root = examples().join("collision");
     let room = |name: &str, neighbour: u32| {
         let text = std::fs::read_to_string(root.join(format!("rooms/{name}.json"))).unwrap();
@@ -56,6 +61,9 @@ fn rooms(hall_red: bool, beside: bool) -> Vec<RoomAssets> {
         }
         if name == "hall" {
             pack.look.exposure = 0.4;
+            if let Some(focus) = hall_focus {
+                pack.camera.focus = focus;
+            }
         }
         RoomAssets {
             name: name.into(),
@@ -434,5 +442,80 @@ fn a_room_beside_the_first_one_is_drawn_from_the_first_frame() {
     assert!(
         beside.iter().all(|f| !f.rooms.loaded_at_once),
         "loaded with the first room, not by a frame"
+    );
+}
+
+/// The camera's position in each of `frames` frames of one step, the game
+/// setting no rig and switching to the hall, whose camera looks 3 m east
+/// of the sill's, at step 30 by `transition`.
+fn camera_across(
+    settings: ViewSettings,
+    transition: RoomTransition,
+    frames: u64,
+) -> Vec<glam::Vec3> {
+    let (drawn, mut assets) = hero(false, true);
+    let sill = sariema_format::decode(assets.rooms[0].room.as_deref().unwrap()).unwrap();
+    let mut focus = sill.camera.focus;
+    focus[0] += 3.0;
+    assets.rooms = rooms_with(false, true, Some(focus));
+    let mut runtime = Settings::default();
+    runtime.motion.builtin = false;
+    let script = Script(vec![switch(30, "hall", transition)], 0);
+    let sim = Simulation::new(runtime, Vec::new(), script, 1);
+    let mut engine = Engine::new(sim, assets, EngineSettings::default()).unwrap();
+    let mut h = Headless::new(W, H, Quality::high()).unwrap();
+    let mut view = GameView::load_with(h.renderer(), &drawn, &engine, settings).unwrap();
+    let actions = Actions::for_settings(&engine.state().settings.input);
+    let aspect = W as f32 / H as f32;
+    (0..frames)
+        .map(|_| {
+            engine.step(&actions);
+            view.update_rooms(h.renderer(), &mut engine, 1.0).unwrap();
+            view.camera(&engine, 1.0, aspect).position
+        })
+        .collect()
+}
+
+#[test]
+fn a_continuous_switch_without_a_rig_slides_the_camera_to_the_next_rooms() {
+    let settings = ViewSettings::default();
+    assert_eq!(
+        (
+            settings.camera_slide_frequency,
+            settings.camera_slide_damping
+        ),
+        (8.4, 0.8)
+    );
+    let path = camera_across(settings, RoomTransition::Continuous, 90);
+    let (start, end) = (path[0], *path.last().unwrap());
+    assert!((end - start).length() > 2.9, "{start} {end}");
+    let widest = (path.windows(2))
+        .map(|w| (w[1] - w[0]).length())
+        .fold(0.0, f32::max);
+    assert!(widest < 0.25, "the camera jumps {widest} m in a frame");
+    let switched = (path.iter()).position(|p| *p != start).unwrap() - 1;
+    let gone = |k: usize| (path[switched + k] - start).length() / 3.0;
+    let (w, z) = (8.4f32, 0.8f32);
+    let wd = w * (1.0 - z * z).sqrt();
+    let spring = |t: f32| 1.0 - (-z * w * t).exp() * ((wd * t).cos() + z * w / wd * (wd * t).sin());
+    for k in [6, 12, 18, 27, 36, 45] {
+        let t = k as f32 / 60.0;
+        assert!(
+            (gone(k) - spring(t)).abs() < 0.02,
+            "{} of the way at {t} s, the spring {}",
+            gone(k),
+            spring(t)
+        );
+    }
+    let cut = ViewSettings {
+        camera_slide_frequency: 0.0,
+        ..ViewSettings::default()
+    };
+    let path = camera_across(cut, RoomTransition::Continuous, 40);
+    assert!((path[31] - path[29]).length() > 2.9, "frequency 0 cuts");
+    let path = camera_across(ViewSettings::default(), RoomTransition::Dissolve, 40);
+    assert!(
+        (path[31] - path[29]).length() > 2.9,
+        "a dissolve shows the next room by its own camera at once"
     );
 }

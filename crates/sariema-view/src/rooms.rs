@@ -66,6 +66,12 @@ pub struct ViewSettings {
     pub dissolve_s: f32,
     /// The curve of that fade.
     pub dissolve_ease: Ease,
+    /// Angular frequency, in rad/s, of the damped spring a game without a
+    /// camera rig slides its room's camera on, across a continuous switch,
+    /// to the next room's; 0 cuts.
+    pub camera_slide_frequency: f32,
+    /// Its damping ratio: below 1 it overshoots a little.
+    pub camera_slide_damping: f32,
 }
 
 impl Default for ViewSettings {
@@ -81,6 +87,8 @@ impl Default for ViewSettings {
             shadows: true,
             dissolve_s: 0.5,
             dissolve_ease: Ease::InOutSine,
+            camera_slide_frequency: 8.4,
+            camera_slide_damping: 0.8,
         }
     }
 }

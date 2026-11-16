@@ -91,7 +91,14 @@ on. The transition says how it is shown:
   fade the cutscene asks for, this is the switch.
 - **`Continuous`**: both rooms are drawn whole for `duration` while their
   light, sky, sun, ambient light and look blend from one to the other. For
-  rooms that occupy one space, usually `beside` each other.
+  rooms that occupy one space, usually `beside` each other. A game with no
+  camera rig sees each room by the room's own camera; across a continuous
+  switch that camera slides to the next room's on a damped spring
+  (`ViewSettings::camera_slide_frequency` 8.4 rad/s,
+  `camera_slide_damping` 0.8: 82 % of the way in 0.3 s, overshooting by
+  1.5 % and within 1 % from 0.77 s), counted in steps so every frame rate
+  sees the same slide. A frequency of 0 cuts; a cut or a dissolve shows the
+  next room's camera at once.
 - **`Dissolve`**: a dissolve in screen space. The last frame shown of the
   room left, as its own camera and light saw it, fades out over the next
   room, which is drawn alone by its own camera and light from the switch's
@@ -149,7 +156,8 @@ either way, so the run is too.
 `upload_bytes_per_frame` 4 MiB, `threads` true, `world_ms_per_frame` 2,
 `grid_columns_per_share` 8, `world_units_per_share` 2048, `shadows` true,
 `dissolve_s` 0.5,
-`dissolve_ease` `in_out_sine`. `SoundSettings::ambience_fade_s` (0.5) is the
+`dissolve_ease` `in_out_sine`, `camera_slide_frequency` 8.4,
+`camera_slide_damping` 0.8. `SoundSettings::ambience_fade_s` (0.5) is the
 crossfade between ambiences when the switch has no duration.
 
 ## A dissolve in screen space
@@ -251,12 +259,12 @@ these numbers are the frame's CPU, not its GPU.
 
 ## What was taken from other engines and games
 
-- **Link's Awakening (screen transitions, from the technique study).**
-  Inside a map, rooms stay loaded together and, at a doorway, the camera
-  slides to the next room on a damped spring (ω 8.4 rad/s, ζ 0.8: 90 % in
-  0.3 s, 99 % in 0.45 s) while the hero is nudged in; between maps, a
-  fade. Here: `beside` rooms drawn together and `Continuous`; the fade
-  stays the cutscene's, with `Cut` under it.
+- **Top-down adventure games with room-by-room screens.** Inside one map,
+  rooms stay loaded together and, at a doorway, the camera slides to the
+  next room on a damped spring, measured at ω 8.4 rad/s and ζ 0.8, while
+  the hero is nudged in; between maps, a fade. Here: `beside` rooms drawn
+  together, `Continuous` with the same spring as the default camera slide;
+  the fade stays the cutscene's, with `Cut` under it.
 - **Godot (`ResourceLoader.load_threaded_request`).** Loading is requested
   ahead, polled, and fetched; fetching what is not done blocks until it is.
   Here: neighbours are requested by the room graph instead of by the game,

@@ -66,7 +66,7 @@ game!(Hello);
 | persistence | `Save { key, value }`; `SaveLoad {}` → `SaveLoaded`…, `SaveLoadDone` |
 | many objects | `Transforms` bulk region: register once, `push` each tick |
 | a name as id | `id("meet")`, a `const fn` |
-| another room | `RoomSwitch { room, transition, duration }`, then `Event::RoomSwitched`; list it under `game.rooms` with its `neighbours` so it is loaded before. `Continuous` for a room whose geometry goes on (walk in, the camera keeps following); `Dissolve` (the last frame fades out over the next room, 0.5 s when `duration` is 0) for another place or a jump in time; `Cut` under a cutscene's fade |
+| another room | `RoomSwitch { room, transition, duration }`, then `Event::RoomSwitched`; list it under `game.rooms` with its `neighbours` so it is loaded before. `Continuous` for a room whose geometry goes on (walk in, the camera keeps following its rig, or with no rig slides to the next room's camera); `Dissolve` (the last frame fades out over the next room, 0.5 s when `duration` is 0) for another place or a jump in time; `Cut` under a cutscene's fade |
 | a room loaded ahead | `RoomPreload { room }`, beyond the neighbours |
 | part of a room on or off | `RoomGroup { group, on }` (a sub-room); `PieceState { piece, state }` (0: as placed) |
 | a light or the look to change | `Tween { property: Property::Scene, var: id("<parameter>"), .. }` |

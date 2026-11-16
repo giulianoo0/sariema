@@ -5,6 +5,7 @@
 //! camera the runtime gives at the frame's `alpha`, and the HUD over it all.
 
 mod rooms;
+mod slide;
 
 pub use rooms::{RoomsFrame, ViewSettings};
 
@@ -64,6 +65,7 @@ pub struct GameView {
     /// The start room's camera, for a game that set none in a room without
     /// one.
     camera: RoomCamera,
+    slide: slide::Slide,
 }
 
 /// The room a game pack starts in, decoded.
@@ -109,6 +111,10 @@ impl GameView {
         let failed = |code: &'static str, e: &dyn std::fmt::Display| {
             ViewError::new(code, format!("game pack: {e}"))
         };
+        let slide = (
+            settings.camera_slide_frequency,
+            settings.camera_slide_damping,
+        );
         let mut rooms = rooms::Rooms::new(engine, settings);
         let active = engine.state().scenery.active();
         let camera = rooms.load_now(renderer, active)?.unwrap_or(RoomCamera {
@@ -140,6 +146,7 @@ impl GameView {
             images: 0,
             atlas: false,
             rooms,
+            slide: slide::Slide::new(active, engine.steps(), camera.clone(), slide.0, slide.1),
             camera,
         })
     }
@@ -152,7 +159,15 @@ impl GameView {
         engine: &mut Engine<L>,
         alpha: f32,
     ) -> Result<(), ViewError> {
-        self.rooms.update(renderer, engine, alpha)
+        self.rooms.update(renderer, engine, alpha)?;
+        self.follow_rooms(engine);
+        Ok(())
+    }
+
+    fn follow_rooms<L: Logic>(&mut self, engine: &Engine<L>) {
+        let (rooms, start) = (&self.rooms, &self.camera);
+        let camera = |room: usize| rooms.camera(room).unwrap_or(start).clone();
+        self.slide.advance(engine, &camera);
     }
 
     /// What loading rooms did in the last frame drawn.
@@ -161,10 +176,12 @@ impl GameView {
     }
 
     /// The runtime's camera at `alpha`; the room's own before the game
-    /// chose one.
+    /// chose one, sliding to the next room's across a continuous switch.
     pub fn camera<L: Logic>(&self, engine: &Engine<L>, alpha: f32, aspect: f32) -> Camera {
         let active = engine.state().scenery.active();
-        let room = self.rooms.camera(active).unwrap_or(&self.camera);
+        let room = &self
+            .slide
+            .at(self.rooms.camera(active).unwrap_or(&self.camera), alpha);
         match engine.camera(alpha) {
             Some(pose) => pose_camera(
                 pose.position,
@@ -202,6 +219,7 @@ impl GameView {
         target: &wgpu::TextureView,
     ) -> Result<(), ViewError> {
         self.rooms.update(renderer, engine, alpha)?;
+        self.follow_rooms(engine);
         self.pose(renderer, engine, alpha)?;
         let camera = self.camera(engine, alpha, aspect);
         let time_s = engine.steps() as f32 * sariema_core::STEP_SECONDS;
