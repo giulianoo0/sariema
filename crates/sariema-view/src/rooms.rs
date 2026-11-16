@@ -28,6 +28,7 @@ use sariema_format::stream::RoomDecoder;
 use sariema_format::{Background, Look, RoomCamera, RoomPack, Sun};
 use sariema_render::{Lighting, Renderer};
 use sariema_runtime::ease::ease;
+use sariema_runtime::fx::{Fx, GlowTarget};
 use sariema_runtime::scenery::{Binding, RoomScene};
 use sariema_runtime::sim::Logic;
 
@@ -122,6 +123,8 @@ struct Applied {
     visible: Vec<bool>,
     /// By node, where the entity bound to it moved it this frame.
     bound: Vec<Option<Mat4>>,
+    /// By node, its highlight's fill and rim.
+    glow: Vec<[f32; 2]>,
 }
 
 struct RoomView {
@@ -440,6 +443,7 @@ impl Rooms {
         for (r, view) in self.views.iter_mut().enumerate() {
             if let (Load::Resident, Some(scene)) = (&view.load, scenery.room(r)) {
                 sync(renderer, r, view, scene, scenery, &state.world, alpha);
+                glow(renderer, r, view, &state.fx, alpha);
             }
         }
         let resident = |r: usize| {
@@ -669,6 +673,31 @@ fn node_offset(node: &NodeIndex, degrees: Option<f32>, binding: Option<Mat4>) ->
     binding.unwrap_or(Mat4::IDENTITY) * hinge
 }
 
+/// The room's nodes highlighted at `alpha`, and those no longer back to none.
+fn glow(renderer: &mut Renderer, r: usize, view: &mut RoomView, fx: &Fx, alpha: f32) {
+    let Some(applied) = view.applied.as_mut() else {
+        return;
+    };
+    let slot = r as u32;
+    let lit = |node| GlowTarget::Node { room: r, node };
+    for (n, was) in applied.glow.iter_mut().enumerate() {
+        if *was != [0.0; 2] && !fx.glows(alpha).any(|g| g.target == lit(n)) {
+            renderer.set_node_glow(slot, n, 0.0, 0.0);
+            *was = [0.0; 2];
+        }
+    }
+    for g in fx.glows(alpha) {
+        if let GlowTarget::Node { room, node } = g.target
+            && room == r
+            && let Some(was) = applied.glow.get_mut(node)
+            && *was != [g.fill, g.rim]
+        {
+            renderer.set_node_glow(slot, node, g.fill, g.rim);
+            *was = [g.fill, g.rim];
+        }
+    }
+}
+
 fn sync(
     renderer: &mut Renderer,
     r: usize,
@@ -687,6 +716,7 @@ fn sync(
         offsets: vec![Mat4::IDENTITY; index.nodes.len()],
         visible: index.nodes.iter().map(|n| n.visible).collect(),
         bound: vec![None; index.nodes.len()],
+        glow: vec![[0.0; 2]; index.nodes.len()],
     });
     for (g, (&on, was)) in scene.groups.iter().zip(&mut applied.groups).enumerate() {
         if on != *was {

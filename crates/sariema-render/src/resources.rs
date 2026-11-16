@@ -17,7 +17,7 @@ use crate::{Gpu, RenderError};
 pub(crate) struct DrawUniform {
     model: [[f32; 4]; 4],
     /// Inverse transpose of the model's 3×3 part, columns padded to vec4;
-    /// the first's padding holds the presence.
+    /// the paddings hold the presence and the glow's fill and rim.
     normal: [[f32; 4]; 3],
 }
 
@@ -52,6 +52,8 @@ pub(crate) struct DrawItem {
     /// 1 drawn whole, 0 gone; between, an opaque draw dithers and a
     /// blended one fades. Negative, it dithers in the complementary pattern.
     pub presence: f32,
+    /// How much it glows in its own colour: over all of it and at its rim.
+    glow: [f32; 2],
     own: bool,
     group_on: bool,
     state_on: bool,
@@ -210,6 +212,26 @@ impl Room {
         true
     }
 
+    /// Makes node `n`'s draws glow in their own colour, over all of them
+    /// at `fill` and at their rims at `rim`; false if there is none.
+    pub fn set_node_glow(&mut self, n: usize, fill: f32, rim: f32) -> bool {
+        let Some(node) = self.nodes.get(n) else {
+            return false;
+        };
+        for k in 0..node.draws.len() {
+            let d = self.nodes[n].draws[k] as usize;
+            if self.draws[d].glow == [fill, rim] {
+                continue;
+            }
+            self.draws[d].glow = [fill, rim];
+            let at = d * self.draw_stride as usize;
+            self.draw_bytes[at + FILL_OFFSET..][..4].copy_from_slice(&fill.to_le_bytes());
+            self.draw_bytes[at + RIM_OFFSET..][..4].copy_from_slice(&rim.to_le_bytes());
+            self.mark(d);
+        }
+        true
+    }
+
     /// Sets every draw's presence, dithered in the complementary pattern
     /// when `inverted`.
     pub fn set_presence(&mut self, presence: f32, inverted: bool) {
@@ -247,6 +269,7 @@ impl Room {
     fn write_draw(&mut self, d: usize, model: Mat4) {
         let mut uniform = draw_uniform(&model.to_cols_array());
         uniform.normal[0][3] = self.draws[d].presence;
+        [uniform.normal[1][3], uniform.normal[2][3]] = self.draws[d].glow;
         let at = d * self.draw_stride as usize;
         self.draw_bytes[at..at + size_of::<DrawUniform>()]
             .copy_from_slice(bytemuck::bytes_of(&uniform));
@@ -264,6 +287,9 @@ impl Room {
 /// Byte offset of a draw's presence in its uniform: the w of the normal
 /// matrix's first column.
 const PRESENCE_OFFSET: usize = 64 + 12;
+/// The w of the second and third columns: the glow's fill and rim.
+const FILL_OFFSET: usize = 64 + 16 + 12;
+const RIM_OFFSET: usize = 64 + 32 + 12;
 
 /// The box around `min..max` moved by `m`.
 fn moved_bounds(m: Mat4, min: Vec3, max: Vec3) -> (Vec3, Vec3) {
@@ -531,6 +557,7 @@ impl PendingRoom {
                     index_count: room.meshes[mesh].indices.len() as u32,
                     first_index,
                     presence: 1.0,
+                    glow: [0.0; 2],
                     own: d.visible,
                     group_on: group_on[i],
                     state_on: state_on[i],

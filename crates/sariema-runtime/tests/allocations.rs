@@ -171,3 +171,70 @@ fn steps_with_emitters_running_bursting_and_stopping_allocate_nothing() {
     });
     assert_eq!(steady_allocations_with(settings, logic), 0);
 }
+
+#[test]
+fn steps_with_trails_and_highlights_coming_and_going_allocate_nothing() {
+    use sariema_format::script::{PointList, name_id};
+    const ROUTE: [[f32; 3]; 3] = [[0.0; 3], [3.0, 0.0, 0.0], [3.0, 0.0, -3.0]];
+    let hero = entity(0);
+    let logic = native(move |step, _: &[Event<'_>], out| {
+        if step == 0 {
+            send(
+                out,
+                Command::Spawn {
+                    entity: hero,
+                    kind: Kind::Empty,
+                    asset: 0,
+                },
+            );
+        }
+        let trail = |trail| Command::Trail {
+            trail,
+            from: hero,
+            points: PointList::Slice(&ROUTE),
+            spacing: 0.5,
+            size: 0.2,
+            color: [1.0, 0.6, 0.2],
+            intensity: 0.55,
+            wave_speed: 2.0,
+            fade_from: 0.5,
+            fade_to: 0.5,
+            fade: 0.1,
+        };
+        let highlight = |fill| Command::Highlight {
+            entity: hero,
+            node: name_id(""),
+            fill,
+            rim: fill,
+            pulse: 1.0,
+            fade: 0.1,
+        };
+        match step % 20 {
+            0 => {
+                send(out, trail(1));
+                send(out, trail(2));
+                send(out, highlight(0.3));
+            }
+            10 => {
+                send(
+                    out,
+                    Command::TrailOff {
+                        trail: 2,
+                        fade: 0.05,
+                    },
+                );
+                send(out, highlight(0.0));
+            }
+            _ => {}
+        }
+        send(
+            out,
+            Command::SetTransform {
+                entity: hero,
+                position: [0.01 * (step % 20) as f32, 0.0, 0.0],
+                yaw: 0.0,
+            },
+        );
+    });
+    assert_eq!(steady_allocations_with(Settings::default(), logic), 0);
+}

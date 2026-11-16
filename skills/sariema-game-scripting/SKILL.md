@@ -72,6 +72,8 @@ game!(Hello);
 | a light or the look to change | `Tween { property: Property::Scene, var: id("<parameter>"), .. }` |
 | a room node or light to move | `ctx.spawn(Kind::RoomNode, id("<node>"))` or `Kind::Light`, then move the entity |
 | particles | define the effect in `game.settings.fx.effects`; `FxStart { emitter, effect, entity, position, points, seed }` (on a point, from an entity, or along `PointList::Slice(&[…])`), `FxStop { emitter, fade }`, `FxBurst { effect, entity, position, count, seed }`; seed from `ctx.rng()`. Fields: `docs/fx.md` |
+| a way to a goal | `Trail { trail, from: hero, points: PointList::Slice(&[goal]), spacing: 1.0, size: 0.2, color: [1.0, 0.6, 0.2], intensity: 0.55, wave_speed, fade_from, fade_to, fade }` once when the walk starts (the dots stay put as the hero walks); `TrailOff { trail, fade }` on arrival |
+| something to use, within reach | `Highlight { entity: Entity::NONE, node: id("<node>"), fill: 0.12, rim: 0.35, pulse: 2.0, fade: 0.6 }` on `TriggerEnter`, the same with `fill` and `rim` 0 on `TriggerExit`; an actor by its `entity` |
 
 Test the logic natively with `sariema_sdk::testing::TestHost` (queue
 events, `Runner::run`, decode with `testing::commands`;
@@ -92,4 +94,7 @@ with `sariema run --headless … --json`.
 | no particles, `rejected` with `E_FX_UNKNOWN` | the effect is not in `game.settings.fx.effects`, or the name differs | define it there; `id("<name>")` of the same name |
 | fewer particles than the rate gives | the pool is full: an emitter keeps at most `pool` alive | raise the effect's `pool` (or `fx.pool`), or shorten `life` |
 | sparkles that never stop after `FxStop` | a new `FxStart` of the same id each step | start once, stop once: a running emitter keeps going |
+| a trail whose dots slide along the floor | a new `Trail` each step with the hero's place as the first point | send it once with `from: hero`; the engine follows the hero and keeps the dots still |
+| `rejected` with `E_SCENE_UNKNOWN` after `Highlight` | no node of that name in the active room (a loose piece is `<group>.<piece>`, as `a.mesa`) | `sariema build <dir> --room <room> -o r.srma` then `sariema inspect r.srma` lists them under `loose draws`; highlight after the room switch |
+| a dark piece glows pale, a light one turns white | `fill` too high: the tone curve washes bright colours | keep `fill` near 0.1 to 0.25, the `rim` two or three times it |
 | nothing in the module's log after a panic | no panic hook | `std::panic::set_hook(Box::new(\|i\| sariema_sdk::report_panic(i)))` under `#[cfg(target_arch = "wasm32")]` |

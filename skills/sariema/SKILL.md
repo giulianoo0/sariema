@@ -38,8 +38,9 @@ Change, then run the loop again. `run --headless` runs the whole engine
 (collision, animation, sound, HUD) and prints every event the game received
 (`step`, `event`, fields), the host messages (`save`, `ready`), the game's
 log, the saves, `engine_hash` (the same on every platform, browsers included),
-`state_hash`, `world_hash`, `physics_hash`, `fx_hash` (the particles alive,
-the same on every platform but outside `engine_hash`), `audio_hash`
+`state_hash`, `world_hash`, `physics_hash`, `fx_hash` (the particles,
+trails and highlights, the same on every platform but outside
+`engine_hash`), `audio_hash`
 (repeatable within one build) and timing. Same pack, same input log, same seed: same hashes.
 Pin `engine_hash` in a test. `--screenshot` draws the frames a window would
 show without changing any hash; look at every PNG.
@@ -84,8 +85,8 @@ ducked music past the window and dips to black to a wide shot of the hero
 where the climb left it; an objective animates in on the first move and
 checks itself off. `examples/rooms` walks from a porch into the hall beside
 it with no seam, then dissolves into an attic. `examples/guide` shows the
-particles: motes along a line, sparkles while the hero is near the table,
-dust where a walk stops. `examples/hello-game` is the smallest game,
+effects: motes along a line, a trail of dots to the desk, sparkles and a
+glow on the table while the hero is near, dust where a walk stops. `examples/hello-game` is the smallest game,
 without assets.
 
 ## Where to go next
@@ -100,7 +101,8 @@ without assets.
   parameters: `docs/rooms.md`.
 - Sound and music: `sariema-audio`.
 - Menus, HUD and the touch joystick: `sariema-ui`.
-- Particles (sparkles, dust, motes): `docs/fx.md`.
+- Particles (sparkles, dust, motes), trails to a goal and highlights in a
+  piece's own colour: `docs/fx.md`.
 
 ## Common failures
 
@@ -117,6 +119,6 @@ without assets.
 | `E_AUDIO_DEVICE` | the window found no sound device | it plays on silent; nothing to fix in the game |
 | `rejected` event, `E_ROOM_UNKNOWN` | `room_switch` or `room_preload` named a room the pack lacks | the room's key in `rooms`, listed under `game.rooms` |
 | `rejected` event, `E_SCENE_UNKNOWN` | a group, piece, state or scene parameter the active room lacks | groups are the sub-rooms in the room's `show`, states the kit's `estados`; switch rooms first if the name is another room's |
-| `rejected` event, `E_FX_UNKNOWN`, `E_FX_FULL`, `E_FX_POINTS` | an effect the settings lack, every emitter slot in use, a path too long | define it in `game.settings.fx.effects`; stop emitters you no longer need, or raise `fx.emitters`; `fx.path_points` |
+| `rejected` event, `E_FX_UNKNOWN`, `E_FX_FULL`, `E_FX_POINTS` | an effect the settings lack, every emitter, trail or highlight slot in use, a path or route too long | define it in `game.settings.fx.effects`; stop emitters, trails and highlights you no longer need, or raise `fx.emitters`, `fx.trails`, `fx.highlights`; `fx.path_points`, `fx.trail_points` |
 | `rejected` event, `E_TELEPORT_BLOCKED` | a teleport target is inside something | pick free floor; `sariema physics-map` shows it |
 | `blocked` after a cutscene `walk` | no path to the mark from where the role stood | move the mark; `sariema check` proves spots and routes |

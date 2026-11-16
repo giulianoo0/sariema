@@ -502,6 +502,18 @@ impl Actors {
         found
     }
 
+    /// Rows 5's and 6's w: how much it glows in its own colour, over all of
+    /// it and at its rim.
+    pub fn set_glow(&mut self, id: ActorId, fill: f32, rim: f32) -> Result<(), RenderError> {
+        let row = self.instances[self.instance(id)?].row;
+        if [self.rows[row + 5][3], self.rows[row + 6][3]] != [fill, rim] {
+            self.rows[row + 5][3] = fill;
+            self.rows[row + 6][3] = rim;
+            self.dirty = true;
+        }
+        Ok(())
+    }
+
     pub fn set_disc(&mut self, id: ActorId, disc: Option<DiscShadow>) -> Result<(), RenderError> {
         let index = self.instance(id)?;
         self.instances[index].disc = disc;

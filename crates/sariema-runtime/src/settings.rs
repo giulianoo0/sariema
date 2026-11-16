@@ -239,6 +239,54 @@ pub const DOCS: &[(&str, &str)] = &[
         "The particle effects fx_start and fx_burst name: sprite, rate and puffs, life, size, speed, gravity, drag, drift, spin, colour keys, intensity and how additive; see docs/fx.md.",
     ),
     (
+        "fx.trails",
+        "Trails shown at once, fading ones included; one more is refused with E_FX_FULL.",
+    ),
+    (
+        "fx.trail_points",
+        "Points a trail's route may have; more are refused with E_FX_POINTS.",
+    ),
+    (
+        "fx.trail_dots",
+        "Dots one trail draws at most, counted from its goal.",
+    ),
+    (
+        "fx.trail.sprite",
+        "The sprite of every trail's dots: dot, star, disc or spark.",
+    ),
+    (
+        "fx.trail.lift",
+        "Metres the dots lie above the route, so they never sink into the floor.",
+    ),
+    (
+        "fx.trail.wave_length",
+        "Metres from a wave's crest to where it has fallen to e^-2 of it.",
+    ),
+    (
+        "fx.trail.wave_every",
+        "Metres between one wave's crest and the next.",
+    ),
+    (
+        "fx.trail.wave_gain",
+        "How much brighter a dot is at the crest: 1 is twice as bright.",
+    ),
+    (
+        "fx.trail.wave_grow",
+        "How much larger a dot is at the crest: 0.25 is a quarter larger.",
+    ),
+    (
+        "fx.trail.additive",
+        "1 adds the dots' light to the floor, 0 covers it, between both.",
+    ),
+    (
+        "fx.highlights",
+        "Highlighted actors and nodes at once, fading ones included; one more is refused with E_FX_FULL.",
+    ),
+    (
+        "fx.pulse_depth",
+        "How far a pulsing highlight dims at the bottom of a pulse: 0.4 dims it to 60%.",
+    ),
+    (
         "vm.commands_bytes_per_step",
         "Bytes of commands one tick may submit; more stops the game with E_GAME_BUDGET.",
     ),

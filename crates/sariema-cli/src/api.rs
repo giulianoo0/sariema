@@ -268,7 +268,7 @@ const ERRORS: &[(&str, Kind, &str)] = &[
     (
         "E_SCENE_UNKNOWN",
         Kind::Rejected,
-        "a group, piece, state or scene parameter the active room lacks",
+        "a group, piece, state, node or scene parameter the active room lacks",
     ),
     (
         "E_FX_UNKNOWN",
@@ -278,12 +278,12 @@ const ERRORS: &[(&str, Kind, &str)] = &[
     (
         "E_FX_FULL",
         Kind::Rejected,
-        "fx_start or fx_burst while every one of fx.emitters is in use",
+        "fx_start or fx_burst while every one of fx.emitters is in use, trail while every one of fx.trails is shown, or highlight while every one of fx.highlights is lit",
     ),
     (
         "E_FX_POINTS",
         Kind::Rejected,
-        "fx_start with more points than fx.path_points",
+        "fx_start with more points than fx.path_points, or trail with more than fx.trail_points",
     ),
     (
         "E_CUTSCENE_BUSY",

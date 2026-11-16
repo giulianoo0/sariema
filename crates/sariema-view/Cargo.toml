@@ -20,4 +20,5 @@ wgpu.workspace = true
 
 [dev-dependencies]
 image.workspace = true
+sariema-format = { path = "../sariema-format", features = ["demo"] }
 sariema-import = { path = "../sariema-import" }

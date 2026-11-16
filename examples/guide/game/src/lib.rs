@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The hero walks from the door to the table and back. Motes drift in the
-//! lamp's light along a line across the room; the table gives off a few
-//! sparkles while the hero is within reach, fading in and out; and the
-//! hero's feet raise a puff of dust where each walk stops.
+//! The hero walks from the door to the table and back. A trail of soft
+//! amber dots leads to the desk while the hero walks there, a wave of light
+//! running along it, and fades once the hero arrives. Motes drift in the
+//! lamp's light along a line across the room; while the hero is within
+//! reach the table glows faintly in its own colour and gives off a few
+//! sparkles, both fading in and out; and the hero's feet raise a puff of
+//! dust where each walk stops.
 
 use sariema_sdk::{Command, Ctx, Ease, Entity, Event, Events, Game, Kind, PointList, game, id};
 
@@ -21,6 +24,12 @@ const GO_BACK: u32 = 2;
 const MOTES_EMITTER: u32 = 1;
 const SPARKLES: u32 = 2;
 const FADE_S: f32 = 0.6;
+const TO_DESK: u32 = 1;
+const TABLE: &str = "a.mesa";
+const AMBER: [f32; 3] = [1.0, 0.6, 0.2];
+const GLOW_FILL: f32 = 0.12;
+const GLOW_RIM: f32 = 0.35;
+const GLOW_PULSE_S: f32 = 2.0;
 
 pub struct Guide {
     hero: Entity,
@@ -77,7 +86,22 @@ impl Game for Guide {
     fn tick(&mut self, ctx: &mut Ctx<'_>, events: Events<'_>) {
         for event in events {
             match event {
-                Event::TimerFired { timer: SET_OFF } => self.walk(ctx, DESK),
+                Event::TimerFired { timer: SET_OFF } => {
+                    self.walk(ctx, DESK);
+                    ctx.send(Command::Trail {
+                        trail: TO_DESK,
+                        from: self.hero,
+                        points: PointList::Slice(&[DESK]),
+                        spacing: 1.0,
+                        size: 0.2,
+                        color: AMBER,
+                        intensity: 0.55,
+                        wave_speed: 2.0,
+                        fade_from: 0.6,
+                        fade_to: 0.4,
+                        fade: 0.4,
+                    });
+                }
                 Event::TimerFired { timer: GO_BACK } => {
                     self.back = true;
                     self.walk(ctx, START);
@@ -95,14 +119,18 @@ impl Game for Guide {
                         points: PointList::EMPTY,
                         seed,
                     });
+                    ctx.send(table_glow(GLOW_FILL, GLOW_RIM));
                 }
                 Event::TriggerExit {
                     trigger: NEAR_TABLE,
                     entity,
-                } if entity == self.hero => ctx.send(Command::FxStop {
-                    emitter: SPARKLES,
-                    fade: FADE_S,
-                }),
+                } if entity == self.hero => {
+                    ctx.send(Command::FxStop {
+                        emitter: SPARKLES,
+                        fade: FADE_S,
+                    });
+                    ctx.send(table_glow(0.0, 0.0));
+                }
                 Event::Arrived { entity } if entity == self.hero => {
                     let seed = ctx.rng().next_u32();
                     ctx.send(Command::FxBurst {
@@ -113,6 +141,10 @@ impl Game for Guide {
                         seed,
                     });
                     if !self.back {
+                        ctx.send(Command::TrailOff {
+                            trail: TO_DESK,
+                            fade: FADE_S,
+                        });
                         ctx.send(Command::Timer {
                             timer: GO_BACK,
                             duration: 2.5,
@@ -133,6 +165,17 @@ impl Guide {
             target: to,
             speed: HERO_SPEED,
         });
+    }
+}
+
+fn table_glow(fill: f32, rim: f32) -> Command<'static> {
+    Command::Highlight {
+        entity: Entity::NONE,
+        node: id(TABLE),
+        fill,
+        rim,
+        pulse: GLOW_PULSE_S,
+        fade: FADE_S,
     }
 }
 
@@ -188,6 +231,39 @@ mod tests {
         assert!(commands(&sent).any(|c| c
             == Command::FxStop {
                 emitter: SPARKLES,
+                fade: FADE_S,
+            }));
+        assert!(commands(&sent).any(|c| c == table_glow(0.0, 0.0)));
+    }
+
+    #[test]
+    fn the_table_glows_in_its_own_colour_while_the_hero_is_near() {
+        let (mut runner, mut host, _) = started();
+        let hero = runner.game().unwrap().hero;
+        host.event(Event::TriggerEnter {
+            trigger: NEAR_TABLE,
+            entity: hero,
+        });
+        runner.run(&mut host);
+        let sent = host.take_commands();
+        assert!(commands(&sent).any(|c| c == table_glow(GLOW_FILL, GLOW_RIM)));
+    }
+
+    #[test]
+    fn a_trail_leads_to_the_desk_and_fades_when_the_hero_arrives() {
+        let (mut runner, mut host, _) = started();
+        let hero = runner.game().unwrap().hero;
+        host.event(Event::TimerFired { timer: SET_OFF });
+        runner.run(&mut host);
+        let sent = host.take_commands();
+        assert!(commands(&sent).any(|c| matches!(c,
+            Command::Trail { trail: TO_DESK, from, points, .. } if from == hero && points.len() == 1)));
+        host.event(Event::Arrived { entity: hero });
+        runner.run(&mut host);
+        let sent = host.take_commands();
+        assert!(commands(&sent).any(|c| c
+            == Command::TrailOff {
+                trail: TO_DESK,
                 fade: FADE_S,
             }));
     }

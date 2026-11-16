@@ -1,14 +1,18 @@
-# Effects: particles
+# Effects: particles, trails and highlights
 
-Small things that make a room feel alive: sparkles on something to use,
-dust where a foot lands, motes drifting in a beam of light. A game defines
-its particle effects in its settings and starts, stops and bursts emitters
-with commands; the engine simulates every particle on the step and the
-renderer draws them all in one instanced draw.
+Small things that make a room feel alive and show the way: sparkles on
+something to use, dust where a foot lands, motes drifting in a beam of
+light, a trail of soft dots to where the hero should go, and a piece that
+glows faintly in its own colour while it is within reach. A game defines
+its particle effects in its settings and drives all of it with commands;
+the engine keeps it on the step and the renderer draws every particle and
+dot in one instanced draw, and a highlight in the scene pass it already
+runs.
 
-`examples/guide` uses all of it: motes along a line across the room,
-sparkles over the table while the hero is within reach, a puff of dust
-where each walk stops.
+`examples/guide` uses all of it: motes along a line across the room, a
+trail to the desk while the hero walks there, sparkles over the table and
+the table glowing while the hero is within reach, a puff of dust where
+each walk stops.
 
 ## Commands
 
@@ -50,7 +54,7 @@ particle's life, 0 at birth and 1 at death, linear between them.
 | `speed`, `direction`, `spread` | [0, 0], up, 0 | metres per second at birth, along `direction` within `spread` degrees of it |
 | `radius` | 0 | metres around the emitter's place a particle is born within |
 | `gravity` | [0, 0, 0] | metres per second squared; positive y rises |
-| `drag` | 0 | speed lost as `e^(−drag·t)`; LA's 0.94 a frame at 60 Hz is 3.7 |
+| `drag` | 0 | speed lost as `e^(−drag·t)`; keeping 0.94 of it a frame at 60 Hz is 3.7 |
 | `drift`, `drift_hz` | 0, 0.5 | a sideways sway of `drift` metres per second, `drift_hz` times a second, each particle its own way |
 | `spin` | [0, 0] | degrees per second the sprite turns |
 | `color` | white, opaque | `[t, r, g, b, a]` keys, linear RGB |
@@ -113,6 +117,88 @@ No compute and no storage buffer: the same draw runs on WebGL2.
 starts; the frame's sprites past it are left out and counted in
 `FrameStats::sprites_dropped`. `FrameStats::sprites` counts the drawn ones.
 
+## Trails
+
+A trail is a row of soft dots on the floor from where someone stands to a
+goal, with a wave of light running along it towards the goal.
+
+| Command | Does |
+|---|---|
+| `trail { trail, from, points, spacing, size, color, intensity, wave_speed, fade_from, fade_to, fade }` | Shows trail `trail` (an id the game chooses) along `points`, from `from`'s place when it is not NONE, over `fade` seconds. Dots `size` metres across lie `spacing` metres apart, counted back from the last point, in `color` (linear RGB) times `intensity`; they fade out within `fade_from` metres of the start and `fade_to` of the goal; the wave runs to the goal at `wave_speed` m/s. A trail of that id takes the new route and look at once, its opacity eased from where it is. |
+| `trail_off { trail, fade }` | Fades the trail out over `fade` seconds and frees it; one not shown is ignored. |
+
+The dots are measured from the goal, so they stay put while the start
+follows a walking hero: the ones the hero passes fade and go, the others
+never move. Each dot is a flat sprite, `fx.trail.lift` above the route,
+in the shape `fx.trail.sprite`. The wave is a bump of
+`exp(−2·(d / wave_length)²)` around crests `wave_every` metres apart,
+where `d` is a dot's distance to the nearest crest: a dot at a crest is
+`1 + wave_gain` times as bright and `1 + wave_grow` times as large. It
+moves with the step's time, so every host shows it in the same place.
+
+The owner's values for a route to a goal: `spacing` 1, `size` 0.2,
+amber `[1, 0.6, 0.2]`, `intensity` 0.55, a wave a few metres a second;
+`fade_from` and `fade_to` around half a metre so the dots neither start
+under the hero's feet nor end in a hard edge at the goal.
+
+Refusals: `E_FX_FULL` (every one of `fx.trails` is shown),
+`E_FX_POINTS` (more than `fx.trail_points` points), `E_ENTITY_STALE`
+(`from` is gone). A trail whose `from` dies runs from its first point
+from then on. Every trail's points are allocated when the game loads.
+
+| Setting | Default | |
+|---|---|---|
+| `fx.trails` | 4 | trails shown at once, fading ones included |
+| `fx.trail_points` | 64 | points a trail's route may have |
+| `fx.trail_dots` | 256 | dots one trail draws at most, the ones nearest the goal |
+| `fx.trail.sprite` | `disc` | the dots' shape |
+| `fx.trail.lift` | 0.02 | metres above the route |
+| `fx.trail.wave_length` | 1 | metres from a crest to where the wave has fallen to e⁻² of it |
+| `fx.trail.wave_every` | 8 | metres between crests |
+| `fx.trail.wave_gain`, `fx.trail.wave_grow` | 1, 0.25 | how much brighter and larger a dot is at a crest |
+| `fx.trail.additive` | 1 | 1 adds light to the floor, 0 covers it |
+
+## Highlights
+
+| Command | Does |
+|---|---|
+| `highlight { entity, node, fill, rim, pulse, fade }` | `entity` (an actor, or a room node's entity), or the active room's node named `node` when `entity` is NONE, glows in its own colour: added over the whole of it at `fill` and at its rim at `rim`, pulsing every `pulse` seconds (0 is steady), eased there over `fade` seconds from where it is. Both 0 fade it out and free it. |
+
+The glow's colour is the surface's own: its material's base colour times
+its texture times its vertex colour, scaled so its brightest channel is 1
+(never over less than 0.08, so a near-black piece glows a faint grey).
+Nothing white is added: a dark brown chair glows brown, a cream bag
+glows cream, a blue box glows blue (`tests/glow.rs` in `sariema-render`
+checks the hue, and that a white glow fails it). The rim is
+`(1 − n·v)³`, wider than a material's rim so it reads at a distance. A
+pulse dims the glow by up to `fx.pulse_depth` along a cosine, so it
+breathes instead of blinking. Changing a highlight mid-fade starts from
+the level it was at: no jump.
+
+How much to use: a faint `fill` (0.1 to 0.25) and a `rim` two or three
+times that read as "this can be used" on dark and light pieces alike;
+more washes a dark piece towards its lightest tone under the tone curve.
+
+Refusals: `E_SCENE_UNKNOWN` (no node of that name in the active room),
+`E_ENTITY_STALE`, `E_FX_FULL` (every one of `fx.highlights` is lit).
+Turning off one never lit is not an error. A highlight on an entity that
+dies ends with it.
+
+| Setting | Default | |
+|---|---|---|
+| `fx.highlights` | 16 | actors and nodes lit at once, fading ones included |
+| `fx.pulse_depth` | 0.4 | how far a pulse dims: 0.4 is down to 60 % |
+
+The renderer takes it per draw, in place of padding it already uploads: a
+room node's draws carry their glow in the w of their normal matrix's
+second and third columns (`Renderer::set_node_glow`), an actor in rows 5's
+and 6's w of its record (`Renderer::set_actor_glow`); `sariema-view` sets
+both from `Fx::glows(alpha)` each frame and puts back to 0 the ones no
+longer lit. No new uniform, pipeline or draw.
+
+Trails and highlights live in `fx_hash` with the particles, never in
+`engine_hash`.
+
 ## What we took from other engines
 
 - **Godot's `CPUParticles3D`**: a fixed array of particles per emitter
@@ -141,4 +227,13 @@ starts; the frame's sprites past it are left out and counted in
   drag of 0.94–0.98 a frame and a light upward pull; item sparkles that
   rise slowly; four-pointed stars among the most used sprites; glows made
   with colours above 1 left to the bloom rather than only with additive
-  blending, which the `additive` share and `intensity` allow.
+  blending, which the `additive` share and `intensity` allow; a power-up
+  shown as an animated rim in the surface's colour, and an item's rim
+  falling off as a power of `1 − n·v` (5 there; 3 here, wider, for a
+  piece seen from a room's distance).
+- **Trails and highlights in Godot and Bevy**: neither ships one. Godot's
+  usual answers are a `next_pass` material with a fresnel term or a
+  second outline pass, and Bevy's are outline crates that draw the mesh
+  again; both cost a draw and a material per lit object. Here the glow
+  rides on the draw already made, and a trail is sprites in the particles'
+  draw.

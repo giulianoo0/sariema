@@ -15,6 +15,7 @@ use sariema_format::script::{Entity, GameAssets};
 use sariema_format::{RoomCamera, RoomPack};
 use sariema_render::ui::{UiBatch, UiInstance, UiTextureFormat};
 use sariema_render::{ActorId, ActorModel, ActorState, RenderError, Renderer, Sprite};
+use sariema_runtime::fx::GlowTarget;
 use sariema_runtime::sim::Logic;
 
 /// Why a game cannot be drawn, with the stable code of the CLI's errors.
@@ -67,6 +68,8 @@ pub struct GameView {
     /// The runtime's particles at the frame's alpha, and as drawn.
     particles: Vec<sariema_runtime::fx::Sprite>,
     sprites: Vec<Sprite>,
+    /// The entities whose actors glowed last frame, and those actors.
+    glowing: Vec<(Entity, ActorId)>,
 }
 
 /// The room a game pack starts in, decoded.
@@ -146,6 +149,7 @@ impl GameView {
             camera,
             particles: Vec::new(),
             sprites: Vec::new(),
+            glowing: Vec::new(),
         })
     }
 
@@ -209,6 +213,7 @@ impl GameView {
         self.rooms.update(renderer, engine, alpha)?;
         self.pose(renderer, engine, alpha)?;
         self.fx(renderer, engine, alpha);
+        self.glow(renderer, engine, alpha)?;
         let camera = self.camera(engine, alpha, aspect);
         let time_s = engine.steps() as f32 * sariema_core::STEP_SECONDS;
         renderer.render(&camera, time_s, target);
@@ -273,6 +278,46 @@ impl GameView {
             flags: if p.flat { Sprite::FLAT } else { 0 },
         }));
         renderer.set_sprites(&self.sprites);
+    }
+
+    /// The actors highlighted at `alpha`, and those no longer back to none;
+    /// the rooms light their own nodes.
+    fn glow<L: Logic>(
+        &mut self,
+        renderer: &mut Renderer,
+        engine: &Engine<L>,
+        alpha: f32,
+    ) -> Result<(), ViewError> {
+        let fx = &engine.state().fx;
+        let actor_of = |drawn: &[Option<(Entity, usize, ActorId)>], e: Entity| match drawn
+            .get(e.index as usize)
+        {
+            Some(&Some((entity, _, id))) if entity == e => Some(id),
+            _ => None,
+        };
+        for k in (0..self.glowing.len()).rev() {
+            let (entity, id) = self.glowing[k];
+            let lit = fx
+                .glows(alpha)
+                .any(|g| g.target == GlowTarget::Entity(entity));
+            if !lit || actor_of(&self.drawn, entity) != Some(id) {
+                renderer.set_actor_glow(id, 0.0, 0.0)?;
+                self.glowing.swap_remove(k);
+            }
+        }
+        for g in fx.glows(alpha) {
+            let GlowTarget::Entity(entity) = g.target else {
+                continue;
+            };
+            let Some(id) = actor_of(&self.drawn, entity) else {
+                continue;
+            };
+            renderer.set_actor_glow(id, g.fill, g.rim)?;
+            if !self.glowing.iter().any(|&(e, _)| e == entity) {
+                self.glowing.push((entity, id));
+            }
+        }
+        Ok(())
     }
 
     /// One drawn actor per animated entity, posed at `alpha`; an entity gone

@@ -27,6 +27,12 @@ pub struct FxSettings {
     pub pool: u32,
     pub path_points: u32,
     pub effects: Vec<Effect>,
+    pub trails: u32,
+    pub trail_points: u32,
+    pub trail_dots: u32,
+    pub trail: TrailStyle,
+    pub highlights: u32,
+    pub pulse_depth: f32,
 }
 
 impl Default for FxSettings {
@@ -36,6 +42,45 @@ impl Default for FxSettings {
             pool: 64,
             path_points: 32,
             effects: Vec::new(),
+            trails: 4,
+            trail_points: 64,
+            trail_dots: 256,
+            trail: TrailStyle::default(),
+            highlights: 16,
+            pulse_depth: 0.4,
+        }
+    }
+}
+
+/// How every trail's dots are drawn; what each trail shows (spacing, size,
+/// colour, intensity, the wave's speed, the fades at its ends) is in its
+/// command.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct TrailStyle {
+    pub sprite: Shape,
+    /// Metres above the route's points, so the dots never sink into the floor.
+    pub lift: f32,
+    /// Metres from the wave's crest to where it has fallen to e⁻² of it.
+    pub wave_length: f32,
+    /// Metres between one crest and the next.
+    pub wave_every: f32,
+    /// How much brighter, and larger, a dot is at the crest.
+    pub wave_gain: f32,
+    pub wave_grow: f32,
+    pub additive: f32,
+}
+
+impl Default for TrailStyle {
+    fn default() -> TrailStyle {
+        TrailStyle {
+            sprite: Shape::Disc,
+            lift: 0.02,
+            wave_length: 1.0,
+            wave_every: 8.0,
+            wave_gain: 1.0,
+            wave_grow: 0.25,
+            additive: 1.0,
         }
     }
 }
@@ -122,6 +167,28 @@ impl FxSettings {
     pub fn validate(&self) -> Result<(), String> {
         if self.emitters == 0 || self.pool == 0 {
             return Err("fx.emitters and fx.pool must be at least 1".into());
+        }
+        let t = &self.trail;
+        let style = [
+            t.lift,
+            t.wave_length,
+            t.wave_every,
+            t.wave_gain,
+            t.wave_grow,
+            t.additive,
+        ];
+        if style.iter().any(|v| !v.is_finite())
+            || t.wave_length <= 0.0
+            || t.wave_every <= 0.0
+            || !(0.0..=1.0).contains(&t.additive)
+        {
+            return Err(
+                "fx.trail: wave_length and wave_every must be positive, additive within 0 and 1"
+                    .into(),
+            );
+        }
+        if !(0.0..=1.0).contains(&self.pulse_depth) {
+            return Err("fx.pulse_depth must be within 0 and 1".into());
         }
         for (i, e) in self.effects.iter().enumerate() {
             let name = &e.name;

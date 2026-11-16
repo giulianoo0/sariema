@@ -176,6 +176,24 @@ batch_table! {
         /// `count` particles of `effect` at once, placed as `fx_start`
         /// places them.
         0x00C2 FxBurst fx_burst { effect: u32, entity: Entity, position: Vec3, count: u32, seed: u32 }
+        /// Trail `trail`, an id the game chooses: soft dots `size` metres
+        /// across lying `spacing` metres apart along `points`, from `from`'s
+        /// place when it is not NONE, counted back from the last point so
+        /// they stay put while `from` walks. `color` (linear RGB) at
+        /// `intensity`, with a wave of light running to the last point at
+        /// `wave_speed` m/s; the dots fade out within `fade_from` metres of
+        /// the start and `fade_to` of the end. It shows over `fade`
+        /// seconds; a trail of that id takes the new route at once.
+        0x00C3 Trail trail { trail: u32, from: Entity, points: Points, spacing: f32, size: f32, color: Vec3, intensity: f32, wave_speed: f32, fade_from: f32, fade_to: f32, fade: f32 }
+        /// Fades trail `trail` out over `fade` seconds. One not shown is ignored.
+        0x00C4 TrailOff trail_off { trail: u32, fade: f32 }
+        /// `entity` (an actor, or a room node's entity), or the active
+        /// room's node named `node` when `entity` is NONE, glows in its own
+        /// colour: its albedo and vertex colour at full brightness, over all
+        /// of it at `fill` and at its rim at `rim`, pulsing every `pulse`
+        /// seconds (0 is steady), eased there over `fade` seconds from where
+        /// it is. Both 0 fade it out.
+        0x00C5 Highlight highlight { entity: Entity, node: u32, fill: f32, rim: f32, pulse: f32, fade: f32 }
 
         0x00A0 HostReady host_ready {}
         0x00A1 HostExit host_exit {}

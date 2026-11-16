@@ -3,16 +3,23 @@
 //! Particles: emitters the game starts, stops and bursts, each a fixed pool
 //! of particles simulated on the step with the emitter's own seeded
 //! generator, so the same commands give the same particles on every host.
-//! A host draws [`Fx::sprites`] at the frame's `alpha`. Nothing here is
-//! part of the state hash: particles never change what the game sees.
+//! Trails of dots along a route and highlights of nodes and actors keep
+//! their state here too. A host draws [`Fx::sprites`] and applies
+//! [`Fx::glows`] at the frame's `alpha`. Nothing here is part of the state
+//! hash: none of it changes what the game sees.
 
 mod effect;
+mod glow;
+mod ramp;
+mod trail;
 
 use glam::{Quat, Vec3};
 use sariema_core::STEP_SECONDS;
 use sariema_format::script::{Entity, PointList};
 
-pub use effect::{Effect, FxSettings, Shape};
+pub use effect::{Effect, FxSettings, Shape, TrailStyle};
+pub use glow::{Glow, GlowTarget};
+pub use trail::TrailLook;
 
 use crate::hash::StateHasher;
 use crate::rng::Pcg32;
@@ -24,9 +31,9 @@ use crate::world::World;
 pub enum FxReject {
     /// No effect of that name in `fx.effects`.
     Unknown,
-    /// Every one of `fx.emitters` is in use.
+    /// Every one of `fx.emitters`, `fx.trails` or `fx.highlights` is in use.
     Full,
-    /// More points than `fx.path_points`.
+    /// More points than `fx.path_points` or `fx.trail_points`.
     Points,
 }
 
@@ -116,6 +123,9 @@ pub struct Fx {
     /// `path_points` points per slot.
     points: Vec<Vec3>,
     path_points: usize,
+    trails: trail::Trails,
+    glows: glow::Glows,
+    steps: u64,
 }
 
 impl Default for Fx {
@@ -171,7 +181,57 @@ impl Fx {
             slots,
             points: vec![Vec3::ZERO; path_points * settings.emitters as usize],
             path_points,
+            trails: trail::Trails::new(
+                settings.trails,
+                settings.trail_points,
+                settings.trail_dots,
+                settings.trail,
+            ),
+            glows: glow::Glows::new(settings.highlights, settings.pulse_depth),
+            steps: 0,
         }
+    }
+
+    /// Shows trail `id` along `points`, from `from`'s place when it is not
+    /// NONE, reached over `fade` seconds; a trail of that id takes the new
+    /// route and look at once.
+    pub fn trail(
+        &mut self,
+        world: &World,
+        route: (u32, Entity, PointList<'_>),
+        look: TrailLook,
+        fade: f32,
+    ) -> Result<(), FxReject> {
+        self.trails.show(world, route, look, fade)
+    }
+
+    pub fn trail_off(&mut self, id: u32, fade: f32) {
+        self.trails.hide(id, fade);
+    }
+
+    /// Eases `target`'s glow to `fill` and `rim` over `fade` seconds,
+    /// pulsing every `pulse` seconds; both 0 ends it once reached.
+    pub fn highlight(
+        &mut self,
+        target: GlowTarget,
+        levels: (f32, f32),
+        pulse: f32,
+        fade: f32,
+    ) -> Result<(), FxReject> {
+        self.glows.set(target, levels, pulse, fade)
+    }
+
+    /// Every target glowing at `alpha`.
+    pub fn glows(&self, alpha: f32) -> impl Iterator<Item = Glow> + '_ {
+        self.glows.at(alpha)
+    }
+
+    pub fn trails(&self) -> usize {
+        self.trails.len()
+    }
+
+    pub fn highlights(&self) -> usize {
+        self.glows.len()
     }
 
     fn effect(&self, id: u32) -> Result<usize, FxReject> {
@@ -270,6 +330,9 @@ impl Fx {
     /// One step: particles age, move and die, then the emitters' new ones
     /// are born where their entity stands now.
     pub fn step(&mut self, world: &World) {
+        self.steps += 1;
+        self.trails.step(world);
+        self.glows.step(world);
         let dt = STEP_SECONDS;
         for k in 0..self.slots.len() {
             if self.slots[k].using == Use::Free {
@@ -334,10 +397,12 @@ impl Fx {
         }
     }
 
-    /// The live particles as drawn `alpha` of the way from the last step to
-    /// this one, appended to `out`.
+    /// The live particles and the trails' dots as drawn `alpha` of the way
+    /// from the last step to this one, appended to `out`.
     pub fn sprites(&self, alpha: f32, out: &mut Vec<Sprite>) {
         let back = (1.0 - alpha) * STEP_SECONDS;
+        let time = (self.steps as f64 - 1.0 + alpha as f64).max(0.0) * STEP_SECONDS as f64;
+        self.trails.sprites(alpha, time, out);
         for slot in self.slots.iter().filter(|s| s.using != Use::Free) {
             let c = &self.effects[slot.effect];
             let e = &c.effect;
@@ -387,6 +452,8 @@ impl Fx {
                 h.f32(p.size);
             }
         }
+        self.trails.hash_into(&mut h);
+        self.glows.hash_into(&mut h);
         h.finish()
     }
 }

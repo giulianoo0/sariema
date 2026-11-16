@@ -2,7 +2,8 @@
 // An actor's frame data and its skinning. Appended after common.wgsl and
 // skin_storage.wgsl or skin_uniform.wgsl, which declare `actor`: one actor,
 // in rows of four floats. The model matrix (rows 0 to 3), its normal matrix
-// (rows 4 to 6; row 4's w is the first palette row), the disc shadow (row 7:
+// (rows 4 to 6; row 4's w is the first palette row, rows 5's and 6's the
+// glow's fill and rim), the disc shadow (row 7:
 // radius, opacity, softness, lift), the face offsets (two per row from row
 // 8), then four rows per joint of the palette.
 

@@ -582,6 +582,15 @@ impl Renderer {
             .is_some_and(|r| r.set_node_offset(node, offset))
     }
 
+    /// Makes node `node` of the room in `slot` glow in its own colour: its
+    /// albedo and vertex colour, brightest channel at 1, added over all of
+    /// it at `fill` and at its rim at `rim`; false if there is none.
+    pub fn set_node_glow(&mut self, slot: u32, node: usize, fill: f32, rim: f32) -> bool {
+        self.stage
+            .get_mut(slot)
+            .is_some_and(|r| r.set_node_glow(node, fill, rim))
+    }
+
     /// How much of the room in `slot` is drawn: 1 whole, 0 nothing; between,
     /// its opaque draws dither, the others fade, and it casts shadows from
     /// halfway. `inverted` dithers it in the complement
@@ -735,6 +744,17 @@ impl Renderer {
     /// Shows or hides the actor's parts called `part`; false if there is none.
     pub fn set_actor_part_visible(&mut self, actor: ActorId, part: &str, visible: bool) -> bool {
         self.actors.set_part_visible(actor, part, visible)
+    }
+
+    /// Makes `actor` glow in its own colour, as [`Renderer::set_node_glow`]
+    /// does a node.
+    pub fn set_actor_glow(
+        &mut self,
+        actor: ActorId,
+        fill: f32,
+        rim: f32,
+    ) -> Result<(), RenderError> {
+        self.actors.set_glow(actor, fill, rim)
     }
 
     /// Replaces the actor's disc shadow; `None` draws none.
