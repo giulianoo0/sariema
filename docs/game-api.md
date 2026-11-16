@@ -197,6 +197,8 @@ game!(Hello);
   `ctx.despawn`, `ctx.entities().is_alive(e)`.
 - Cutscene control: `ctx.bind(role, entity)`, `ctx.play_cutscene`,
   `ctx.skip_cutscene`, `ctx.signal`.
+- `ctx.scene_tween(tween, &[(id("fog.density"), 0.05), …], duration, ease)`
+  tweens scene parameters of the active room together.
 - `ctx.rng()` is a PCG32 seeded from the engine's `started` event.
 - `ctx.button(id("action"))` is the index `button` events carry for the
   input button named `action`, whatever its place in `input.buttons`;
@@ -353,10 +355,14 @@ without `--headless` the pack plays in a window.
   collision pack). `traverse` carries an actor along one of the room's
   declared traversals, collider off, and ends with `arrived`; without a
   collision module it ends at once with `blocked`.
-- **Tweens and springs** on position, yaw, pitch, roll, scale or a world
-  variable, with 20 easings (Penner's, plus smoothstep). A new animation of a
+- **Tweens and springs** on position, yaw, pitch, roll, scale, a world
+  variable or a scene parameter of the active room (its light, sun,
+  hemisphere, fog, look and hinges; `property: scene`, `var` its name id),
+  with 20 easings (Penner's, plus smoothstep). A new animation of a
   property starts from its current value, and a spring keeps its velocity, so
   interrupting never jumps. A spring settles exactly on its target.
+  `scene_tween` tweens several scene parameters together with one
+  `tween_done`; see [lighting](lighting.md#changing-the-light-and-the-look-while-playing).
 - **Followers** keep an entity at another's position plus an offset,
   closing the gap with a half-life.
 - **Timers** fire after a whole number of steps, once or repeating.

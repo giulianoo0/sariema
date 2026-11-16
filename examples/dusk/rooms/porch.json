@@ -1,0 +1,24 @@
+{
+  "name": "porch",
+  "kit": "../../crates/sariema-import/tests/fixtures/kit_min.opt.glb",
+  "montagem": "montagem.json",
+  "luz": "luz.json",
+  "show": ["a"],
+  "loose": ["mesa"],
+  "drawn_materials": [],
+  "rim_materials": [],
+  "additive_materials": [],
+  "look": {
+    "exposure": 1.6,
+    "bloom_threshold": 1.0,
+    "bloom_strength": 0.3,
+    "tint": [1.0, 1.0, 1.0],
+    "real": 0.0,
+    "night": 0.0,
+    "tilt": 0.0,
+    "focus": 8.0
+  },
+  "camera": { "fov_y_deg": 40.0, "pitch_deg": 40.0, "distance": 7.0, "focus": [1.5, 0.5, -1.5] },
+  "background": { "top": [0.25, 0.4, 0.7], "bottom": [0.6, 0.7, 0.8] },
+  "fog": { "color": [0.08, 0.1, 0.16], "start": 3.0 }
+}

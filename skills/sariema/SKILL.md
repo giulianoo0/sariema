@@ -88,6 +88,8 @@ assets.
 - Collision, triggers and movement: `sariema-physics`.
 - Sound and music: `sariema-audio`.
 - Menus, HUD and the touch joystick: `sariema-ui`.
+- The room's light, fog and look changed while playing (`scene_tween`, a
+  cutscene's `scene` step): `docs/lighting.md`, and `examples/dusk`.
 
 ## Common failures
 

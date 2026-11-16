@@ -98,13 +98,15 @@ world afterwards is the one playing it through would have left.
 | `call: name` | sends the game `cutscene_call` | at once |
 | `time_scale: { scale, blend }` | plays the world at `scale` times real time (below 1 is slow motion), reached over `blend` seconds; the end of the cutscene gives back the scale it found | at once |
 | `camera_shake: { amplitude, frequency, duration }` | shakes the camera, dying out: an impact | at once |
+| `scene: { set, duration, ease }` | tweens scene parameters of the active room together (`set` maps each name, like `look.exposure` or `fog.density`, to its value; `ease` is `in_out_sine` when left out); see [lighting](lighting.md#changing-the-light-and-the-look-while-playing). A skip lands it, and every scene step still under way, under the fade | at once |
 
 Every step is also a command a game can send itself: `shot` is a rig command
 then `camera_use`, `walk` is `move_to`, `face`, `look_at`, `clip`
 (`play_clip`), `line` (`say`), `sound` (`play_sound`), `music`, `fade`,
 `letterbox`, `set_flag`, `spawn`, `despawn`, `show`/`hide` (`set_visible`),
 `teleport`, `time_scale` and `camera_shake` are their commands of the same
-name, and a shot's `bone` or `socket` is `rig_anchor`. The sequencer uses rig
+name, `scene` is `scene_tween`, and a shot's `bone` or `socket` is
+`rig_anchor`. The sequencer uses rig
 id and line id `u32::MAX` and tween ids from `0xFFFF0000` up; a game leaves
 those to it.
 
@@ -162,8 +164,9 @@ jump, wherever the game left it.
 ### Parallel branches do not race
 
 Two branches of one `parallel` never move the same role (walk, face,
-teleport, spawn, despawn) or set the same flag (`E_CUTSCENE_RACE`). With
-that, skipping lands every role and flag where playing would have.
+teleport, spawn, despawn), set the same flag or tween the same scene
+parameter (`E_CUTSCENE_RACE`). With that, skipping lands every role, flag
+and scene parameter where playing would have.
 
 ## Directing
 

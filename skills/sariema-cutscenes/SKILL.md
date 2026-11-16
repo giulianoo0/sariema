@@ -1,6 +1,6 @@
 ---
 name: sariema-cutscenes
-description: Use when writing, directing or fixing a Sariema cutscene JSON (traversals, insert shots, slow motion, clip markers, camera shake), when sariema check or build fails with E_CUTSCENE_TELEPORT, E_CUTSCENE_COVER, E_CUTSCENE_START, E_CUTSCENE_ABSENT, E_CUTSCENE_SPAWN, E_CUTSCENE_RACE, E_CUTSCENE_SPEED, E_CUTSCENE_ROLE or E_SETTINGS, or when a cutscene_play is rejected with E_CUTSCENE_UNBOUND, E_CUTSCENE_UNKNOWN or E_CUTSCENE_BUSY.
+description: Use when writing, directing or fixing a Sariema cutscene JSON (traversals, insert shots, slow motion, clip markers, camera shake, the room's light, fog or look changing with a scene step), when sariema check or build fails with E_CUTSCENE_TELEPORT, E_CUTSCENE_COVER, E_CUTSCENE_START, E_CUTSCENE_ABSENT, E_CUTSCENE_SPAWN, E_CUTSCENE_RACE, E_CUTSCENE_SPEED, E_CUTSCENE_ROLE or E_SETTINGS, or when a cutscene_play is rejected with E_CUTSCENE_UNBOUND, E_CUTSCENE_UNKNOWN or E_CUTSCENE_BUSY.
 ---
 
 # Sariema cutscenes
@@ -103,6 +103,20 @@ Entering through a window, the foot catching the sill
 }
 ```
 
+## Changing the room's light in a cutscene
+
+A `scene` step tweens scene parameters of the active room together and ends
+at once; a skip lands it under the fade. Dusk falling while two characters
+talk:
+
+```json
+{ "scene": { "set": { "look.exposure": 0.7, "sun.intensity": 0.2, "hemisphere.sky.b": 0.35, "fog.density": 0.04 }, "duration": 3 } }
+```
+
+The names are listed in `docs/lighting.md` ("Changing the light and the
+look while playing"); a name the active room lacks arrives as a `rejected`
+`E_SCENE_UNKNOWN` and changes nothing.
+
 ## Fixing a failed check
 
 The message names the file, cutscene and step: `cutscene meet, steps[4].teleport: …`.
@@ -115,7 +129,7 @@ The message names the file, cutscene and step: `cutscene meet, steps[4].teleport
 | `E_CUTSCENE_START` | give the role `"start": { "position": […], "yaw": … }`, or `spawn` it before its first use |
 | `E_CUTSCENE_SPAWN` | spawn only roles without `start`, or after their `despawn` |
 | `E_CUTSCENE_ABSENT` | do not use a role after `despawn` |
-| `E_CUTSCENE_RACE` | move each role, and set each flag, in one `parallel` branch only |
+| `E_CUTSCENE_RACE` | move each role, set each flag and tween each scene parameter in one `parallel` branch only |
 | `E_CUTSCENE_SPEED` | slow the `walk` (or `cutscene.start_walk_speed`) to `motion.max_visible_speed` or less; to cross faster, hide it or cut |
 | `E_SETTINGS` | in `game.settings`, keep `min_time_scale` and `max_time_scale` positive, the minimum no larger |
 | `E_CUTSCENE_ROLE` | declare the role under `roles` |

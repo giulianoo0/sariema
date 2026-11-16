@@ -1,6 +1,6 @@
 ---
 name: sariema-game-scripting
-description: Use when writing or fixing the Rust logic of a Sariema game with sariema-sdk — spawning entities, reacting to events, moving the hero, timers, saves, input presses — or when a run reports E_GAME_TRAP, E_GAME_BUDGET, E_GAME_MEMORY, a rejected event such as E_ENTITY_STALE or E_TELEPORT_VISIBLE, or hashes that differ between runs.
+description: Use when writing or fixing the Rust logic of a Sariema game with sariema-sdk — spawning entities, reacting to events, moving the hero, timers, saves, input presses, changing a room's light, sun, hemisphere, fog or look while playing — or when a run reports E_GAME_TRAP, E_GAME_BUDGET, E_GAME_MEMORY, a rejected event such as E_ENTITY_STALE, E_TELEPORT_VISIBLE, E_SCENE_UNKNOWN or E_SCENE_VALUES, or hashes that differ between runs.
 ---
 
 # Sariema game scripting
@@ -60,6 +60,7 @@ game!(Hello);
 | walk somewhere | `MoveTo { entity, target, speed }`, then `Event::Arrived` |
 | later | `Timer { timer, duration, repeat }`, then `Event::TimerFired` |
 | a smooth value | `Tween { … ease }` or `Spring { … }`, then `Event::TweenDone` |
+| the room's light or look to change | `ctx.scene_tween(tween, &[(id("look.exposure"), 0.6), (id("fog.density"), 0.05)], 2.0, Ease::InOutSine)`, one `TweenDone` when all arrive; names in `docs/lighting.md` |
 | a button's index | `ctx.button(id("action"))` in `Game::new`; never copy its place in `input.buttons` |
 | a button press | `Event::Button { action, down }`, or `Event::Buffered { action, .. }` until you send `Consume { action }` |
 | randomness | `ctx.rng()`, seeded by the engine; never another source |
@@ -79,6 +80,8 @@ with `sariema run --headless … --json`.
 |---|---|---|
 | `rejected` with `E_TELEPORT_VISIBLE` | something would move a visible actor faster than `motion.max_visible_speed`: `set_transform`, `teleport`, a fast `tween` or walk (at its speed scale), a rigid `follow`, `set_parent`, or moving what carries it. Opcode 0: the step's measurement put the actor back and stopped what moved it; the first event names the actor, the next ones each carrier stopped (a fast move begun under a fade or cut that lifted, or while hidden; a spring; a carrier turning or growing, even one spawned or placed this step; moves that add up). A walk stopped this way also ends with `blocked` | walk or ease it slower; hide it a step before; or keep the fade or cut over the whole move |
 | `rejected` with `E_ENTITY_STALE` | a handle kept after `despawn` or a `despawned` event | drop handles when they die |
+| `rejected` with `E_SCENE_UNKNOWN` from `scene_tween` | a parameter the active room lacks (`sun.*` in a room without a sun, a light's name misspelt); nothing was tweened | list the room's parameters with `sariema inspect <room>.srma --json` (`params`) |
+| `rejected` with `E_SCENE_VALUES` | `values` not a whole number of 8-byte pairs, or a value not finite | build them with `ctx.scene_tween` (or `put_scene_value`) |
 | `E_GAME_TRAP` at step 0 with "time not implemented" | `std::time` | count steps (`ctx.step()`) |
 | `E_GAME_BUDGET` | heavy work in one tick | spread it over steps; bulk regions for many placements |
 | `state_hash` changed after a rebuild, same log | it covers the module's memory, which a rebuild moves | compare `world_hash` across builds, `state_hash` within one |

@@ -95,6 +95,96 @@ added after shading, which on faceted hair, whose shells all turn edge-on
 somewhere, draws a white line along every facet. Leave it at 0 and use the
 character light's rim.
 
+## Changing the light and the look while playing
+
+Every number of a room that a game may change while it plays is a scene
+parameter, named by a path. A room's index lists them with the value they
+load with:
+
+| Parameters | What |
+|---|---|
+| `look.exposure`, `look.bloom_threshold`, `look.bloom_strength`, `look.tint.r/g/b`, `look.real`, `look.night`, `look.tilt`, `look.focus`, `look.ao_strength` | the look |
+| `sun.intensity`, `sun.color.r/g/b`, `sun.azimuth`, `sun.elevation` | the sun, when the room has one; degrees from −Z towards +X and above the horizon |
+| `ambient.intensity`, `ambient.color.r/g/b` | multiply the whole ambient light, 1 at load |
+| `hemisphere.intensity`, `hemisphere.sky.r/g/b`, `hemisphere.ground.r/g/b` | the ambient light straight up and straight down, read from the room's own; the intensity multiplies both and is 1 at load |
+| `background.top.r/g/b`, `background.bottom.r/g/b` | the gradient drawn where nothing is |
+| `fog.density`, `fog.color.r/g/b`, `fog.start`, `fog.end` | the fog, as the room describes it |
+| `light.<name>.intensity`, `light.<name>.color.r/g/b`, `light.<name>.range` | each light |
+| `hinge.<node>` | degrees a hinged node is turned |
+
+A game moves them with commands, each one a tween from the value on
+screen, so nothing jumps:
+
+- `tween` with `property: scene` and `var` the parameter's name id tweens one.
+- `scene_tween { tween, values, duration, ease }` tweens several together,
+  `values` holding a name id and a target `f32` for each
+  (`ctx.scene_tween(tween, &[(id("look.exposure"), 0.6), (id("fog.density"), 0.05)], 2.0, Ease::InOutSine)`
+  in the SDK). Each replaces whatever drove its own parameter; `tween_done`
+  reports `tween` once, when the last of them arrives. A parameter the
+  active room lacks refuses the whole command with `E_SCENE_UNKNOWN`, and
+  values torn short or not finite with `E_SCENE_VALUES`.
+- A cutscene's `scene` step is the same `scene_tween`
+  ([cutscenes](cutscenes.md#steps)): it ends at once, and a skip lands it,
+  and every scene step still under way, under the skip's fade.
+
+The tween runs in the step, so a parameter's value at every step is the
+same on every machine, and the world hash covers only the parameters that
+differ from the room's load: it changes when the game asks and only then.
+A frame between two steps draws each parameter between its values at those
+steps, at the frame's `alpha`, as it draws every pose, so a slow change
+stays smooth at any refresh rate. A parameter that did not change between
+the two steps is drawn exactly, so a room nobody touches is drawn as its
+pack has it to the bit.
+
+**The hemisphere.** A room's ambient light is nine spherical-harmonic
+terms, baked from the room's hemisphere light and whatever the importer
+added. The hemisphere parameters are its first term and the vertical part
+of its second, read as the light straight up (`sky`) and straight down
+(`ground`). Setting them rewrites those two terms and keeps the rest, so a
+night sky turned on over a room keeps the sideways light it had.
+
+**The fog.** What is drawn goes towards the fog's colour by the share
+`1 − e^(−density × (d − start))` past `start`, or by the ramp from `start`
+to `end`, whichever is thicker, where `d` is the distance from the camera.
+At `density` 0 and `end` at or before `start` the room has none, and the
+frame pays one uniform test per fragment. A glow (an additive material)
+fades in fog instead of turning the fog's colour, and the ambient
+occlusion fades with the surface it darkens, judged at the pixel's view
+depth. The background is not fogged: a room that wants its sky hazed sets
+the background to the fog's colour. A room describes its fog in its
+description (`schemas/room.schema.json`):
+
+```json
+"fog": { "color": [0.55, 0.6, 0.7], "density": 0.03, "start": 4.0 }
+```
+
+The colour is the background's bottom when left out, so a game that only
+tweens `fog.density` gets a haze of the sky's colour.
+
+`examples/dusk` does all of it in a room of the importer's test kit: its
+logic tweens the sun, the hemisphere, the background and the exposure
+towards dusk with one `scene_tween`, and when `tween_done` comes it plays
+`nightfall`, whose `scene` step brings the fog in and turns the lamps up.
+
+```sh
+sariema build examples/dusk -o dusk.srmg
+sariema run --headless --game dusk.srmg --steps 600 --screenshot dusk.png --filmstrip 6
+```
+
+Measured with `sariema bench` on an Apple M5 at 1920×1080, medium quality,
+in three furnished rooms with one or two actors, four runs of each case in
+alternating order: the draws and the bytes sent each frame are the same
+with fog and without. Fog adds 0.01 to 0.02 ms to the composite pass
+(0.40 to 0.46 ms); the scene pass (0.8 to 2 ms) differs between fog and
+none, and between a room without fog and the same room drawn before these
+parameters existed, by less than it differs between two runs of the same
+(up to 0.09 ms). The frame's uniform grows by 32 bytes and the composite's
+by 16, each sent only when it changes; each room pack grows by 24; no
+texture, buffer or pipeline is added, the fog being a test on the frame's
+values in the pipelines that exist. A room's parameters (75 to 172 in
+those rooms) are copied once a step for the frames between steps, four
+bytes each.
+
 ## What was taken from where
 
 - **Godot 4** (`scene_forward_lights_inc.glsl`): its rim is added per light,
@@ -113,3 +203,20 @@ character light's rim.
   fragment it covers. Here the character light rides the actor pipelines,
   which the room's draws never pay for, and a room needs no light placed by
   hand that a moving camera would leave behind.
+- **Fog**: Filament's `surface_fog.fs` begins its exponential fog at a
+  start distance (`max(d − fogStart, 0)` metres of optical path) and Bevy's
+  `FogFalloff` offers a linear ramp from `start` to `end` and an
+  exponential one by `density`, both by the distance from the camera;
+  here a room has both and the thicker wins, as Godot 4 takes the thicker
+  of its distance and height fog (`fog_amount = max(vfog_amount,
+  fog_amount)`). Godot adds the fog's colour to additive materials too;
+  here a glow fades instead.
+- **Tweens of the environment**: Godot animates any environment property
+  with a `Tween`, and tweeners set parallel run together with one
+  `finished` signal when all have; `scene_tween` is that, with
+  `tween_done`. Godot and PixiJS step tweens on the display's frames
+  (PixiJS by a callback on its ticker); here they step with the
+  deterministic world step and the frames draw between steps.
+- **The hemisphere** is three.js's `HemisphereLight` (a sky colour, a
+  ground colour, an intensity), which the importer already turns into the
+  ambient's terms; the parameters read it back from them.

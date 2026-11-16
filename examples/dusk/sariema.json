@@ -1,0 +1,10 @@
+{
+  "name": "dusk",
+  "assets_root": ".",
+  "rooms": { "porch": "rooms/porch.json" },
+  "game": {
+    "logic": "game",
+    "cutscenes": "cutscenes",
+    "toolchain": "1.100.0"
+  }
+}
