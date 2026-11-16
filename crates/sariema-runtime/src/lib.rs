@@ -17,6 +17,7 @@ pub mod input;
 pub mod motion;
 mod no_jump;
 pub mod outbox;
+pub mod paths;
 pub mod rng;
 pub mod scenery;
 pub mod screen;

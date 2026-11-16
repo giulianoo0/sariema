@@ -256,6 +256,7 @@ impl<L: Logic> Simulation<L> {
         }
         self.sequencer.step(s);
         drive_hero(s);
+        crate::paths::step(s);
         if s.settings.motion.builtin {
             let settings = s.settings.motion;
             let (events, happened, count) = (&mut s.events, &mut s.happened, &mut s.happenings);

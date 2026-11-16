@@ -173,6 +173,26 @@ batch_table! {
         0x00A4 SaveLoad save_load {}
         /// A message on a topic the host and game agreed on.
         0x00A5 HostSend host_send { topic: Str, payload: Bytes }
+
+        /// Plays `clip` on `entity` from `from` seconds into it, still for
+        /// `hold` seconds first, and moves the actor's root only within the
+        /// clip's `spans` (`ClipSpan::put` writes them, in order of the
+        /// clip's time, none overlapping): within a span the clip plays at
+        /// the span's rate and the root goes from where it stands when the
+        /// span begins to the span's point, eased, collider off; outside
+        /// them the root stays and the clip plays at its own rate. Ends with
+        /// `arrived` when the last span ends, the collider on again where
+        /// the root stands, pushed out of any overlap. Refused with
+        /// E_CLIP_SPANS for spans out of order, past the clip's end or not
+        /// finite, and with E_TELEPORT_VISIBLE when a span would carry a
+        /// visible actor faster than it may be seen to move.
+        0x0021 ClipPath clip_path { entity: Entity, clip: u32, mode: ClipMode, blend: f32, from: f32, hold: f32, spans: Bytes }
+        /// Queues `clip` after the clip `entity` plays and those queued
+        /// after it: it begins once the one before has played `after`
+        /// seconds, or reached its end when `after` is 0, with the time left
+        /// over, so the seam shows no still frame. Plays at once when the
+        /// actor plays no clip. A `play_clip` or `clip_path` drops the queue.
+        0x0023 ClipNext clip_next { entity: Entity, clip: u32, mode: ClipMode, blend: f32, speed: f32, after: f32 }
     }
     events {
         /// The first event of the first tick.

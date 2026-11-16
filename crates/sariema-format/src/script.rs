@@ -17,9 +17,11 @@ use serde::{Deserialize, Serialize};
 #[macro_use]
 mod codegen;
 pub mod cutscene;
+mod span;
 mod table;
 mod wire;
 
+pub use span::{CLIP_SPAN, ClipSpan, clip_spans};
 pub use table::{BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Event};
 pub use wire::{
     Advance, Anchor, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,

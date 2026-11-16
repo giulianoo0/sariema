@@ -246,6 +246,16 @@ pub(crate) fn may_follow(
     may_jump(s, e, moved)
 }
 
+/// `e`'s root moved along a clip path, by its farthest step.
+pub(crate) fn may_path(s: &State, e: Entity, moved: f32) -> Result<(), Refusal> {
+    may_jump(s, e, moved)
+}
+
+/// The most a visible actor may turn in a step, in degrees.
+pub(crate) fn turn_step(s: &State) -> f32 {
+    turn_limit(s) * SLACK
+}
+
 /// `e` walking to `goal` at its speed scale.
 pub(crate) fn may_walk(s: &State, e: Entity, goal: Goal) -> Result<(), Refusal> {
     may_jump(s, e, walk_move(s, e, goal, speed_scale(s, e)))

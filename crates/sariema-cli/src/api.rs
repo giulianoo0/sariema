@@ -261,6 +261,11 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "camera_use names a rig never defined",
     ),
     (
+        "E_CLIP_SPANS",
+        Kind::Rejected,
+        "clip_path spans out of order, past the clip's end, at a rate of 0 or not finite",
+    ),
+    (
         "E_ROOM_UNKNOWN",
         Kind::Rejected,
         "room_preload or room_switch names a room the pack lacks",
