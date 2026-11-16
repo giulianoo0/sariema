@@ -106,10 +106,15 @@ impl Scene {
         if order.is_empty() {
             return;
         }
-        pass.set_pipeline(&self.depth_only);
         pass.set_bind_group(0, &self.frame_group, &[]);
         room.bind_meshes(&mut pass);
+        let mut current = None;
         for i in order {
+            let double_sided = room.draws[i].kind.double_sided;
+            if current != Some(double_sided) {
+                pass.set_pipeline(&self.depth_only[double_sided as usize]);
+                current = Some(double_sided);
+            }
             room.draw(&mut pass, i);
         }
     }

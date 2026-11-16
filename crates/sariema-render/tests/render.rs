@@ -295,6 +295,16 @@ fn coverage_of_demo_room_is_partial() {
 }
 
 #[test]
+fn coverage_counts_back_faces_of_double_sided_draws() {
+    let background = |room: &RoomPack| render_coverage(room, &camera_of(room), W, H).unwrap();
+    let front = background(&plain_floor(false, false));
+    let culled = background(&plain_floor(true, false));
+    let both = background(&plain_floor(true, true));
+    assert!(culled > front + 0.1, "culled {culled}, front {front}");
+    assert!((both - front).abs() < 0.001, "back {both}, front {front}");
+}
+
+#[test]
 fn coverage_without_draws_is_full() {
     let mut room = demo_room();
     room.draws.clear();

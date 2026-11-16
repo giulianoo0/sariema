@@ -141,7 +141,8 @@ pub(crate) struct Scene {
     /// Indexed by [`Kind::index`].
     pipelines: [wgpu::RenderPipeline; Kind::COUNT],
     background: wgpu::RenderPipeline,
-    depth_only: wgpu::RenderPipeline,
+    /// Indexed by `double_sided as usize`.
+    depth_only: [wgpu::RenderPipeline; 2],
     frame: wgpu::Buffer,
     lights: wgpu::Buffer,
     cells: wgpu::Buffer,
@@ -204,21 +205,24 @@ impl Scene {
             multiview_mask: None,
             cache: None,
         });
-        let depth_only = gpu.pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("depth only"),
-            layout: Some(&pipeline_layout(&[&layouts.frame, &layouts.draw])),
-            vertex: wgpu::VertexState {
-                module: &module,
-                entry_point: Some("vs_depth"),
-                compilation_options: Default::default(),
-                buffers: &[Some(vertex_layout())],
-            },
-            primitive: primitive(false),
-            depth_stencil: Some(depth_state(true, wgpu::CompareFunction::Less)),
-            multisample: Default::default(),
-            fragment: None,
-            multiview_mask: None,
-            cache: None,
+        let depth_layout = pipeline_layout(&[&layouts.frame, &layouts.draw]);
+        let depth_only = [false, true].map(|double_sided| {
+            gpu.pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("depth only"),
+                layout: Some(&depth_layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs_depth"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(vertex_layout())],
+                },
+                primitive: primitive(double_sided),
+                depth_stencil: Some(depth_state(true, wgpu::CompareFunction::Less)),
+                multisample: Default::default(),
+                fragment: None,
+                multiview_mask: None,
+                cache: None,
+            })
         });
 
         let storage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;

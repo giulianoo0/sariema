@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use glam::{Vec3, vec3};
+use glam::{Mat4, Vec3, vec3};
 use image::RgbaImage;
 use sariema_core::{Camera, room_camera};
 use sariema_format::demo::demo_room;
@@ -132,6 +132,23 @@ fn shadow_ratio(img: &RgbaImage, room: &RoomPack, light: &Light) -> f32 {
 #[test]
 fn box_casts_shadow_on_floor() {
     let room = box_room();
+    let ratio = shadow_ratio(&render(Quality::high(), &room), &room, &room.lights[0]);
+    assert!(ratio <= 0.6, "shadowed / lit luma = {ratio}");
+}
+
+#[test]
+fn double_sided_sheet_casts_shadow_from_its_back() {
+    // The red box becomes a 1 m sheet at its top, facing the floor, so the spot sees its back.
+    let mut room = box_room();
+    room.materials[1].double_sided = true;
+    let floor_mesh = room.draws[0].mesh;
+    let sheet = &mut room.draws[1];
+    sheet.mesh = floor_mesh;
+    sheet.transform = (Mat4::from_translation(RED_BOX_TOP)
+        * Mat4::from_rotation_z(std::f32::consts::PI)
+        * Mat4::from_scale(vec3(0.1, 1.0, 0.1)))
+    .to_cols_array();
+    sheet.bounds = Aabb::around(&room.meshes[floor_mesh as usize], &sheet.transform);
     let ratio = shadow_ratio(&render(Quality::high(), &room), &room, &room.lights[0]);
     assert!(ratio <= 0.6, "shadowed / lit luma = {ratio}");
 }
