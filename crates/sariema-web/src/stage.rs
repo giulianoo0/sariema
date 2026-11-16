@@ -47,6 +47,12 @@ impl fmt::Display for StageError {
     }
 }
 
+impl From<sariema_view::ViewError> for StageError {
+    fn from(e: sariema_view::ViewError) -> StageError {
+        StageError::new(e.code, e.message)
+    }
+}
+
 impl From<RenderError> for StageError {
     fn from(e: RenderError) -> StageError {
         let code = match e {

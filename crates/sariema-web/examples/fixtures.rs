@@ -7,8 +7,9 @@
 //!
 //! `<out>` gets the demo room with and without occlusion, the demo arm, a
 //! sound bank with a beep, the UI example and its font, the goldens those
-//! scenes match, a game whose logic never returns (`forever.srmg`), and
-//! `fixtures.json` listing the scenes. Each `.srma` in
+//! scenes match, a game whose logic never returns (`forever.srmg`), one
+//! whose 30th tick never returns (`late.srmg`) with an input log of no
+//! input (`idle.json`), and `fixtures.json` listing the scenes. Each `.srma` in
 //! `--packs` is drawn natively at the same size and quality, the reference
 //! kept beside it as `<pack>.png`: game rooms and their images stay in
 //! that folder, outside the repository.
@@ -100,13 +101,10 @@ fn main() {
         &sariema_format::actor::encode(&demo_arm()),
     );
     write(&out, "beep.srms", &beep_bank(48_000));
-    let forever = GamePack {
-        name: "forever".into(),
+    let looping = |name: &str, wat: &str| GamePack {
+        name: name.into(),
         batch_version: BATCH_VERSION,
-        wasm: wat::parse_str(
-            r#"(module (memory (export "memory") 1) (func (export "sariema_tick") (loop $l (br $l))))"#,
-        )
-        .unwrap(),
+        wasm: wat::parse_str(wat).unwrap(),
         cutscenes: Vec::new(),
         names: Vec::new(),
         settings: "{}".into(),
@@ -115,7 +113,20 @@ fn main() {
             ..GameAssets::default()
         },
     };
+    let forever = looping(
+        "forever",
+        r#"(module (memory (export "memory") 1) (func (export "sariema_tick") (loop $l (br $l))))"#,
+    );
     write(&out, "forever.srmg", &encode_game(&forever));
+    let late = looping(
+        "late",
+        r#"(module (memory (export "memory") 1) (global $ticks (mut i32) (i32.const 0))
+             (func (export "sariema_tick")
+               (global.set $ticks (i32.add (global.get $ticks) (i32.const 1)))
+               (if (i32.eq (global.get $ticks) (i32.const 30)) (then (loop $l (br $l))))))"#,
+    );
+    write(&out, "late.srmg", &encode_game(&late));
+    write(&out, "idle.json", br#"{ "changes": [] }"#);
     for (from, to) in [
         ("examples/ui/controls.json", "controls.json"),
         ("crates/sariema-ui/fonts/Nunito.ttf", "Nunito.ttf"),
@@ -160,6 +171,8 @@ fn main() {
         "scenes": scenes,
         "sounds": "beep.srms",
         "forever": "forever.srmg",
+        "late": "late.srmg",
+        "idle": "idle.json",
         "ui": { "description": "controls.json", "font": "../../crates/sariema-ui/fonts/Nunito.ttf", "font_file": "Nunito.ttf" },
     });
     write(

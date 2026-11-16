@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import init, { Engine } from "./wasm/sariema_web.js";
+import init, { Engine, open_gpu } from "./wasm/sariema_web.js";
 import { fetchBytes, type Progress } from "./fetch.js";
 import { AudioOut } from "./audio.js";
 
@@ -37,8 +37,11 @@ export interface Options {
 }
 
 export interface GameOptions {
-  /** The game's random seed. Default 0, as `sariema run --game`. */
-  seed?: number;
+  /**
+   * The game's random seed, 0 to 2^64 − 1: a bigint, or a number up to
+   * 2^53 − 1. Default 0, as `sariema run --game`.
+   */
+  seed?: number | bigint;
   /**
    * False mixes the sound with the steps instead of playing it, as a run to
    * compare with `sariema run --headless --game` needs. Default true.
@@ -51,8 +54,10 @@ export interface GameHashes {
   steps: number;
   engine_hash: string;
   state_hash: string;
-  physics_hash: string;
-  audio_hash: string;
+  /** Null for a game without a room's collision. */
+  physics_hash: string | null;
+  /** Null for a game without sounds. */
+  audio_hash: string | null;
 }
 
 export interface UiEvent {
@@ -127,6 +132,13 @@ export class SariemaError extends Error {
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
 /** Yields to the event loop without setTimeout's 4 ms clamp. */
+/** `seed` as the u64 the engine takes; `E_USAGE` outside 0 to 2^64 − 1. */
+function gameSeed(seed: number | bigint): bigint {
+  const ok = typeof seed === "bigint" ? seed >= 0n && seed < 1n << 64n : Number.isSafeInteger(seed) && seed >= 0;
+  if (!ok) throw new SariemaError("E_USAGE", `a game's seed is an integer from 0 to 2^64 − 1, a bigint past 2^53 − 1; got ${seed}`);
+  return BigInt(seed);
+}
+
 function nextTask(): Promise<void> {
   return new Promise((resolve) => {
     const channel = new MessageChannel();
@@ -155,8 +167,6 @@ export class Sariema {
   #loads: Load[] = [];
   #listeners = new Map<keyof Events, Set<(e: never) => void>>();
   #audio: AudioOut | null = null;
-  /** The game pack playing, which a new GPU loads its room and actors from. */
-  #gamePack: Uint8Array | null = null;
   #detach: (() => void)[] = [];
   backend = "";
 
@@ -199,28 +209,34 @@ export class Sariema {
   }
 
   /**
-   * Makes the engine anew on the canvas and replays every load; a game goes
-   * on at the step it had reached.
+   * Opens the GPU anew on the canvas. A game goes on at the step it had
+   * reached; otherwise every load is replayed on a new engine. If opening
+   * fails, the engine stays as it was and a later call tries again.
    */
   async rebuild(): Promise<void> {
     const old = this.#engine;
     this.#engine = null;
     const css = this.#canvas.getBoundingClientRect();
     const [width, height] = [css.width || this.#canvas.width, css.height || this.#canvas.height];
+    const game = old?.has_game() ?? false;
     let engine: Engine;
     try {
-      engine =
-        old && this.#gamePack
-          ? await old.restored(this.#canvas, width, height, devicePixelRatio, this.#gamePack)
-          : (old?.free(), await Engine.create(this.#canvas, this.#settings(), width, height, devicePixelRatio));
+      const opened = await open_gpu(this.#canvas, this.#settings(), width, height, devicePixelRatio);
+      if (old && game) {
+        old.adopt(opened);
+        engine = old;
+      } else {
+        old?.free();
+        engine = Engine.create(opened);
+      }
     } catch (e) {
-      this.#gamePack = null;
+      this.#engine = old;
       throw SariemaError.from(e);
     }
     this.#fit(engine);
     this.#engine = engine;
     this.backend = engine.backend();
-    if (this.#gamePack) return;
+    if (game) return;
     this.#audio?.restart();
     const loads = this.#loads;
     this.#loads = [];
@@ -330,8 +346,8 @@ export class Sariema {
       rate = await this.#output().open();
       this.#audio!.restart();
     }
-    this.#call((e) => e.load_game(bytes, options.seed ?? 0, rate));
-    this.#gamePack = bytes;
+    const seed = gameSeed(options.seed ?? 0);
+    this.#call((e) => e.load_game(bytes, seed, rate));
   }
 
   /**
@@ -610,7 +626,6 @@ export class Sariema {
     this.#detach = [];
     this.#engine?.free();
     this.#engine = null;
-    this.#gamePack = null;
     void this.#audio?.close();
     this.#audio = null;
   }

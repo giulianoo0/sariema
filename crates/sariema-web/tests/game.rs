@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! A game pack played by the web host, natively: replays hash alike, a
-//! frame draws the game's room, a page frame runs the steps its time owes,
-//! a game that never returns is stopped by its budget, and a new renderer
-//! takes the game on where it was.
+//! A game pack played by the web host, natively: replays hash alike and
+//! keep the log they started with, a frame draws the game's room, a page
+//! frame runs the steps its time owes, a game that never returns is stopped
+//! by its budget, a replay ends at the step that stops its game, and a new
+//! renderer takes the game on where it was.
 
 mod common;
 
@@ -20,6 +21,10 @@ use sariema_web::stage::Stage;
 const IDLE: &str = r#"(module (memory (export "memory") 1) (func (export "sariema_tick")))"#;
 const FOREVER: &str =
     r#"(module (memory (export "memory") 1) (func (export "sariema_tick") (loop $l (br $l))))"#;
+const LATE: &str = r#"(module (memory (export "memory") 1) (global $ticks (mut i32) (i32.const 0))
+    (func (export "sariema_tick")
+      (global.set $ticks (i32.add (global.get $ticks) (i32.const 1)))
+      (if (i32.eq (global.get $ticks) (i32.const 30)) (then (loop $l (br $l))))))"#;
 const NO_INPUT: &str = r#"{"changes":[]}"#;
 
 fn pack(wat: &str) -> Vec<u8> {
@@ -122,6 +127,32 @@ fn a_game_that_never_returns_is_stopped_by_its_budget() {
 }
 
 #[test]
+fn a_replay_goes_on_only_with_the_log_it_started_with() {
+    let target = Target::new();
+    let mut stage = target.stage("");
+    let mut game = host(&mut stage, &pack(IDLE));
+    game.replay(NO_INPUT, 10).unwrap();
+    let other = r#"{"changes":[{"step":12,"down":["action"]}]}"#;
+    assert_eq!(game.replay(other, 20).unwrap_err().code, "E_USAGE");
+    assert_eq!(game.steps(), 10);
+    game.replay(NO_INPUT, 20).unwrap();
+    assert_eq!(game.steps(), 20);
+}
+
+#[test]
+fn a_replay_ends_at_the_step_that_stops_its_game() {
+    let target = Target::new();
+    let mut stage = target.stage("");
+    let mut game = host(&mut stage, &pack(LATE));
+    let e = game.replay(NO_INPUT, 40).unwrap_err();
+    assert_eq!(e.code, "E_GAME_BUDGET", "{e}");
+    assert!(e.message.starts_with("step 29: "), "{e}");
+    assert_eq!(game.steps(), 30);
+    assert_eq!(game.replay(NO_INPUT, 40).unwrap_err().code, "E_GAME_BUDGET");
+    assert_eq!(game.steps(), 30);
+}
+
+#[test]
 fn a_new_renderer_takes_the_game_on_where_it_was() {
     let target = Target::new();
     let bytes = pack(IDLE);
@@ -130,7 +161,7 @@ fn a_new_renderer_takes_the_game_on_where_it_was() {
     game.replay(NO_INPUT, 45).unwrap();
     let before = game.hashes();
     let mut fresh = target.stage("");
-    game.reload_view(&bytes, fresh.renderer_mut()).unwrap();
+    game.reload_view(fresh.renderer_mut()).unwrap();
     assert_eq!(game.hashes(), before);
     game.draw(fresh.renderer_mut(), &target.view).unwrap();
     game.replay(NO_INPUT, 46).unwrap();
@@ -143,8 +174,10 @@ fn a_replayed_step_allocates_nothing_once_steady() {
     let target = Target::new();
     let mut stage = target.stage("");
     let mut game = host(&mut stage, &pack(IDLE));
-    game.replay(NO_INPUT, 60).unwrap();
-    let warm = game.stats()["step_allocations"].as_u64().unwrap();
     game.replay(NO_INPUT, 600).unwrap();
-    assert_eq!(game.stats()["step_allocations"].as_u64().unwrap() - warm, 0);
+    let steps = game.stats()["step_allocations"].clone();
+    let late: Vec<_> = (steps.as_array().unwrap().iter())
+        .filter(|s| s[0].as_u64().unwrap() >= 60)
+        .collect();
+    assert!(late.is_empty(), "{steps}");
 }

@@ -256,6 +256,90 @@ window.suite = {
     return { backend, atLoss, atRestore, after, drawn: frame.data.some((v, i) => i % 4 !== 3 && v > 30) };
   },
 
+  /** A replay asked to go on with another log, then with its own. */
+  async climbReplayOtherLog() {
+    await playClimb({ audio: false });
+    sariema.replayGame(playLog, 60);
+    const other = JSON.stringify({ changes: [{ step: 70, down: ["action"] }] });
+    let code = null;
+    try {
+      sariema.replayGame(other, 120);
+    } catch (e) {
+      code = e.code;
+    }
+    const stayed = sariema.gameHashes().steps;
+    return { code, stayed, after: sariema.replayGame(playLog, 120).steps };
+  },
+
+  /** Seeds out of range, and one past 2^53 replayed to `steps`. */
+  async climbSeeds(big, steps) {
+    const codes = [];
+    for (const seed of [-1, 1.5, 2 ** 53, -1n, 1n << 64n]) {
+      try {
+        await playClimb({ audio: false, seed });
+        codes.push(null);
+      } catch (e) {
+        codes.push(e.code);
+      }
+    }
+    await playClimb({ audio: false, seed: BigInt(big) });
+    return { codes, hashes: sariema.replayGame(playLog, steps) };
+  },
+
+  /** A game whose 30th tick never returns, replayed past it. */
+  async lateBudget(steps) {
+    await sariema.playGame(at(manifest.late), { audio: false });
+    const idle = await (await fetch(at(manifest.idle))).text();
+    let error = null;
+    try {
+      sariema.replayGame(idle, steps);
+    } catch (e) {
+      error = { code: e.code, message: e.message };
+    }
+    return { error, hashes: sariema.gameHashes() };
+  },
+
+  /**
+   * Loses the GPU mid-game with the canvas giving no context, so the first
+   * restore fails; then restores again.
+   */
+  async climbRestoreRetry() {
+    await playClimb({ audio: false });
+    sariema.replayGame(playLog, 300);
+    sariema.start();
+    await sleep(50);
+    const backend = sariema.backend;
+    const ext = backend === "webgl2" ? canvas.getContext("webgl2").getExtension("WEBGL_lose_context") : null;
+    const lost = once("lost", 5000);
+    const failed = once("error", 15000);
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = () => null;
+    let error;
+    try {
+      if (ext) {
+        ext.loseContext();
+        await lost;
+        await sleep(50);
+        ext.restoreContext();
+      } else {
+        sariema.loseDevice();
+        await lost;
+      }
+      error = await failed;
+    } finally {
+      HTMLCanvasElement.prototype.getContext = getContext;
+    }
+    const atFailure = sariema.gameHashes();
+    await sariema.rebuild();
+    const atRetry = sariema.gameHashes();
+    sariema.start();
+    await sleep(200);
+    sariema.stop();
+    const after = sariema.gameHashes();
+    const frame = await sariema.capture();
+    return { backend, error, atFailure, atRetry, after, drawn: frame.data.some((v, i) => i % 4 !== 3 && v > 30) };
+  },
+
   async game() {
     const manifest = await sariema.loadGame(at("game/"));
     const viaGame = await sariema.capture();

@@ -50,13 +50,27 @@ pub struct Engine {
     scale: f32,
 }
 
-async fn open(
+/// A GPU opened on a canvas, for [`Engine::create`] or for an engine whose
+/// own was lost to adopt with [`Engine::adopt`].
+#[wasm_bindgen]
+pub struct OpenedGpu {
+    gpu: Gpu,
+    stage: Stage,
+}
+
+/// Opens the GPU on `canvas`, `css_width × css_height` CSS pixels at
+/// `pixel_ratio`, sized in physical pixels as [`Engine::physical_size`]
+/// does. `options` is the JSON of the settings; see `docs/web.md`.
+#[wasm_bindgen]
+pub async fn open_gpu(
     canvas: HtmlCanvasElement,
-    settings: WebSettings,
+    options: String,
     css_width: f32,
     css_height: f32,
     pixel_ratio: f32,
-) -> Result<(Gpu, Stage), JsError> {
+) -> Result<OpenedGpu, JsError> {
+    let settings =
+        WebSettings::from_json(&options).map_err(|e| js(StageError::new("E_USAGE", e)))?;
     let (width, height) = settings.physical_size((css_width, css_height), pixel_ratio);
     canvas.set_width(width);
     canvas.set_height(height);
@@ -71,66 +85,45 @@ async fn open(
         format,
     )
     .map_err(js)?;
-    Ok((gpu, stage))
+    Ok(OpenedGpu { gpu, stage })
 }
 
 #[wasm_bindgen]
 impl Engine {
-    /// Makes the engine on `canvas`, `css_width × css_height` CSS pixels at
-    /// `pixel_ratio`, and sizes it in physical pixels as
-    /// [`Engine::physical_size`] does. `options` is the JSON of the
-    /// settings; see `docs/web.md`.
-    pub async fn create(
-        canvas: HtmlCanvasElement,
-        options: String,
-        css_width: f32,
-        css_height: f32,
-        pixel_ratio: f32,
-    ) -> Result<Engine, JsError> {
-        let settings =
-            WebSettings::from_json(&options).map_err(|e| js(StageError::new("E_USAGE", e)))?;
-        let (gpu, stage) = open(canvas, settings, css_width, css_height, pixel_ratio).await?;
-        Ok(Engine {
-            gpu,
-            stage,
+    /// The engine on a GPU [`open_gpu`] opened.
+    pub fn create(opened: OpenedGpu) -> Engine {
+        Engine {
+            gpu: opened.gpu,
+            stage: opened.stage,
             capture: None,
             captured: Arc::new(AtomicU8::new(WAITING)),
             files: HashMap::new(),
             mixed: Vec::new(),
             game: None,
             scale: 1.0,
-        })
+        }
     }
 
-    /// This engine on a new GPU for `canvas`, after its device or context
-    /// was lost. A game goes on where it was, its room and actors loaded
-    /// again from its pack `game_pack`; anything else the page loads again.
-    pub async fn restored(
-        self,
-        canvas: HtmlCanvasElement,
-        css_width: f32,
-        css_height: f32,
-        pixel_ratio: f32,
-        game_pack: Option<Vec<u8>>,
-    ) -> Result<Engine, JsError> {
-        let settings = self.stage.settings().clone();
-        let (gpu, mut stage) = open(canvas, settings, css_width, css_height, pixel_ratio).await?;
-        let mut game = self.game;
-        if let (Some(game), Some(bytes)) = (&mut game, game_pack) {
-            game.reload_view(&bytes, stage.renderer_mut()).map_err(js)?;
+    /// Goes on with a GPU [`open_gpu`] opened, after this engine's device
+    /// or context was lost: a game at the step it had reached, its room and
+    /// actors loaded into the new renderer; anything else the page loads
+    /// again. On an error the engine is as it was, to adopt another.
+    pub fn adopt(&mut self, opened: OpenedGpu) -> Result<(), JsError> {
+        let OpenedGpu { gpu, mut stage } = opened;
+        if let Some(game) = &mut self.game {
+            game.reload_view(stage.renderer_mut()).map_err(js)?;
             let (w, h) = stage.size();
             game.resize(w, h);
         }
-        Ok(Engine {
-            gpu,
-            stage,
-            capture: None,
-            captured: Arc::new(AtomicU8::new(WAITING)),
-            files: HashMap::new(),
-            mixed: Vec::new(),
-            game,
-            scale: self.scale,
-        })
+        self.gpu = gpu;
+        self.stage = stage;
+        self.capture = None;
+        self.files.clear();
+        Ok(())
+    }
+
+    pub fn has_game(&self) -> bool {
+        self.game.is_some()
     }
 
     /// Plays game pack `pack` from its first step with `seed`, in place of
@@ -140,23 +133,15 @@ impl Engine {
     pub fn load_game(
         &mut self,
         pack: &[u8],
-        seed: f64,
+        seed: u64,
         sample_rate: Option<u32>,
     ) -> Result<(), JsError> {
         let feed = self.stage.settings().audio;
         let shadows = self.stage.settings().shadows;
         let size = self.stage.size();
         let renderer = self.stage.renderer_mut();
-        let game = GameHost::load(
-            pack,
-            seed as u64,
-            sample_rate,
-            feed,
-            renderer,
-            size,
-            shadows,
-        )
-        .map_err(js)?;
+        let game =
+            GameHost::load(pack, seed, sample_rate, feed, renderer, size, shadows).map_err(js)?;
         self.game = Some(game);
         Ok(())
     }

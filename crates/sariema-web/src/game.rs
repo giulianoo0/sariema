@@ -42,7 +42,10 @@ pub struct GameHost {
     last_steps: u32,
     size: (u32, u32),
     live: Option<Live>,
-    replay: Option<Replay>,
+    /// The input log a replay started with, as given, and its actions.
+    replay: Option<(String, Replay)>,
+    /// The room and actors the view draws, for a new renderer.
+    drawn: GameAssets,
     shadows: bool,
     /// Each replayed step that allocated and how often, counted with the
     /// `alloc-count` feature.
@@ -56,10 +59,6 @@ fn allocations() -> u64 {
     return crate::alloc::so_far();
     #[cfg(not(feature = "alloc-count"))]
     0
-}
-
-fn failed(code: &'static str) -> impl Fn(String) -> StageError {
-    move |message| StageError::new(code, message)
 }
 
 /// The room and actors of `pack` the view draws; the engine takes the rest.
@@ -87,7 +86,7 @@ impl GameHost {
         shadows: bool,
     ) -> Result<GameHost, StageError> {
         let mut pack = decode_game(bytes).map_err(|e| StageError::new(e.code(), e.to_string()))?;
-        let view_assets = drawn(&pack);
+        let drawn = drawn(&pack);
         let mut settings = EngineSettings::default();
         if let Some(rate) = sample_rate {
             settings.mixer.sample_rate = rate;
@@ -103,7 +102,7 @@ impl GameHost {
             }),
             None => None,
         };
-        let view = view(renderer, &view_assets, &engine, shadows)?;
+        let view = view(renderer, &drawn, &engine, shadows)?;
         let mut host = GameHost {
             engine,
             view,
@@ -114,6 +113,7 @@ impl GameHost {
             size,
             live,
             replay: None,
+            drawn,
             shadows,
             step_allocations: Vec::new(),
             frame_allocations: 0,
@@ -122,17 +122,17 @@ impl GameHost {
         Ok(host)
     }
 
-    /// Loads the room and actors of game pack `bytes` into a new renderer,
-    /// as after a lost device; the game itself goes on where it was.
-    pub fn reload_view(&mut self, bytes: &[u8], renderer: &mut Renderer) -> Result<(), StageError> {
-        let pack = decode_game(bytes).map_err(|e| StageError::new(e.code(), e.to_string()))?;
-        self.view = view(renderer, &drawn(&pack), &self.engine, self.shadows)?;
+    /// Loads the room and actors into a new renderer, as after a lost
+    /// device; the game itself goes on where it was.
+    pub fn reload_view(&mut self, renderer: &mut Renderer) -> Result<(), StageError> {
+        self.view = view(renderer, &self.drawn, &self.engine, self.shadows)?;
         Ok(())
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
         self.size = (width, height);
-        (self.engine).resize(width as f32, height as f32, SafeArea::default());
+        self.engine
+            .resize(width as f32, height as f32, SafeArea::default());
     }
 
     /// `code` is the DOM `KeyboardEvent.code`; false for keys no game reads.
@@ -181,16 +181,29 @@ impl GameHost {
     }
 
     /// Steps the game from where it is to step `to` with the actions of
-    /// `log`, each step followed by the audio feed, as a headless run does.
+    /// `log`, each step followed by the audio feed, as a headless run does,
+    /// and like it ends at a step that stops the game, naming it. A replay
+    /// goes on with the log it started with; another is `E_USAGE`.
     pub fn replay(&mut self, log: &str, to: u64) -> Result<(), StageError> {
-        if self.replay.is_none() {
-            let log: InputLog =
-                serde_json::from_str(log).map_err(|e| failed("E_SCHEMA")(e.to_string()))?;
-            let input = &self.engine.state().settings.input;
-            let replay = Replay::new(&log, input).map_err(|e| failed("E_SCHEMA")(e.to_string()))?;
-            self.replay = Some(replay);
+        self.check()?;
+        match &self.replay {
+            Some((started, _)) if started != log => {
+                return Err(StageError::new(
+                    "E_USAGE",
+                    "the replay started with another input log; load the game again to replay this one",
+                ));
+            }
+            Some(_) => {}
+            None => {
+                let parsed: InputLog = serde_json::from_str(log)
+                    .map_err(|e| StageError::new("E_SCHEMA", e.to_string()))?;
+                let input = &self.engine.state().settings.input;
+                let replay = Replay::new(&parsed, input)
+                    .map_err(|e| StageError::new("E_SCHEMA", e.to_string()))?;
+                self.replay = Some((log.to_owned(), replay));
+            }
         }
-        let replay = self.replay.as_mut().expect("set above");
+        let (_, replay) = self.replay.as_mut().expect("set above");
         for step in self.engine.steps()..to {
             let before = allocations();
             self.engine.step(replay.actions(step));
@@ -199,9 +212,16 @@ impl GameHost {
                 self.step_allocations.push((step, made));
             }
             self.engine.feed_audio();
+            self.alpha = 1.0;
+            if let Some(stop) = self.engine.simulation().stopped() {
+                return Err(StageError::new(
+                    stop.code,
+                    format!("step {step}: {}", stop.message),
+                ));
+            }
         }
         self.alpha = 1.0;
-        self.check()
+        Ok(())
     }
 
     fn check(&self) -> Result<(), StageError> {
@@ -218,9 +238,9 @@ impl GameHost {
         target: &wgpu::TextureView,
     ) -> Result<(), StageError> {
         let aspect = self.size.0 as f32 / self.size.1.max(1) as f32;
-        self.view
-            .draw(renderer, &mut self.engine, self.alpha, aspect, target)
-            .map_err(|e| StageError::new(e.code, e.message))
+        Ok(self
+            .view
+            .draw(renderer, &mut self.engine, self.alpha, aspect, target)?)
     }
 
     /// `frames` counts what the output has played since the game started;
@@ -244,14 +264,7 @@ impl GameHost {
 
     /// The hashes `sariema run --headless --game` prints.
     pub fn hashes(&self) -> Value {
-        let hex = |h: u64| format!("{h:016x}");
-        json!({
-            "steps": self.engine.steps(),
-            "engine_hash": hex(self.engine.state_hash()),
-            "state_hash": hex(self.engine.simulation().state_hash()),
-            "physics_hash": hex(self.engine.physics().map_or(0, |p| p.world.state_hash())),
-            "audio_hash": hex(self.engine.sound().map_or(0, |s| s.hash())),
-        })
+        self.engine.hashes()
     }
 
     pub fn stats(&self) -> Value {
@@ -278,10 +291,9 @@ fn view(
     engine: &Engine<WasmLogic>,
     shadows: bool,
 ) -> Result<GameView, StageError> {
-    let mut room = sariema_view::room(assets).map_err(|e| StageError::new(e.code, e.message))?;
+    let mut room = sariema_view::room(assets)?;
     if !shadows {
         crate::stage::without_shadows(&mut room);
     }
-    GameView::load_room(renderer, &room, assets, engine)
-        .map_err(|e| StageError::new(e.code, e.message))
+    Ok(GameView::load_room(renderer, &room, assets, engine)?)
 }

@@ -6,7 +6,8 @@
 //!   cargo run -p sariema-web --example replay --release -- <pack.srmg> <log.json> <steps> [reps]
 //!
 //! Prints the hashes `sariema run --headless --game` prints and, per rep,
-//! the mean milliseconds a step took.
+//! the mean milliseconds a step took. A game that stops ends the replay at
+//! that step, which is printed with the stop's code.
 
 use std::time::Instant;
 
@@ -25,7 +26,7 @@ fn main() {
     let steps: u64 = steps.parse().unwrap();
     let reps: usize = rest.first().map_or(1, |r| r.parse().unwrap());
     let mut per_step_ms = Vec::new();
-    let mut hashes = json!(null);
+    let (mut hashes, mut stopped) = (json!(null), json!(null));
     for _ in 0..reps {
         let mut engine =
             Engine::load(decode_game(&bytes).unwrap(), 0, EngineSettings::default()).unwrap();
@@ -34,19 +35,16 @@ fn main() {
         for step in 0..steps {
             engine.step(replay.actions(step));
             engine.feed_audio();
+            if let Some(stop) = engine.simulation().stopped() {
+                stopped = json!({ "code": stop.code, "step": step });
+                break;
+            }
         }
         per_step_ms.push(start.elapsed().as_secs_f64() * 1000.0 / steps as f64);
-        let hex = |h: u64| format!("{h:016x}");
-        hashes = json!({
-            "steps": engine.steps(),
-            "engine_hash": hex(engine.state_hash()),
-            "state_hash": hex(engine.simulation().state_hash()),
-            "physics_hash": hex(engine.physics().map_or(0, |p| p.world.state_hash())),
-            "audio_hash": hex(engine.sound().map_or(0, |s| s.hash())),
-        });
+        hashes = engine.hashes();
     }
     println!(
         "{}",
-        json!({ "hashes": hashes, "per_step_ms": per_step_ms })
+        json!({ "hashes": hashes, "stopped": stopped, "per_step_ms": per_step_ms })
     );
 }

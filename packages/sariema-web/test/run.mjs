@@ -8,12 +8,14 @@
 // dist/, and in each browser draws the reference scenes and compares them
 // with the native frames, plays a sound through the audio worklet, taps a
 // UI button and loses and restores the GPU. Then it plays the climb game
-// (examples/climb): its replay reaches the native hashes and frames, its
-// steps allocate where and as much as natively and nothing once steady
-// (the counting build, which this command builds),
-// its music plays without underruns, a touch on its joystick moves the
-// hero, a game that never returns is stopped by its budget, and a lost GPU
-// leaves the game at its step. Results land in test/out/results.json; the
+// (examples/climb): its replay reaches the native hashes and frames and
+// keeps the log it started with, a seed past 2^53 reaches native, its steps
+// allocate where and as much as natively and nothing once steady (the
+// counting build, which this command builds), its music plays without
+// underruns, a touch on its joystick moves the hero, a game that never
+// returns is stopped by its budget and one over it at a later step stops
+// where the CLI stops it, and a lost GPU leaves the game at its step, even
+// when the first restore fails. Results land in test/out/results.json; the
 // exit code is the verdict.
 //
 //   SARIEMA_BROWSERS   comma list of chromium-webgpu, chromium-webgl2, webkit-webgpu,
@@ -90,6 +92,23 @@ const cli = (...argv) =>
 function cargoBin(name) {
   return join(cargoTarget, "release", name);
 }
+/** The `--json` error of a CLI run that must fail. */
+function cliError(...argv) {
+  try {
+    execFileSync(cargoBin("sariema"), [...argv, "--json"], { cwd: repo, stdio: ["ignore", "pipe", "ignore"] });
+  } catch (e) {
+    return JSON.parse(e.stdout.toString()).error;
+  }
+  throw new Error(`sariema ${argv.join(" ")} succeeded`);
+}
+const nativeReplay = (...argv) =>
+  JSON.parse(
+    execFileSync("cargo", ["run", "-q", "-p", "sariema-web", "--example", "replay", "--release", "--", ...argv], {
+      cwd: repo,
+      stdio: ["ignore", "pipe", "inherit"],
+      env: { ...process.env, CARGO_TARGET_DIR: cargoTarget },
+    }).toString(),
+  );
 execFileSync("cargo", ["build", "-q", "-p", "sariema-cli", "--release"], {
   cwd: repo,
   stdio: ["ignore", "inherit", "inherit"],
@@ -111,13 +130,15 @@ for (const [variant, file] of [
     if (r.engine_hash !== nativeClimb[n].engine_hash) throw new Error(`the two variants' engine hashes differ at step ${n}`);
   }
 }
-const nativeCost = JSON.parse(
-  execFileSync(
-    "cargo",
-    ["run", "-q", "-p", "sariema-web", "--example", "replay", "--release", "--", join(climbDir, "game.rgba8.srmg"), climbLog, "900", "7"],
-    { cwd: repo, stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, CARGO_TARGET_DIR: cargoTarget } },
-  ).toString(),
-);
+const nativeCost = nativeReplay(join(climbDir, "game.rgba8.srmg"), climbLog, "900", "7");
+// A seed past 2^53, which a JavaScript number cannot hold.
+const BIG_SEED = "18446744073709551557";
+const nativeSeeded = cli("run", "--headless", "--game", join(climbDir, "game.rgba8.srmg"), "--input", climbLog, "--steps", "120", "--seed", BIG_SEED);
+// A game whose 30th tick never returns: where the CLI stops it, and the
+// hashes a native replay ends with there.
+const LATE_STEPS = "40";
+const lateCli = cliError("run", "--headless", "--game", join(fixtures, "late.srmg"), "--steps", LATE_STEPS);
+const lateNative = nativeReplay(join(fixtures, "late.srmg"), join(fixtures, "idle.json"), LATE_STEPS);
 execFileSync(process.execPath, [join(pkg, "scripts", "build.mjs"), "--alloc-count"], { cwd: pkg, stdio: ["ignore", "ignore", "inherit"] });
 
 const mounts = ["--mount", `/fixtures/=${fixtures}`, ...(packs ? ["--mount", `/fixtures/packs/=${packs}`] : [])];
@@ -329,6 +350,26 @@ async function climbChecks(name, page) {
     });
   }
 
+  const other = await page.evaluate(() => window.suite.climbReplayOtherLog());
+  check(name, "a replay asked to go on with another input log is E_USAGE and stays where it was", other.code === "E_USAGE" && other.stayed === 60 && other.after === 120, other);
+
+  const seeds = await page.evaluate(([big]) => window.suite.climbSeeds(big, 120), [BIG_SEED]);
+  const seeded = ["engine_hash", "state_hash", "physics_hash"].every((h) => seeds.hashes[h] === nativeSeeded[h]);
+  check(name, "seeds out of range are E_USAGE, and one past 2^53 reaches the native hashes", seeds.codes.every((c) => c === "E_USAGE") && seeded && nativeSeeded.engine_hash !== nativeClimb[120].engine_hash, {
+    codes: seeds.codes,
+    engine_hash: seeds.hashes.engine_hash,
+    native: nativeSeeded.engine_hash,
+    seed_0: nativeClimb[120].engine_hash,
+  });
+
+  const late = await page.evaluate(([n]) => window.suite.lateBudget(n), [Number(LATE_STEPS)]);
+  const lateStep = (message) => Number(/step (\d+): /.exec(message ?? "")?.[1]);
+  check(name, "a game over its budget at a later step stops there with the native hashes", late.error?.code === "E_GAME_BUDGET" && lateCli.code === "E_GAME_BUDGET" && lateStep(late.error.message) === lateStep(lateCli.message) && lateStep(late.error.message) === lateNative.stopped?.step && JSON.stringify(late.hashes) === JSON.stringify(lateNative.hashes), {
+    browser: { step: lateStep(late.error?.message), hashes: late.hashes },
+    cli: { code: lateCli.code, step: lateStep(lateCli.message) },
+    native: lateNative.stopped,
+  });
+
   const cost = await page.evaluate(() => window.suite.climbStepCost(900, 7));
   numbers.browsers[name] = { step_ms: spread(cost) };
   check(name, "times the climb's step", cost.length === 7, { median_ms: Number(median(cost).toFixed(4)), native_ms: Number(numbers.native_step_ms.median.toFixed(4)) });
@@ -353,6 +394,15 @@ async function climbChecks(name, page) {
     error_ms: Math.round(forever.error_ms),
     longest_gap_ms: Math.round(forever.longest_gap_ms),
     timer_ms: Math.round(forever.timer_ms),
+  });
+
+  const retried = await page.evaluate(() => window.suite.climbRestoreRetry());
+  check(name, "a restore that fails keeps the game, and a later one goes on from its step", retried.error.code === "E_GPU" && retried.atFailure.steps === retried.atRetry.steps && retried.atFailure.engine_hash === retried.atRetry.engine_hash && retried.after.steps > retried.atRetry.steps && retried.drawn, {
+    error: retried.error,
+    at_failure: retried.atFailure.steps,
+    at_retry: retried.atRetry.steps,
+    after: retried.after.steps,
+    drawn: retried.drawn,
   });
 
   const lost = await page.evaluate(() => window.suite.climbLoseContext());
