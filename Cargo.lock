@@ -2324,6 +2324,7 @@ dependencies = [
  "sariema-format",
  "sariema-import",
  "sariema-render",
+ "sariema-ui",
  "serde",
  "serde_json",
  "tempfile",

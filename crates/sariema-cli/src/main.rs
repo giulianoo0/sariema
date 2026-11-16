@@ -16,6 +16,7 @@ mod pack;
 mod player;
 mod project;
 mod run;
+mod ui;
 
 #[derive(Parser)]
 #[command(
@@ -70,6 +71,8 @@ enum Command {
     },
     /// Build, inspect and check sound banks; render cue lists offline.
     Audio(audio::AudioArgs),
+    /// Draw UI descriptions headless at a screen size and a moment.
+    Ui(ui::UiArgs),
 }
 
 #[derive(Args)]
@@ -153,6 +156,7 @@ fn main() -> ExitCode {
         Command::Run(args) => run::run(args),
         Command::Test { dir, update } => golden::test(dir, *update),
         Command::Audio(args) => audio::run(args),
+        Command::Ui(args) => ui::run(args),
     });
     output::emit(cli.json, outcome)
 }

@@ -11,6 +11,7 @@ name = "sariema"
 path = "src/main.rs"
 
 [dependencies]
+bytemuck.workspace = true
 clap.workspace = true
 image.workspace = true
 jsonschema.workspace = true
@@ -20,6 +21,7 @@ sariema-core = { path = "../sariema-core" }
 sariema-format = { path = "../sariema-format" }
 sariema-import = { path = "../sariema-import" }
 sariema-render = { path = "../sariema-render" }
+sariema-ui = { path = "../sariema-ui" }
 serde.workspace = true
 serde_json.workspace = true
 wgpu.workspace = true

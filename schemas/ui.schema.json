@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sariema UI description",
+  "description": "A screen of in-engine UI: fonts, images, a tree of nodes laid out with flexbox, and named animations. `sariema ui render` draws it headless; `Ui::load` builds it at runtime. Lengths are UI units of the reference size.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reference": {
+          "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "minItems": 2, "maxItems": 2,
+          "description": "Size in UI units the screen is designed for, given in landscape; turned for a portrait screen. Scaled to fit; the longer side gets the extra room. Default [844, 390]."
+        },
+        "step_s": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds per step. Default 1/60." },
+        "atlas_size": { "type": "integer", "minimum": 64, "description": "Side of the glyph atlas in texels. Default 1024." },
+        "sdf_px": { "type": "number", "exclusiveMinimum": 0, "description": "Pixels per em glyphs are rasterised at. Default 48." },
+        "sdf_spread": { "type": "number", "exclusiveMinimum": 0, "description": "Rasterised pixels the distance field reaches past an outline; bounds outlines and soft shadows. Default 6." },
+        "animations": { "type": "integer", "minimum": 1, "description": "Animations running or waiting at once. Default 512." },
+        "spring_hz": { "type": "number", "exclusiveMinimum": 0, "description": "Spring integration steps per second. Default 240." },
+        "spring_rest_delta": { "type": "number", "exclusiveMinimum": 0, "description": "Default 0.001." },
+        "spring_rest_speed": { "type": "number", "exclusiveMinimum": 0, "description": "Default 0.01." },
+        "pointers": { "type": "integer", "minimum": 1, "description": "Pointers down at once. Default 10." },
+        "reduced_motion": { "type": "boolean", "description": "Moves and resizes jump to their end; fades and colours still animate. Default false." }
+      }
+    },
+    "fonts": {
+      "type": "object",
+      "description": "Font name to its file, relative to this description.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file"],
+        "properties": {
+          "file": { "type": "string", "pattern": "\\.(ttf|otf|TTF|OTF)$" },
+          "weight": { "type": "number", "description": "The wght axis of a variable font." }
+        }
+      }
+    },
+    "images": {
+      "type": "object",
+      "description": "Image name to a PNG or JPEG file, relative to this description.",
+      "additionalProperties": { "type": "string", "pattern": "\\.(png|jpe?g|PNG|JPE?G)$" }
+    },
+    "nodes": {
+      "type": "array",
+      "description": "Children of the root, which covers the whole screen and lays them out in a row.",
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "animations": {
+      "type": "object",
+      "description": "Animation name to its tracks, started together by `play`.",
+      "additionalProperties": { "type": "array", "items": { "$ref": "#/$defs/track" } }
+    }
+  },
+  "$defs": {
+    "length": {
+      "oneOf": [
+        { "type": "number" },
+        { "type": "string", "pattern": "^-?[0-9.]+%$" },
+        { "const": "auto" }
+      ]
+    },
+    "sides": {
+      "oneOf": [
+        { "$ref": "#/$defs/length" },
+        { "type": "array", "items": { "$ref": "#/$defs/length" }, "minItems": 2, "maxItems": 2 },
+        { "type": "array", "items": { "$ref": "#/$defs/length" }, "minItems": 4, "maxItems": 4 }
+      ],
+      "description": "All sides, [vertical, horizontal], or [top, right, bottom, left]."
+    },
+    "color": { "type": "string", "pattern": "^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+    "border": {
+      "type": "object", "additionalProperties": false, "required": ["width", "color"],
+      "properties": { "width": { "type": "number", "minimum": 0 }, "color": { "$ref": "#/$defs/color" } }
+    },
+    "shadow": {
+      "type": "object", "additionalProperties": false, "required": ["color"],
+      "properties": {
+        "x": { "type": "number" }, "y": { "type": "number" },
+        "blur": { "type": "number", "minimum": 0, "description": "As CSS: a Gaussian of half this as sigma." },
+        "color": { "$ref": "#/$defs/color" }
+      }
+    },
+    "four": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+    "pair": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+    "cross": { "enum": ["start", "end", "center", "stretch", "baseline"] },
+    "spring": {
+      "type": "object", "additionalProperties": false, "required": ["response"],
+      "properties": {
+        "response": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds, as iOS." },
+        "damping": { "type": "number", "minimum": 0, "description": "1 does not overshoot. Default 1." }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "description": "Unique; animations, --state and code find the node by it." },
+        "width": { "$ref": "#/$defs/length" }, "height": { "$ref": "#/$defs/length" },
+        "min_width": { "$ref": "#/$defs/length" }, "max_width": { "$ref": "#/$defs/length" },
+        "min_height": { "$ref": "#/$defs/length" }, "max_height": { "$ref": "#/$defs/length" },
+        "direction": { "enum": ["row", "column", "row_reverse", "column_reverse"], "description": "Main axis of the children. Default row." },
+        "wrap": { "type": "boolean" },
+        "justify": { "enum": ["start", "end", "center", "between", "around", "evenly"] },
+        "align": { "$ref": "#/$defs/cross", "description": "Cross-axis placement of the children. Default stretch." },
+        "align_self": { "$ref": "#/$defs/cross" },
+        "grow": { "type": "number", "minimum": 0 },
+        "shrink": { "type": "number", "minimum": 0, "description": "Default 1." },
+        "basis": { "$ref": "#/$defs/length" },
+        "gap": { "oneOf": [ { "type": "number" }, { "$ref": "#/$defs/pair" } ], "description": "Both, or [row, column]." },
+        "padding": { "$ref": "#/$defs/sides" },
+        "margin": { "$ref": "#/$defs/sides" },
+        "absolute": { "type": "boolean", "description": "Out of the flow, placed by left, top, right, bottom in the parent." },
+        "left": { "$ref": "#/$defs/length" }, "top": { "$ref": "#/$defs/length" },
+        "right": { "$ref": "#/$defs/length" }, "bottom": { "$ref": "#/$defs/length" },
+        "aspect": { "type": "number", "exclusiveMinimum": 0, "description": "Width over height." },
+        "safe": { "type": "boolean", "description": "Covers the screen's safe area: for the node holding the HUD." },
+        "fill": { "$ref": "#/$defs/color", "description": "Box colour, text colour, image tint, ring arc or stroke colour." },
+        "border": { "$ref": "#/$defs/border" },
+        "radius": {
+          "oneOf": [
+            { "type": "number", "minimum": 0 },
+            { "$ref": "#/$defs/four" },
+            { "type": "object", "additionalProperties": false, "required": ["x", "y"],
+              "properties": { "x": { "$ref": "#/$defs/four" }, "y": { "$ref": "#/$defs/four" } } }
+          ],
+          "description": "All corners, [top-left, top-right, bottom-right, bottom-left], or elliptical corners as CSS's x / y."
+        },
+        "shadow": { "$ref": "#/$defs/shadow" },
+        "x": { "type": "number", "description": "Offset after layout, like a CSS translate." },
+        "y": { "type": "number" },
+        "scale": { "oneOf": [ { "type": "number" }, { "$ref": "#/$defs/pair" } ] },
+        "rotation": { "type": "number", "description": "Degrees clockwise." },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1, "description": "Multiplies down to the children." },
+        "origin": { "$ref": "#/$defs/pair", "description": "Pivot of scale and rotation as a fraction of the size. Default [0.5, 0.5]." },
+        "clip": { "type": "boolean", "description": "Clips the children to the node's box." },
+        "visible": { "type": "boolean" },
+        "interactive": { "type": "boolean", "description": "Receives presses." },
+        "focus": { "type": "integer", "minimum": 0, "description": "Place in the focus order." },
+        "text": { "type": "string" },
+        "font": { "type": "string", "description": "A font name; may be left out when there is one font." },
+        "size": { "type": "number", "exclusiveMinimum": 0, "description": "Font size. Default 16." },
+        "line_height": { "type": "number", "exclusiveMinimum": 0, "description": "Line box over the font size. Default 1.2." },
+        "text_align": { "enum": ["left", "center", "right"] },
+        "max_lines": { "type": "integer", "minimum": 1 },
+        "outline": { "$ref": "#/$defs/border" },
+        "text_shadow": { "$ref": "#/$defs/shadow" },
+        "reveal": { "type": "number", "minimum": 0, "description": "Characters shown. Default all." },
+        "image": { "type": "string" },
+        "region": { "$ref": "#/$defs/four", "description": "Image pixels: x, y, width, height." },
+        "slice": { "$ref": "#/$defs/four", "description": "Nine-slice insets in image pixels: left, top, right, bottom." },
+        "slice_scale": { "type": "number", "exclusiveMinimum": 0, "description": "UI units per image pixel of the slice borders. Default 1." },
+        "ring": {
+          "type": "object", "additionalProperties": false, "required": ["width"],
+          "properties": {
+            "width": { "type": "number", "exclusiveMinimum": 0 },
+            "start": { "type": "number", "description": "Degrees clockwise from the top." },
+            "track": { "$ref": "#/$defs/color" }
+          }
+        },
+        "stroke": {
+          "type": "object", "additionalProperties": false, "required": ["points", "width"],
+          "properties": {
+            "points": { "type": "array", "items": { "$ref": "#/$defs/pair" }, "minItems": 2 },
+            "viewbox": { "$ref": "#/$defs/pair" },
+            "width": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "progress": { "type": "number", "minimum": 0, "maximum": 1, "description": "Drawn fraction of a ring or stroke. Default 1." },
+        "widget": {
+          "oneOf": [
+            { "type": "object", "additionalProperties": false, "required": ["joystick"],
+              "properties": { "joystick": {
+                "type": "object", "additionalProperties": false, "required": ["base", "pin"],
+                "properties": {
+                  "base": { "type": "string" }, "pin": { "type": "string" },
+                  "radius": { "type": "number", "exclusiveMinimum": 0, "description": "Default 40." },
+                  "dead_zone": { "type": "number", "minimum": 0, "maximum": 1, "description": "Default 0.15." },
+                  "saturation": { "type": "number", "exclusiveMinimum": 0, "maximum": 1, "description": "Default 0.7." },
+                  "rest_opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+                  "held_opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+                  "appear_s": { "type": "number", "minimum": 0 },
+                  "appear_scale": { "type": "number", "exclusiveMinimum": 0 },
+                  "pin_return": { "$ref": "#/$defs/spring" },
+                  "base_return": { "$ref": "#/$defs/spring" }
+                } } } },
+            { "type": "object", "additionalProperties": false, "required": ["button"],
+              "properties": { "button": {
+                "type": "object", "additionalProperties": false,
+                "properties": {
+                  "face": { "type": "string" }, "ring": { "type": "string" },
+                  "hold_s": { "type": "number", "exclusiveMinimum": 0, "description": "Default 1.2." },
+                  "empty_s": { "type": "number", "minimum": 0, "description": "Default 0.2." },
+                  "press_scale": { "type": "number", "exclusiveMinimum": 0, "description": "Default 0.92." },
+                  "press_s": { "type": "number", "minimum": 0, "description": "Default 0.12." }
+                } } } }
+          ]
+        },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/node" } }
+      }
+    },
+    "value": { "oneOf": [ { "type": "number" }, { "$ref": "#/$defs/pair" }, { "$ref": "#/$defs/color" } ] },
+    "track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prop"],
+      "properties": {
+        "node": { "type": "string" },
+        "nodes": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "stagger": { "type": "number", "minimum": 0, "description": "Seconds between consecutive nodes' starts." },
+        "prop": { "enum": ["x", "y", "position", "scale_x", "scale_y", "scale", "rotation", "opacity", "width", "height", "size", "progress", "reveal", "fill"] },
+        "from": { "$ref": "#/$defs/value", "description": "Default: the value when the track starts." },
+        "to": { "$ref": "#/$defs/value" },
+        "delay": { "type": "number", "minimum": 0 },
+        "after": { "type": "boolean", "description": "Start when the previous track's last tween ends, plus delay." },
+        "duration": { "type": "number", "minimum": 0 },
+        "ease": {
+          "oneOf": [ { "enum": ["linear", "out", "in_out"] }, { "$ref": "#/$defs/four" } ],
+          "description": "out is cubic-bezier(.22,1,.36,1), in_out (.65,0,.35,1), or four numbers. Default out."
+        },
+        "spring": { "$ref": "#/$defs/spring" },
+        "typewriter": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "rate": { "type": "number", "exclusiveMinimum": 0, "description": "Characters per second. Default 30." },
+            "pause": { "type": "number", "minimum": 0, "description": "Seconds after . ! ? and …. Default 0.07." }
+          }
+        }
+      }
+    }
+  }
+}
