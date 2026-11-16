@@ -1,6 +1,6 @@
 ---
 name: sariema-game-scripting
-description: Use when writing or fixing the Rust logic of a Sariema game with sariema-sdk — spawning entities, reacting to events, moving the hero, timers, saves, input presses — or when a run reports E_GAME_TRAP, E_GAME_BUDGET, E_GAME_MEMORY, a rejected event such as E_ENTITY_STALE or E_TELEPORT_VISIBLE, or hashes that differ between runs.
+description: Use when writing or fixing the Rust logic of a Sariema game with sariema-sdk — spawning entities, reacting to events, moving the hero, timers, saves, input presses, opening doors — or when a run reports E_GAME_TRAP, E_GAME_BUDGET, E_GAME_MEMORY, a rejected event such as E_ENTITY_STALE or E_TELEPORT_VISIBLE, or hashes that differ between runs.
 ---
 
 # Sariema game scripting
@@ -71,6 +71,7 @@ game!(Hello);
 | part of a room on or off | `RoomGroup { group, on }` (a sub-room); `PieceState { piece, state }` (0: as placed) |
 | a light or the look to change | `Tween { property: Property::Scene, var: id("<parameter>"), .. }` |
 | a room node or light to move | `ctx.spawn(Kind::RoomNode, id("<node>"))` or `Kind::Light`, then move the entity |
+| a door to open or shut | `Tween { entity: Entity::NONE, property: Property::Scene, var: id("hinge.<room>.<piece>_<hinge>"), to: <degrees from closed>, .. }`; its collider turns with it. If an actor is in the swing the leaf stops, the tween waits, and `Event::HingeBlocked { hinge, entity }` arrives once: open again or wait. `examples/door/game/src/lib.rs` |
 
 Test the logic natively with `sariema_sdk::testing::TestHost` (queue
 events, `Runner::run`, decode with `testing::commands`;
@@ -88,4 +89,6 @@ with `sariema run --headless … --json`.
 | `E_GAME_BUDGET` | heavy work in one tick | spread it over steps; bulk regions for many placements |
 | `state_hash` changed after a rebuild, same log | it covers the module's memory, which a rebuild moves | compare `world_hash` across builds, `state_hash` within one |
 | a press acted on twice | reading `Buffered` without `Consume` | send `Consume` once handled |
+| a door that never finishes shutting | an actor stands in its swing: the tween waits for it | handle `HingeBlocked` (open again, retry on a timer) |
+| an actor walks into a closed door and gets `blocked` | paths go through doors whatever their leaf; nothing opened it | open it first: tween it on a `trigger_enter` near the door |
 | nothing in the module's log after a panic | no panic hook | `std::panic::set_hook(Box::new(\|i\| sariema_sdk::report_panic(i)))` under `#[cfg(target_arch = "wasm32")]` |

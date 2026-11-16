@@ -1,6 +1,6 @@
 ---
 name: sariema-physics
-description: Use when making a Sariema room walkable, placing action spots, scripted routes or traversals (climbing through a window, over a sill) for a scene, when `sariema check` fails with E_SPOT_BLOCKED, E_SPOT_NO_GROUND, E_PATH_NONE, E_TRAVERSAL_END, E_CONTACT_OFF_SURFACE or E_CONTACT_OUT_OF_REACH or warns W_ACTOR_BOUNDS, when a character clips into a door, gets stuck, floats or cannot reach a spot, or when tuning how the character moves.
+description: Use when making a Sariema room walkable, placing action spots, scripted routes or traversals (climbing through a window, over a sill) for a scene, when `sariema check` fails with E_SPOT_BLOCKED, E_SPOT_NO_GROUND, E_PATH_NONE, E_TRAVERSAL_END, E_CONTACT_OFF_SURFACE or E_CONTACT_OUT_OF_REACH or warns W_ACTOR_BOUNDS, when a character clips into a door, gets stuck, floats or cannot reach a spot, when a door leaf must turn and collide (hinge_blocked), or when tuning how the character moves.
 ---
 
 # Sariema physics
@@ -29,6 +29,8 @@ sariema check examples/collision                                 # every room; -
 sariema check examples/collision --room sill                     # a traversal over a sill, with a foot contact
 sariema physics-map /tmp/hall.srmc -o /tmp/hall-map.png --path start:back
 sariema physics-map /tmp/hall.srmc -o /tmp/hall-cut.png --cut 0.5  # only what lies below 0.5 m
+sariema build examples/door --room house -o /tmp/house.srma  # a hinged door leaf
+sariema inspect /tmp/house.srmc                              # ... hinges: house.door_leaf at 0°
 ```
 
 Add `--json` to any of them for one JSON object (`{"ok":true,...}`, or
@@ -147,10 +149,11 @@ traversal. A clip carries the body through places it could never walk.
 - **Intended contact is authored.** A foot hooked on the sill is a clip pose
   plus a declared contact point on the sill. Place the actor so the foot
   lands exactly there. Any other overlap with the room is an error.
-- **Hinged leaves are moving colliders.** A window leaf or door the actor
-  opens swings with the clip: a platform collider whose yaw the game sets
-  from the same clip time. Packs cannot declare hinges yet (see
-  `docs/physics.md`, known limits).
+- **Hinged leaves are moving colliders.** A window leaf or door turns with
+  the scene parameter `hinge.<room>.<piece>_<hinge>`, and its collider with
+  it: the game tweens it, or a cutscene's `hinge` step binds it to the
+  actor's clip. It never pushes an actor: it stops short, holds its tween
+  and the game gets `hinge_blocked` (see "Doors" below).
 
 Declare the geometry under `collision.traversals`, as in
 `examples/collision/rooms/sill.json`. `from` is the spot it starts at, and
@@ -180,6 +183,33 @@ for point in &window.points {
     world.step(&mut events);
 }
 world.apply(Intent::Stop { actor: hero });
+```
+
+## Doors
+
+A door leaf collides and turns when:
+
+1. its piece is listed in the room's `loose`;
+2. the kit node is `<piece>_<hinge>` with `extras.giro` and
+   `"eixo": "vertical"`, its origin on the hinge;
+3. the room is baked with `collision`.
+
+`inspect` lists it under `hinges`, named `<room>.<piece>_<hinge>` and
+stored closed. The angle is always degrees from closed about the hinge
+(`giros` in the montage, `hinge.<node>` at run time), never a yaw in the
+room. Positive turns counter-clockwise seen from above for a +Y axis.
+
+The walkable grid ignores leaves, so open a door before sending an actor
+through it: a `MoveTo` into a closed leaf ends with `blocked` (stuck).
+`examples/door` (`game/src/lib.rs`) is the pattern for an automatic door.
+It opens on `trigger_enter`, shuts on a timer, and opens again on
+`hinge_blocked`.
+
+```rust
+const LEAF: u32 = id("hinge.house.door_leaf");
+ctx.send(Command::Tween { tween: SWING, entity: Entity::NONE, property: Property::Scene,
+    var: LEAF, to: 90.0, duration: 0.8, ease: Ease::InOutSine });
+// later: Event::HingeBlocked { hinge: LEAF, .. } => open again, try later
 ```
 
 ## Reading `check`
@@ -241,6 +271,13 @@ defaults). The ones games change:
   does not move. Put scripted targets on spots that pass `check`.
 - **Big head near a door.** The head sphere stops at the door leaf even when
   the feet could go further. Place the spot where the head clears it.
+- **A door leaf that does not turn in collision.** Its piece is not in
+  `loose`, or its hinge is not vertical once placed. `inspect` shows no
+  `hinges`, and the leaf collides closed (a `MoveTo` through it finds no
+  path) or where `giros` placed it.
+- **Waiting for a door that stopped.** A leaf stopped by an actor holds its
+  tween until the way is clear; a cutscene `hinge` step does not try again.
+  Answer `hinge_blocked`.
 - **Hidden test scenery, ropes, hanging props baked as walls.** Add their
   piece names to `exclude`; `physics-map` shows them as grey (or striped,
   when hidden) where nothing should block.

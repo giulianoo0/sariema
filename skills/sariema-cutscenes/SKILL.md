@@ -1,6 +1,6 @@
 ---
 name: sariema-cutscenes
-description: Use when writing, directing or fixing a Sariema cutscene JSON (traversals, insert shots, slow motion, clip markers, camera shake), when sariema check or build fails with E_CUTSCENE_TELEPORT, E_CUTSCENE_COVER, E_CUTSCENE_START, E_CUTSCENE_ABSENT, E_CUTSCENE_SPAWN, E_CUTSCENE_RACE, E_CUTSCENE_SPEED, E_CUTSCENE_ROLE or E_SETTINGS, or when a cutscene_play is rejected with E_CUTSCENE_UNBOUND, E_CUTSCENE_UNKNOWN or E_CUTSCENE_BUSY.
+description: Use when writing, directing or fixing a Sariema cutscene JSON (traversals, insert shots, slow motion, clip markers, camera shake, a door or window leaf turned with a clip), when sariema check or build fails with E_CUTSCENE_TELEPORT, E_CUTSCENE_COVER, E_CUTSCENE_START, E_CUTSCENE_ABSENT, E_CUTSCENE_SPAWN, E_CUTSCENE_RACE, E_CUTSCENE_SPEED, E_CUTSCENE_ROLE or E_SETTINGS, or when a cutscene_play is rejected with E_CUTSCENE_UNBOUND, E_CUTSCENE_UNKNOWN or E_CUTSCENE_BUSY.
 ---
 
 # Sariema cutscenes
@@ -58,7 +58,7 @@ The engine's directing rules (`docs/cutscenes.md`, "Directing"), as steps:
 | 1 Whole action, cause to consequence | one `clip` per phase (reach, open, climb, land, get up), chained by `wait_for: clip_finished`; never start mid-way, never cut away a phase |
 | 2 Anticipation, impact, recovery | clips for the stumble, the fall and getting up; `camera_shake` on the impact marker |
 | 3 Insert shot on the beat | `wait_for: { clip_marker: { role, clip, marker } }`, then a `shot` with `"blend": 0` and `"bone"`/`"socket"`; cut back to the wide shot the same way |
-| 4 Set pieces keyed to clip time | the leaf (window, door) is a role with its own clip, started in the same `parallel` as the actor's clip; a real hinge binding is limit L4 |
+| 4 Set pieces keyed to clip time | a `hinge` step in a `parallel` with the actor's `clip`: `{ "hinge": { "node": "<room>.<piece>_<hinge>", "role", "clip", "span": [from_s, to_s], "to": degrees_from_closed, "ease" } }`; the creak on a `clip_marker` of the same clip |
 | 5 Traversal in clip segments | not expressible yet (L8); slow the beat with `time_scale` |
 | 6 Contact authored, not penetration | not expressible yet (L8): the pose is in the clip, the root placement and the contact check come with L8 |
 | 7 Clip time follows the step clock | automatic: clips are sought to `clip_time` (and drawn at `clip_time_at`, interpolated), so they slow with `time_scale` without still frames and `clip_finished` still comes; a clip shows frame 0 until the step after it begins, so start it one step before it must move |
@@ -73,17 +73,18 @@ Entering through a window, the foot catching the sill
 {
   "name": "window_entry",
   "roles": {
-    "hero": { "start": { "position": [0, 0, 2], "yaw": 0 } },
-    "window": { "start": { "position": [0, 1, 0], "yaw": 0 } }
+    "hero": { "start": { "position": [0, 0, 2], "yaw": 0 } }
   },
   "steps": [
     { "letterbox": { "to": 1, "duration": 0.4 } },
-    { "shot": { "frame": ["hero", "window"], "pitch": 12, "yaw": 35, "blend": 0.6 } },
+    { "shot": { "follow": "hero", "distance": 3.5, "pitch": 12, "yaw": 35, "height": 1.0, "fov": 40, "blend": 0.6 } },
     { "walk": { "role": "hero", "to": [0, 0, 0.6] } },
     { "parallel": [
       [ { "clip": { "role": "hero", "clip": "reach_open" } } ],
-      [ { "clip": { "role": "window", "clip": "swing_open", "mode": "hold" } },
-        { "sound": { "sound": "window_creak", "at": "window" } } ]
+      [ { "hinge": { "node": "house.window_leaf", "role": "hero", "clip": "reach_open",
+                     "span": [0.35, 0.9], "to": 80, "ease": "out_cubic" } } ],
+      [ { "wait_for": { "clip_marker": { "role": "hero", "clip": "reach_open", "marker": "push" } } },
+        { "sound": { "sound": "window_creak", "at": "hero" } } ]
     ] },
     { "wait_for": { "clip_finished": "hero" } },
     { "clip": { "role": "hero", "clip": "climb_trip", "blend": 0 } },
@@ -91,7 +92,7 @@ Entering through a window, the foot catching the sill
     { "shot": { "follow": "hero", "bone": "foot_l", "distance": 0.9, "pitch": 5, "yaw": 90, "height": 0, "fov": 35, "blend": 0 } },
     { "time_scale": { "scale": 0.4 } },
     { "wait": 0.24 },
-    { "shot": { "frame": ["hero", "window"], "pitch": 12, "yaw": 35, "blend": 0 } },
+    { "shot": { "follow": "hero", "distance": 3.5, "pitch": 12, "yaw": 35, "height": 1.0, "fov": 40, "blend": 0 } },
     { "time_scale": { "scale": 1, "blend": 0.15 } },
     { "wait_for": { "clip_marker": { "role": "hero", "clip": "climb_trip", "marker": "lands" } } },
     { "camera_shake": { "amplitude": 0.03, "duration": 0.25 } },
@@ -119,7 +120,7 @@ The message names the file, cutscene and step: `cutscene meet, steps[4].teleport
 | `E_CUTSCENE_SPEED` | slow the `walk` (or `cutscene.start_walk_speed`) to `motion.max_visible_speed` or less; to cross faster, hide it or cut |
 | `E_SETTINGS` | in `game.settings`, keep `min_time_scale` and `max_time_scale` positive, the minimum no larger |
 | `E_CUTSCENE_ROLE` | declare the role under `roles` |
-| `E_SCHEMA` | the message names the field; `shot` needs `blend`, an `auto` line needs `duration` |
+| `E_SCHEMA` | the message names the field; `shot` needs `blend`, an `auto` line needs `duration`, a `hinge` span starts at 0 s or later and ends after it starts |
 
 At run time a refused `cutscene_play` arrives as a `rejected` event:
 `E_CUTSCENE_UNBOUND` (bind every role with a start to a live entity, and
@@ -139,6 +140,10 @@ role stands, played or skipped alike.
 - Hiding a move with a cut: a cut is not a cover for a walk you skipped;
   rule 1 wants the walk on screen.
 - Waiting real seconds in slow motion: `wait` counts world time.
+- A `hinge` step whose role never plays its clip waits for ever; one whose
+  node is not in the active room ends at once, silently. Check the node
+  with `sariema inspect <room>.srmc` (`hinges:`). A leaf an actor stops
+  stays where it stopped once the span is over.
 - Skipping: `cutscene_skip` (or the `skip` button) lands the same end state
   as playing through, under a fade; do not undo the cutscene's effects in
   the game after `cutscene_ended { skipped: true }`.
