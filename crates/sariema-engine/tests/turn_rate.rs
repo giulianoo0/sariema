@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Each actor the collision module moves turns no faster than its own
-//! rate: one at 9.5 rad/s, the other at the 14 rad/s `motion.turn_rate`
-//! gives every actor, both turning half round in place.
+//! rate: one at its own slower rate, the other at the `motion.turn_rate`
+//! every actor has, both turning half round in place.
 
 mod common;
 
@@ -11,8 +11,8 @@ use sariema_runtime::input::Actions;
 
 use common::{engine, entity, native, send, wired};
 
-const SLOW: f32 = 544.3;
-const SETTING: f32 = 802.14;
+const SLOW: f32 = 300.0;
+const SETTING: f32 = 600.0;
 
 fn spawn(out: &mut Vec<u8>, index: u32, at: [f32; 3]) {
     send(
