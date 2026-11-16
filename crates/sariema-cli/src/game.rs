@@ -9,6 +9,7 @@ use std::process::{Command, Stdio};
 
 use sariema_format::script::cutscene::Cutscene;
 use sariema_format::script::{BATCH_VERSION, GamePack, encode_game};
+use sariema_import::TextureMode;
 use sariema_runtime::cutscene::author::{Source, compile};
 use sariema_runtime::cutscene::check::check as check_rules;
 use sariema_runtime::game::{parse_settings, start};
@@ -170,7 +171,7 @@ pub fn check(dir: &Path) -> Result<Vec<String>, Failure> {
 }
 
 /// `sariema build` without `--room`: compiles the logic and writes the game pack.
-pub fn build(dir: &Path, output: &Path) -> Result<Done, Failure> {
+pub fn build(dir: &Path, output: &Path, textures: Option<TextureMode>) -> Result<Done, Failure> {
     let (name, game) = read_project(dir)?;
     let game = game.ok_or_else(|| {
         Failure::new(
@@ -191,7 +192,7 @@ pub fn build(dir: &Path, output: &Path) -> Result<Done, Failure> {
         cutscenes: compiled.cutscenes,
         names: compiled.names,
         settings: text,
-        assets: crate::bundle::assets(dir, game.room.as_deref(), game.hud.as_deref())?,
+        assets: crate::bundle::assets(dir, game.room.as_deref(), game.hud.as_deref(), textures)?,
     };
     pack.wasm = compile_logic(&dir.join(&game.logic), game.toolchain.as_deref())?;
     start(pack.clone(), 0).map_err(|e| Failure::new(e.code, format!("{}: {e}", dir.display())))?;

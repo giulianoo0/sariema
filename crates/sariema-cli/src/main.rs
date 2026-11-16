@@ -216,7 +216,7 @@ fn main() -> ExitCode {
             (None, Some(actor)) => {
                 actor::build(project, actor, output, textures.map(Textures::mode))
             }
-            (None, None) => game::build(project, output),
+            (None, None) => game::build(project, output, textures.map(Textures::mode)),
         },
         Command::Inspect { pack } => pack::inspect(pack),
         Command::Run(args) => run::run(args),

@@ -3,6 +3,8 @@
 use std::path::{Path, PathBuf};
 
 use assert_cmd::cargo::cargo_bin_cmd;
+use sariema_format::TextureFormat;
+use sariema_format::script::decode_game;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -87,6 +89,53 @@ fn a_start_room_outside_the_build_is_refused() {
         tmp.path().to_str().unwrap(),
         "--start",
         "elsewhere",
+    ]);
+    assert_eq!(code, 1, "{done}");
+    assert_eq!(done["error"]["code"], "E_USAGE");
+}
+
+#[test]
+fn a_game_project_becomes_a_game_pack_in_both_texture_variants() {
+    let tmp = TempDir::new().unwrap();
+    let out = tmp.path().join("game");
+    let (code, done) = sariema(&[
+        "web",
+        example("climb").to_str().unwrap(),
+        "-o",
+        out.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "{done}");
+    let m = manifest(&out);
+    assert_eq!(
+        m["game"],
+        json!({ "astc": "game.srmg", "rgba8": "game.rgba8.srmg" })
+    );
+    assert!(m.get("rooms").is_none(), "{m}");
+    assert!(m.get("sounds").is_none(), "{m}");
+    for (variant, file, format) in [
+        ("astc", "game.srmg", TextureFormat::Astc4x4Srgb),
+        ("rgba8", "game.rgba8.srmg", TextureFormat::Rgba8Srgb),
+    ] {
+        let bytes = std::fs::read(out.join(file)).unwrap();
+        assert_eq!(done["game"][variant]["bytes"], bytes.len());
+        let pack = decode_game(&bytes).unwrap();
+        assert_eq!(pack.name, "climb");
+        let room = sariema_format::decode(pack.assets.room.as_deref().unwrap()).unwrap();
+        assert!(!room.textures.is_empty());
+        assert!(room.textures.iter().all(|t| t.format == format), "{file}");
+    }
+}
+
+#[test]
+fn a_start_room_for_a_game_is_refused() {
+    let tmp = TempDir::new().unwrap();
+    let (code, done) = sariema(&[
+        "web",
+        example("climb").to_str().unwrap(),
+        "-o",
+        tmp.path().to_str().unwrap(),
+        "--start",
+        "sill",
     ]);
     assert_eq!(code, 1, "{done}");
     assert_eq!(done["error"]["code"], "E_USAGE");

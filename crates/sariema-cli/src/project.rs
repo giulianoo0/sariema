@@ -79,9 +79,15 @@ pub fn build(
     })
 }
 
-/// Room `room` of the project in `dir` and its collision pack, encoded.
-pub(crate) fn room_packs(dir: &Path, room: &str) -> Result<(Vec<u8>, Option<Vec<u8>>), Failure> {
-    let (source, assets_root) = room_source(dir, room)?;
+/// Room `room` of the project in `dir` and its collision pack, encoded;
+/// `textures`, when given, replaces the room file's choice.
+pub(crate) fn room_packs(
+    dir: &Path,
+    room: &str,
+    textures: Option<TextureMode>,
+) -> Result<(Vec<u8>, Option<Vec<u8>>), Failure> {
+    let (mut source, assets_root) = room_source(dir, room)?;
+    source.textures = textures.or(source.textures);
     let pack = build_room(&source, &assets_root)?;
     let collision = sariema_import::build_collision(&source, &assets_root)?;
     Ok((

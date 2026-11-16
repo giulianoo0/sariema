@@ -3,6 +3,8 @@
 //! The `web` command: a project's rooms and actors in both texture variants,
 //! its sound bank, and the `sariema-web.json` the web package loads them by.
 //! A device with ASTC takes `<id>.srma`; any other takes `<id>.rgba8.srma`.
+//! A project with a game section becomes its game pack instead, in the same
+//! two variants (`game.srmg`, `game.rgba8.srmg`), carrying all of that.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -13,7 +15,7 @@ use sariema_import::TextureMode;
 use serde_json::{Map, Value, json};
 
 use crate::output::{Done, Failure};
-use crate::{actor, audio, project};
+use crate::{actor, audio, game, project};
 
 const VARIANTS: [(&str, &str, TextureMode); 2] = [
     ("astc", "", TextureMode::Astc4x4),
@@ -54,9 +56,23 @@ fn variants(
     Ok((files.into(), sizes.into()))
 }
 
+fn write_manifest(out: &Path, manifest: Map<String, Value>) -> Result<String, Failure> {
+    let path = out.join("sariema-web.json");
+    let text = serde_json::to_string_pretty(&Value::from(manifest)).expect("JSON serializes");
+    fs::write(&path, text).map_err(|e| Failure::io(&path, e))?;
+    Ok(path.display().to_string())
+}
+
 pub fn run(args: &WebArgs) -> Result<Done, Failure> {
     let dir = &args.project;
     let out = &args.output;
+    let config = dir.join("sariema.json");
+    let text = fs::read_to_string(&config).map_err(|e| Failure::io(&config, e))?;
+    let config: Value = serde_json::from_str(&text)
+        .map_err(|e| Failure::new("E_SCHEMA", format!("{}: {e}", config.display())))?;
+    if config.get("game").is_some() {
+        return run_game(args);
+    }
     let actors = project::load::<project::Project>(dir)?.actors;
     let rooms = project::room_ids(dir)?;
     let start = match &args.start {
@@ -99,19 +115,13 @@ pub fn run(args: &WebArgs) -> Result<Done, Failure> {
     report.insert("rooms".into(), room_sizes.into());
     report.insert("actors".into(), actor_sizes.into());
 
-    let config = dir.join("sariema.json");
-    let text = fs::read_to_string(&config).map_err(|e| Failure::io(&config, e))?;
-    let has_audio = serde_json::from_str::<Value>(&text).is_ok_and(|v| v.get("audio").is_some());
-    if has_audio {
+    if config.get("audio").is_some() {
         let done = audio::build(dir, &out.join("sounds.srms"), false)?;
         manifest.insert("sounds".into(), "sounds.srms".into());
         report.insert("sounds".into(), done.json);
     }
 
-    let path = out.join("sariema-web.json");
-    let text = serde_json::to_string_pretty(&Value::from(manifest)).expect("JSON serializes");
-    fs::write(&path, text).map_err(|e| Failure::io(&path, e))?;
-    report.insert("manifest".into(), path.display().to_string().into());
+    report.insert("manifest".into(), write_manifest(out, manifest)?.into());
     Ok(Done {
         text: format!(
             "wrote {} rooms and {} actors in two texture variants to {}",
@@ -120,5 +130,29 @@ pub fn run(args: &WebArgs) -> Result<Done, Failure> {
             out.display()
         ),
         json: report.into(),
+    })
+}
+
+fn run_game(args: &WebArgs) -> Result<Done, Failure> {
+    let (dir, out) = (&args.project, &args.output);
+    if args.start.is_some() {
+        return Err(Failure::new(
+            "E_USAGE",
+            "--start names a room to show; a game starts in its own",
+        ));
+    }
+    fs::create_dir_all(out).map_err(|e| Failure::io(out, e))?;
+    let (files, sizes) = variants("game", "srmg", out, |path, mode| {
+        game::build(dir, path, Some(mode))
+    })?;
+    let mut manifest = Map::new();
+    manifest.insert("game".into(), files);
+    let manifest = write_manifest(out, manifest)?;
+    Ok(Done {
+        text: format!(
+            "wrote the game pack in two texture variants to {}",
+            out.display()
+        ),
+        json: json!({ "game": sizes, "manifest": manifest }),
     })
 }

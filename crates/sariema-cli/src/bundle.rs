@@ -7,24 +7,31 @@ use std::fs;
 use std::path::Path;
 
 use sariema_format::script::{GameAssets, Hud};
+use sariema_import::TextureMode;
 use sariema_ui::UiDesc;
 
 use crate::output::Failure;
 use crate::{actor, audio, project};
 
 /// The assets of the project in `dir`: `room` (the project's first room
-/// without it) and the HUD description at `hud`, relative to `dir`.
-pub fn assets(dir: &Path, room: Option<&str>, hud: Option<&Path>) -> Result<GameAssets, Failure> {
+/// without it) and the HUD description at `hud`, relative to `dir`;
+/// `textures`, when given, replaces the room's and actors' own choice.
+pub fn assets(
+    dir: &Path,
+    room: Option<&str>,
+    hud: Option<&Path>,
+    textures: Option<TextureMode>,
+) -> Result<GameAssets, Failure> {
     let mut assets = GameAssets::default();
     let rooms = project::room_ids(dir)?;
     if let Some(room) = room.map(str::to_owned).or_else(|| rooms.first().cloned()) {
-        let (pack, collision) = project::room_packs(dir, &room)?;
+        let (pack, collision) = project::room_packs(dir, &room, textures)?;
         assets.room = Some(pack);
         assets.collision = collision;
     }
     let project: project::Project = project::load(dir)?;
     for id in project.actors.keys() {
-        let pack = actor::pack(dir, id, None)?;
+        let pack = actor::pack(dir, id, textures)?;
         assets
             .actors
             .push((id.clone(), sariema_format::actor::encode(&pack)));
