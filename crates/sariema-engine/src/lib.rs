@@ -332,6 +332,20 @@ impl<L: Logic> Engine<L> {
         self.hud.pointer_up(pointer, x, y);
     }
 
+    /// What every host prints of a run, as `sariema run --headless --game`
+    /// does: the steps and the hashes in hex, the physics and audio ones
+    /// null for a game without them.
+    pub fn hashes(&self) -> serde_json::Value {
+        let hex = |h: u64| format!("{h:016x}");
+        serde_json::json!({
+            "steps": self.steps(),
+            "engine_hash": hex(self.state_hash()),
+            "state_hash": hex(self.sim.state_hash()),
+            "physics_hash": self.physics.as_ref().map(|p| hex(p.world.state_hash())),
+            "audio_hash": self.sound.as_ref().map(|s| hex(s.hash())),
+        })
+    }
+
     /// The runtime's state, the collision world's and every animator's
     /// clip and time: what the next steps depend on.
     pub fn state_hash(&self) -> u64 {

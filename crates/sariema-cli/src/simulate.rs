@@ -208,46 +208,42 @@ pub fn run(path: &Path, run: &RunArgs) -> Result<Done, Failure> {
     let total: Duration = took.iter().sum();
     took.sort_unstable();
     let (median, slowest) = (took[took.len() / 2], took[took.len() - 1]);
-    let engine_hash = hex(engine.state_hash());
-    let physics_hash = engine.physics().map(|p| hex(p.world.state_hash()));
-    let audio_hash = engine.sound().map(|s| hex(s.hash()));
+    let mut json = engine.hashes();
     let sim = engine.simulation();
-    let state_hash = hex(sim.state_hash());
     let world_hash = hex(sim.state().world_hash());
-    let memory = sim.logic().vm().memory().len();
-    let playing = sim.playing_cutscene();
-    Ok(Done {
-        json: json!({
-            "steps": steps,
-            "engine_hash": engine_hash,
-            "state_hash": state_hash,
-            "physics_hash": physics_hash,
-            "audio_hash": audio_hash,
-            "world_hash": world_hash,
-            "events": events,
-            "host": host,
-            "log": logs,
-            "saves": saves,
-            "playing_cutscene": playing,
-            "names": names,
-            "memory_bytes": memory,
-            "interpreter": sim.logic().vm().interpreter(),
-            "frames": frames,
-            "timing": {
-                "total_ms": ms(total),
-                "mean_step_ms": ms(total) / steps as f64,
-                "median_step_ms": ms(median),
-                "max_step_ms": ms(slowest),
-                "mean_feed_ms": ms(fed) / steps as f64,
-            },
-        }),
-        text: format!(
-            "{steps} steps: engine {engine_hash}, state {state_hash}, world {world_hash}, {} events, {} host messages, {:.3} ms per step (median {:.3}, max {:.3})",
-            events.len(),
-            host.len(),
-            ms(total) / steps as f64,
-            ms(median),
-            ms(slowest)
-        ),
-    })
+    let text = format!(
+        "{steps} steps: engine {}, state {}, world {world_hash}, {} events, {} host messages, {:.3} ms per step (median {:.3}, max {:.3})",
+        json["engine_hash"].as_str().unwrap_or_default(),
+        json["state_hash"].as_str().unwrap_or_default(),
+        events.len(),
+        host.len(),
+        ms(total) / steps as f64,
+        ms(median),
+        ms(slowest)
+    );
+    let serde_json::Value::Object(more) = json!({
+        "world_hash": world_hash,
+        "events": events,
+        "host": host,
+        "log": logs,
+        "saves": saves,
+        "playing_cutscene": sim.playing_cutscene(),
+        "names": names,
+        "memory_bytes": sim.logic().vm().memory().len(),
+        "interpreter": sim.logic().vm().interpreter(),
+        "frames": frames,
+        "timing": {
+            "total_ms": ms(total),
+            "mean_step_ms": ms(total) / steps as f64,
+            "median_step_ms": ms(median),
+            "max_step_ms": ms(slowest),
+            "mean_feed_ms": ms(fed) / steps as f64,
+        },
+    }) else {
+        unreachable!("json! of an object is an object")
+    };
+    json.as_object_mut()
+        .expect("the hashes are an object")
+        .extend(more);
+    Ok(Done { json, text })
 }
