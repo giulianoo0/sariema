@@ -2150,9 +2150,11 @@ dependencies = [
  "glam",
  "image",
  "jsonschema",
+ "libm",
  "log",
  "meshopt",
  "sariema-format",
+ "sariema-physics",
  "serde",
  "serde_json",
 ]
