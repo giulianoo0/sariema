@@ -342,10 +342,18 @@ impl Ui {
         self.names.get(name).map(|&i| self.id(i))
     }
 
-    /// Named nodes, in no particular order.
-    /// Named nodes, in no particular order.
+    /// Named nodes, depth first in drawing order: a description's own order.
     pub fn names(&self) -> impl Iterator<Item = (&str, NodeId)> {
-        self.names.iter().map(|(n, &i)| (n.as_str(), self.id(i)))
+        let mut order = Vec::with_capacity(self.names.len());
+        let mut stack = vec![self.root];
+        while let Some(i) = stack.pop() {
+            let node = &self.nodes[i as usize];
+            if let Some(name) = &node.name {
+                order.push((name.as_str(), self.id(i)));
+            }
+            stack.extend(node.children.iter().rev());
+        }
+        order.into_iter()
     }
 
     pub fn name(&self, id: NodeId) -> Option<&str> {

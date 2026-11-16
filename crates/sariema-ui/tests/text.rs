@@ -170,5 +170,8 @@ fn a_text_that_overflows_the_atlas_is_refused_and_shows_nothing() {
     assert_eq!(refused.map_err(|e| e.code()), Err("E_UI_ATLAS_FULL"));
     assert_eq!(ui.text(t), Some(""));
     ui.step();
-    assert!(glyphs(&mut ui).is_empty(), "no glyph of either text is drawn");
+    assert!(
+        glyphs(&mut ui).is_empty(),
+        "no glyph of either text is drawn"
+    );
 }

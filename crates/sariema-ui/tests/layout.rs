@@ -195,3 +195,17 @@ fn a_snapped_node_and_its_children_are_drawn_where_they_are_until_the_next_step(
     assert!((moving - 350.0).abs() < 0.01, "interpolated: {moving}");
     assert_eq!(snapped, [330.0; 3]);
 }
+
+#[test]
+fn names_come_in_the_descriptions_order() {
+    let names = ["zeta", "alpha", "mid", "beta", "omega", "delta"];
+    for _ in 0..8 {
+        let ui = ui(json!({ "nodes": [
+            { "name": "zeta", "children": [ { "name": "alpha" }, { "children": [ { "name": "mid" } ] } ] },
+            { "name": "beta" },
+            { "children": [ { "name": "omega" }, { "name": "delta" } ] }
+        ] }));
+        let got: Vec<&str> = ui.names().map(|(n, _)| n).collect();
+        assert_eq!(got, names);
+    }
+}

@@ -46,7 +46,8 @@ on (`E_SETTINGS`), since every actor would move twice.
 1. **Input.** `Engine::step(actions)` takes them as they are (a replay);
    `Engine::frame(dt, raw)` maps the raw keys, pad and sticks through the
    game's input settings for every step the frame owes. Before the step the
-   HUD's screen runs its own step: a joystick held gives the touch stick,
+   HUD's screen runs its own step: its joystick held (the first named one
+   in the description's order, when it has several) gives the touch stick,
    mapped through the same settings, and replaces an axis it moves; a button
    node named after an input button holds that button down, ORed with the
    keys.
