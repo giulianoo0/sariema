@@ -1,0 +1,9 @@
+{
+  "name": "jump",
+  "roles": { "hero": { "start": { "position": [0, 0, 0] } } },
+  "steps": [
+    { "shot": { "fixed": { "position": [0, 8, 8], "look_at": [5, 0, -5] }, "blend": 0 } },
+    { "set_flag": "jumped" },
+    { "teleport": { "role": "hero", "position": [5, 0, -5], "cover": "cut" } }
+  ]
+}

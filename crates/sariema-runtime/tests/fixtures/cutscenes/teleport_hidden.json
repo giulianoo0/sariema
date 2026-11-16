@@ -1,0 +1,9 @@
+{
+  "name": "jump",
+  "roles": { "hero": { "start": { "position": [0, 0, 0] } } },
+  "steps": [
+    { "hide": "hero" },
+    { "teleport": { "role": "hero", "position": [5, 0, -5] } },
+    { "show": "hero" }
+  ]
+}

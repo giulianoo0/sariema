@@ -1,0 +1,11 @@
+{
+  "name": "unsure",
+  "roles": { "hero": { "start": { "position": [0, 0, 0] } }, "friend": { "start": { "position": [2, 0, 0] } } },
+  "steps": [
+    { "fade": { "to": 1, "duration": 0.3 } },
+    { "parallel": [
+      [ { "fade": { "to": 0, "duration": 0.3 } } ],
+      [ { "teleport": { "role": "hero", "position": [5, 0, 0], "cover": "fade" } } ]
+    ] }
+  ]
+}

@@ -179,6 +179,10 @@ impl Tweens {
         Ok(())
     }
 
+    pub fn active(&self, id: u32) -> bool {
+        self.list.iter().any(|a| a.id == id)
+    }
+
     pub fn cancel(&mut self, id: u32) {
         self.list.retain(|a| a.id != id);
     }

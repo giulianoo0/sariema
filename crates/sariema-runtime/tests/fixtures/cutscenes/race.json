@@ -1,0 +1,10 @@
+{
+  "name": "race",
+  "roles": { "hero": { "start": { "position": [0, 0, 0] } } },
+  "steps": [
+    { "parallel": [
+      [ { "walk": { "role": "hero", "to": [1, 0, 0] } } ],
+      [ { "wait": 0.1 }, { "walk": { "role": "hero", "to": [2, 0, 0] } } ]
+    ] }
+  ]
+}

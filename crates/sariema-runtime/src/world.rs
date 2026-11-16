@@ -267,6 +267,12 @@ impl World {
         self.snapped.push(e.index);
     }
 
+    /// Whether `e` was spawned or snapped this step: placing it again in the
+    /// same step adds no visible jump.
+    pub fn snapped_this_step(&self, e: Entity) -> bool {
+        self.is_alive(e) && self.snapped.contains(&e.index)
+    }
+
     /// The live entities in slot order.
     pub fn entities(&self) -> impl Iterator<Item = (Entity, &Node)> {
         self.slots

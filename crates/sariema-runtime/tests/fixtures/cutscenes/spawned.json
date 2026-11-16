@@ -1,0 +1,9 @@
+{
+  "name": "ghost",
+  "roles": { "hero": { "start": { "position": [0, 0, 0] } }, "ghost": { "actor": "spirit" } },
+  "steps": [
+    { "spawn": { "role": "ghost", "position": [3, 0, -3], "yaw": 90 } },
+    { "walk": { "role": "ghost", "to": [1, 0, 0] } },
+    { "despawn": "ghost" }
+  ]
+}
