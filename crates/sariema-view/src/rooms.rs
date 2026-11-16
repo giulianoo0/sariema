@@ -18,6 +18,7 @@
 //! carried to the renderer when it changes.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use glam::{Mat4, Quat, Vec3};
 use sariema_core::STEP_SECONDS;
@@ -48,11 +49,16 @@ pub struct ViewSettings {
     pub threads: bool,
     /// Milliseconds a frame spends building collision worlds where they
     /// are not built on threads, and growing the walkable grids a switch
-    /// left; at least one share a frame.
+    /// left: a share that would end past them, by the longest of the
+    /// frame's so far, waits for the next frame; at least one share a frame.
     pub world_ms_per_frame: f32,
     /// Walkable-grid columns in a share; a column costs from a few to a few
     /// hundred microseconds, with the geometry above it.
     pub grid_columns_per_share: usize,
+    /// Work units of a collision world's colliders and the tree over them
+    /// a share of its building takes, between checks of the time budget
+    /// (`sariema_physics::WorldBuild::advance`).
+    pub world_units_per_share: usize,
     /// Off, no light casts a shadow, as for a device without the budget.
     pub shadows: bool,
     /// Seconds the picture of the room left takes to fade out over the next
@@ -70,7 +76,8 @@ impl Default for ViewSettings {
             upload_bytes_per_frame: 4 << 20,
             threads: true,
             world_ms_per_frame: 2.0,
-            grid_columns_per_share: 32,
+            grid_columns_per_share: 8,
+            world_units_per_share: 2048,
             shadows: true,
             dissolve_s: 0.5,
             dissolve_ease: Ease::InOutSine,
@@ -92,6 +99,11 @@ pub struct RoomsFrame {
     pub world_share: bool,
     /// Collision worlds that came in.
     pub worlds_built: u32,
+    /// Time spent decoding rooms, uploading them (their pipelines and
+    /// buffers included) and building collision worlds in the frame.
+    pub decode: Duration,
+    pub upload: Duration,
+    pub world: Duration,
 }
 
 enum Load {
@@ -153,10 +165,38 @@ pub(crate) struct Rooms {
     worlds: (Sender<Built>, Receiver<Built>),
     /// The world built a share a frame.
     job: Option<WorldJob>,
+    /// The longest share of collision work in the last frame that had any.
+    longest_share: Duration,
     /// The step of the last switch drawn.
     switched: Option<u64>,
     /// The dissolve under way: the step that switched, and its seconds.
     dissolve: Option<(u64, f32)>,
+}
+
+/// Runs `share` while it has more to do and the next share, expected to
+/// take as long as the longest of this frame's or the last one's, would end
+/// within `budget`; at least once. The last frame's counts for half the
+/// budget at most: a share the system paused says nothing of the next.
+/// Whether any share had work.
+fn within(budget: Duration, longest: &mut Duration, mut share: impl FnMut() -> bool) -> bool {
+    let start = web_time::Instant::now();
+    let last = std::mem::take(longest).min(budget / 2);
+    let mut worked = false;
+    loop {
+        let begun = web_time::Instant::now();
+        if !share() {
+            break;
+        }
+        worked = true;
+        *longest = (*longest).max(begun.elapsed());
+        if start.elapsed() + (*longest).max(last) > budget {
+            break;
+        }
+    }
+    if !worked {
+        *longest = last;
+    }
+    worked
 }
 
 fn light_params(index: &RoomIndex) -> Vec<[usize; 5]> {
@@ -197,6 +237,7 @@ impl Rooms {
             #[cfg(not(target_arch = "wasm32"))]
             worlds: std::sync::mpsc::channel(),
             job: None,
+            longest_share: Duration::ZERO,
             switched: None,
             dissolve: None,
         }
@@ -253,7 +294,9 @@ impl Rooms {
         let mut wanted = engine.wanted_rooms();
         wanted.retain(|&r| self.views[r].bytes.is_some());
         wanted.truncate(self.settings.max_resident.max(1));
+        let start = web_time::Instant::now();
         self.build_worlds(engine, &wanted);
+        self.frame.world = start.elapsed();
         for (r, view) in self.views.iter_mut().enumerate() {
             if !wanted.contains(&r) && !matches!(view.load, Load::Absent) {
                 renderer.unload_room(r as u32);
@@ -310,10 +353,9 @@ impl Rooms {
     }
 
     fn build_worlds<L: Logic>(&mut self, engine: &mut Engine<L>, wanted: &[usize]) {
-        let start = web_time::Instant::now();
-        let budget =
-            web_time::Duration::from_secs_f32(self.settings.world_ms_per_frame.max(0.0) / 1000.0);
+        let budget = Duration::from_secs_f32(self.settings.world_ms_per_frame.max(0.0) / 1000.0);
         let columns = self.settings.grid_columns_per_share.max(1);
+        let units = self.settings.world_units_per_share.max(1);
         #[cfg(not(target_arch = "wasm32"))]
         if self.settings.threads {
             while let Ok(built) = self.worlds.1.try_recv() {
@@ -326,47 +368,37 @@ impl Rooms {
                 let send = self.worlds.0.clone();
                 std::thread::spawn(move || send.send(job.build()));
             }
-            while engine.grow_grids(columns) {
-                self.frame.world_share = true;
-                if start.elapsed() >= budget {
-                    break;
-                }
-            }
+            self.frame.world_share = within(budget, &mut self.longest_share, || {
+                engine.grow_grids(columns)
+            });
             return;
         }
-        loop {
-            if self
-                .job
-                .as_ref()
-                .is_some_and(|j| engine.world_ready(j.room))
-            {
-                self.job = None;
+        let job = &mut self.job;
+        let worlds_built = &mut self.frame.worlds_built;
+        self.frame.world_share = within(budget, &mut self.longest_share, || {
+            if job.as_ref().is_some_and(|j| engine.world_ready(j.room)) {
+                *job = None;
             }
-            if self.job.is_none() {
+            if job.is_none() {
                 let next = wanted.iter().copied().find(|&r| !engine.world_ready(r));
-                self.job = next.and_then(|r| engine.world_jobs(&[r]).pop());
+                *job = next.and_then(|r| engine.world_jobs(&[r]).pop());
             }
-            let more = match &mut self.job {
-                Some(job) => match job.advance(columns) {
-                    Ok(None) => true,
-                    Ok(Some(built)) => {
-                        engine.install_world(built);
-                        self.frame.worlds_built += 1;
-                        self.job = None;
-                        true
+            match job {
+                Some(building) => {
+                    match building.advance(columns, units) {
+                        Ok(None) => return true,
+                        Ok(Some(built)) => {
+                            engine.install_world(built);
+                            *worlds_built += 1;
+                        }
+                        Err(_) => {}
                     }
-                    Err(_) => {
-                        self.job = None;
-                        true
-                    }
-                },
+                    *job = None;
+                    true
+                }
                 None => engine.grow_grids(columns),
-            };
-            self.frame.world_share |= more;
-            if !more || start.elapsed() >= budget {
-                break;
             }
-        }
+        });
     }
 
     /// Moves room `r`'s load on within what is left of this frame's budgets.
@@ -384,7 +416,10 @@ impl Rooms {
             },
             Load::Decoding(mut decoder) if *decode > 0 => {
                 let before = decoder.progress().0;
-                let room = decoder.step(*decode).map_err(failed)?;
+                let start = web_time::Instant::now();
+                let room = decoder.step(*decode).map_err(failed);
+                self.frame.decode += start.elapsed();
+                let room = room?;
                 let read = decoder.progress().0 - before;
                 *decode = decode.saturating_sub(read);
                 self.frame.bytes_decoded += read as u64;
@@ -401,7 +436,9 @@ impl Rooms {
             },
             Load::Uploading(room) if *upload > 0 => {
                 let before = renderer.upload_progress(r as u32).map_or(0, |p| p.0);
+                let start = web_time::Instant::now();
                 let done = renderer.upload_room(r as u32, &room, *upload);
+                self.frame.upload += start.elapsed();
                 let sent = match renderer.upload_progress(r as u32) {
                     Some((after, _)) => after - before,
                     None => room_bytes(&room).saturating_sub(before),
@@ -452,7 +489,10 @@ impl Rooms {
             look: room.look.clone(),
             camera: room.camera.clone(),
         });
-        renderer.begin_room(r as u32, &room)?;
+        let start = web_time::Instant::now();
+        let begun = renderer.begin_room(r as u32, &room);
+        self.frame.upload += start.elapsed();
+        begun?;
         self.views[r].load = Load::Uploading(Box::new(room));
         Ok(())
     }

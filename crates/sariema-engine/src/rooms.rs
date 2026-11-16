@@ -4,7 +4,8 @@
 //! each, built when the room is wanted and kept for the rest of the run, so
 //! a room left and entered again collides as the game left it. A world is
 //! built off the step by whoever takes its [`WorldJob`]: a thread builds it
-//! whole, a host without threads a share of its walkable grids each frame.
+//! whole, a host without threads a share of it each frame (the colliders,
+//! the tree over them, then the walkable grids).
 //! A switch to a room whose world is not in yet builds the world in the step
 //! and leaves its grids to [`crate::Engine::grow_grids`], or to the first
 //! path search that needs one. Either way the world is the same, so the run
@@ -18,7 +19,7 @@ use sariema_runtime::scenery::RoomRequest;
 use sariema_runtime::state::State;
 
 use crate::assets::RoomAssets;
-use crate::physics::Physics;
+use crate::physics::{Physics, PhysicsBuild};
 use crate::settings::EngineSettings;
 
 enum World {
@@ -36,6 +37,7 @@ pub struct WorldJob {
     pack: Arc<CollisionPack>,
     settings: EngineSettings,
     turn_rate: f32,
+    building: Option<Box<PhysicsBuild>>,
     physics: Option<Box<Physics>>,
     /// Colliders whose walkable grid is still to start, the next last.
     grids: Vec<ActorCollider>,
@@ -49,6 +51,7 @@ impl WorldJob {
             pack,
             settings: rooms.settings.clone(),
             turn_rate: rooms.turn_rate,
+            building: None,
             physics: None,
             grids: Vec::new(),
             grid: None,
@@ -57,20 +60,30 @@ impl WorldJob {
 
     pub fn build(mut self) -> Result<BuiltWorld, String> {
         loop {
-            if let Some(built) = self.advance(usize::MAX)? {
+            if let Some(built) = self.advance(usize::MAX, usize::MAX)? {
                 return Ok(built);
             }
         }
     }
 
-    /// Builds a share of the world: the world itself, then its walkable
+    /// Builds a share of the world: about `units` of the world itself
+    /// ([`sariema_physics::WorldBuild::advance`]) a call, then its walkable
     /// grids, `columns` columns at most a call. Gives the world once all of
     /// it is built, after which the job is spent.
-    pub fn advance(&mut self, columns: usize) -> Result<Option<BuiltWorld>, String> {
+    pub fn advance(&mut self, columns: usize, units: usize) -> Result<Option<BuiltWorld>, String> {
         let Some(physics) = &mut self.physics else {
-            let physics = Physics::new(self.pack.clone(), &self.settings, self.turn_rate)?;
-            self.grids = physics.colliders().iter().rev().copied().collect();
-            self.physics = Some(Box::new(physics));
+            let building = self.building.get_or_insert_with(|| {
+                Box::new(Physics::start(
+                    self.pack.clone(),
+                    &self.settings,
+                    self.turn_rate,
+                ))
+            });
+            if let Some(physics) = building.advance(units)? {
+                self.building = None;
+                self.grids = physics.colliders().iter().rev().copied().collect();
+                self.physics = Some(Box::new(physics));
+            }
             return Ok(None);
         };
         if self.grid.is_none() {

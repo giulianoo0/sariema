@@ -118,8 +118,18 @@ budget:
    buffers; `upload_room` writes `upload_bytes_per_frame` bytes of meshes
    and texture mips a frame into a slot not drawn yet.
 3. **Collision world.** A `WorldJob` builds the room's world and the
-   walkable grid of each body: whole on a thread, or a share at a time
-   (`grid_columns_per_share` columns) until `world_ms_per_frame` is spent.
+   walkable grid of each body: whole on a thread, or, where there are none,
+   a share at a time until `world_ms_per_frame` is spent. A share adds
+   colliders (`world_units_per_share` units, a collider costing its
+   triangles or hull points, a primitive one), or folds, sorts and writes
+   that many items of the tree over their parts, or builds
+   `grid_columns_per_share` columns of a grid, or joins as many columns'
+   floors into islands. Each step gives what building whole gives: the
+   same tree, the same grid, the same islands. The frame stops before a
+   share that would end past the budget, expecting it to take as long as
+   the longest share of the frame or of the last frame (counted at half
+   the budget at most, so a share the system paused does not slow the
+   next frame); a frame does at least one share.
 4. **Ambience.** The next room's ambience stream is opened and its first
    second decoded in an audio feed with nothing else to open, never during
    a switch (`Audio::prepare`), so the switch only starts a voice.
@@ -133,7 +143,8 @@ either way, so the run is too.
 
 `ViewSettings` (defaults): `max_resident` 3, `decode_bytes_per_frame` 4 MiB,
 `upload_bytes_per_frame` 4 MiB, `threads` true, `world_ms_per_frame` 2,
-`grid_columns_per_share` 32, `shadows` true, `dissolve_s` 0.5,
+`grid_columns_per_share` 8, `world_units_per_share` 2048, `shadows` true,
+`dissolve_s` 0.5,
 `dissolve_ease` `in_out_sine`. `SoundSettings::ambience_fade_s` (0.5) is the
 crossfade between ambiences when the switch has no duration.
 
@@ -169,6 +180,12 @@ and of each switch's own frame, with the bytes and worlds involved.
 `--no-threads` loads as the web does. The bench runs frames as fast as it
 can, not at 60 Hz, so a thread may not be done by a switch that would find
 its work done in play; `--no-threads` does not depend on that.
+`--timeline` adds every frame under `rooms.timeline`: the steps run, the
+frame's CPU, the step, the audio feed, decoding, uploading and collision
+work inside it, and the CPU time of the frame's thread (macOS and Linux),
+in ms; `rooms.stage_max_ms` is the most a frame spent on each loading
+stage. A frame whose CPU is well above its thread's time was paused by the
+system: on a shared machine, read the thread's time.
 
 Apple M5, release, 1920×1080, medium tier:
 
@@ -185,6 +202,28 @@ for a whole house) and opening the next ambience's stream in its feed
 GPU's `finish` on a shared machine, not loading. Reproduce with
 `sariema build examples/rooms -o rooms.srmg` and
 `sariema bench rooms.srmg --warmup 0 --runs 1 --frames 500 [--no-threads] --json`.
+
+### Building a large room's world within the budget
+
+A room of 20,316 collider parts whose two bodies' grids have 100,651
+columns each, preloaded beside the active room while the game plays on,
+`--no-threads` natively and in WebGL2. Its world and two grids take about
+0.7 s of CPU natively. Before, the world was built in one share and each
+grid's islands joined when it was finished.
+
+| | Native, collision work a frame, ms: p99 · max | Native, frame thread CPU, max | WebGL2, frame CPU during the preload, mean · max | Frames with collision work |
+|---|---|---|---|---|
+| World in one share, islands at the end | — · 12–13 (world), 9–11 (islands) | — | — · 16–32 | — |
+| Every stage in shares | 1.98–2.20 · 2.02–2.16 | 3.5–5.3 | 2.3 · 2.6 | 338–655 native, 472 WebGL2 |
+
+Natively, at a load average of 4–5 on 10 cores, 3 runs of 1,200 frames: of
+the 760–828 frames the system did not pause, one a run went over 2 ms, by
+0.04 ms at most. The first frame of the browser takes 5.8–6.1 ms (the
+first room's draw). The switch into the room, 1,094 steps in, takes
+0.5–0.8 ms in WebGL2. The shares cost little: grids took 2 % more CPU
+than built whole. Reproduce with
+`sariema bench <game.srmg> --warmup 0 --runs 1 --frames 1200 --no-threads --timeline --json`
+and, in a browser, `node test/bench.mjs --game <folder> --backend webgl2 --timeline 1260 --reps 2`.
 
 In a browser, `node test/bench.mjs --game <folder> --timeline <frames>`
 (in `packages/sariema-web`, after `npm run build` and `sariema web
@@ -235,6 +274,12 @@ these numbers are the frame's CPU, not its GPU.
   render texture) faded over the next scene on a full-screen quad. Here:
   the same, with the capture taken from the renderer's own targets before
   the next frame draws, so it costs no read back and leaves out the HUD.
+- **Unreal (`s.AsyncLoadingTimeLimit`), Unity
+  (`Application.backgroundLoadingPriority`).** Integrating loaded objects
+  on the main thread is limited to a time a frame, checked between
+  objects, so a frame can go over by one object. Here: shares small
+  enough to be checked often, and a share is left for the next frame
+  when the longest one seen would not fit.
 - **PixiJS v8 (`Assets`, `BackgroundLoader`, `PrepareBase`,
   `TextureGCSystem`).** Background loading runs one item at a time and
   pauses while a foreground load runs; a foreground load of an item being
@@ -248,9 +293,14 @@ these numbers are the frame's CPU, not its GPU.
 
 ## Known limits
 
-- The world of a large room is built from its collision pack in one share
-  (10–35 ms for a house with 124–236 colliders); only its walkable grids
-  are built a share at a time.
+- A collider is added in one share, whatever its triangles: 0.44 ms for
+  the largest of a house with 124–236 colliders.
+- `world_ms_per_frame` is wall time: a frame the system pauses mid-share
+  goes over it, and on a busy machine the shares a frame shrink, so a
+  room's world takes longer to be ready. At a load average of 30 on 10
+  cores, the room above was not ready by its switch, 1,094 steps in, in 2
+  of 6 runs; the switch then built the world in the step (5 ms) and the
+  scripted move after it the actor's grid, whole (0.6 s).
 - A walkable grid covers the room's static bounds at `nav.cell_size`
   unless the room declares `collision.nav_bounds` (`docs/physics.md`). A
   room whose geometry reaches far has a large grid: a tree-house room with

@@ -13,8 +13,8 @@ use sariema_core::STEP_SECONDS;
 use sariema_format::collision::{CollisionPack, Traversal};
 use sariema_format::script::{Anchor, Command, Controller, Entity, Event, Kind, name_id};
 use sariema_physics::{
-    ActorCollider, ActorDesc, ActorId, ColliderId, EventKind, Intent, World, actor_collider,
-    wrap_angle,
+    ActorCollider, ActorDesc, ActorId, ColliderId, EventKind, Intent, World, WorldBuild,
+    actor_collider, wrap_angle,
 };
 use sariema_runtime::events::Happening;
 use sariema_runtime::motion::Goal;
@@ -99,16 +99,62 @@ pub struct Physics {
     max_turn: f32,
 }
 
+/// A room's collision built a share at a time ([`Physics::start`]).
+pub struct PhysicsBuild {
+    world: WorldBuild<Arc<CollisionPack>>,
+    pack: Arc<CollisionPack>,
+    knockback_s: f32,
+    contact_blend: f32,
+    turn_rate: f32,
+}
+
+impl PhysicsBuild {
+    /// Builds on until about `units` of the world's work are spent
+    /// ([`WorldBuild::advance`]); the collision once it is built.
+    pub fn advance(&mut self, units: usize) -> Result<Option<Physics>, String> {
+        let Some(world) = self.world.advance(units).map_err(|e| e.to_string())? else {
+            return Ok(None);
+        };
+        Ok(Some(Physics::with_world(world, self)))
+    }
+}
+
 impl Physics {
     pub fn new(
         pack: Arc<CollisionPack>,
         settings: &EngineSettings,
         turn_rate: f32,
     ) -> Result<Physics, String> {
+        let mut build = Physics::start(pack, settings, turn_rate);
+        loop {
+            if let Some(physics) = build.advance(usize::MAX)? {
+                return Ok(physics);
+            }
+        }
+    }
+
+    /// Starts building the collision of `pack` a share at a time: the
+    /// collision [`Physics::new`] gives.
+    pub fn start(
+        pack: Arc<CollisionPack>,
+        settings: &EngineSettings,
+        turn_rate: f32,
+    ) -> PhysicsBuild {
         let mut physics = settings.physics.clone();
         physics.step_seconds = STEP_SECONDS;
         physics.controller.max_yaw_speed = turn_rate.to_radians();
-        let world = World::from_pack(physics, &pack).map_err(|e| e.to_string())?;
+        PhysicsBuild {
+            world: World::build_from_pack(physics, pack.clone()),
+            pack,
+            knockback_s: settings.knockback_s,
+            contact_blend: settings.contact_blend,
+            turn_rate,
+        }
+    }
+
+    fn with_world(world: World, build: &PhysicsBuild) -> Physics {
+        let pack = build.pack.clone();
+        let turn_rate = build.turn_rate;
         let bodies: Vec<(u32, ActorCollider)> = (pack.actors.iter())
             .map(|b| (name_id(&b.name), actor_collider(b)))
             .collect();
@@ -129,7 +175,7 @@ impl Physics {
             (Some(points), Some(contacts)) => vec![Traversing::with_capacity(points, contacts)],
             _ => Vec::new(),
         };
-        Ok(Physics {
+        Physics {
             world,
             bodies,
             colliders,
@@ -143,10 +189,10 @@ impl Physics {
             spare,
             intents: Vec::new(),
             events: Vec::new(),
-            knockback_s: settings.knockback_s,
-            contact_blend: settings.contact_blend,
+            knockback_s: build.knockback_s,
+            contact_blend: build.contact_blend,
             max_turn: turn_rate * STEP_SECONDS,
-        })
+        }
     }
 
     /// The colliders actors take in this world, each needing its walkable

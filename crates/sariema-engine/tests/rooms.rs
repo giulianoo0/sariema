@@ -54,9 +54,9 @@ struct Walk {
     to: [f32; 3],
     /// The step the game switches to the hall at, and how.
     switch: Option<(u64, RoomTransition)>,
-    /// The host builds the hall's collision world off the step, this many
-    /// grid columns at a time.
-    take_jobs: Option<usize>,
+    /// The host builds the hall's collision world off the step, in shares
+    /// of (grid columns, world units).
+    take_jobs: Option<(usize, usize)>,
 }
 
 /// The hero walking from `from` to `to`: its position at every step, the
@@ -107,21 +107,21 @@ fn walk(w: Walk) -> (Vec<Vec3>, u64, Option<u64>) {
     let mut path = Vec::new();
     let mut switched = None;
     for n in 0..300 {
-        if let Some(columns) = take_jobs
+        if let Some((columns, units)) = take_jobs
             && n == 1
         {
             let wanted = engine.wanted_rooms();
             for mut job in engine.world_jobs(&wanted) {
                 let mut shares = 1;
                 let built = loop {
-                    if let Some(built) = job.advance(columns).unwrap() {
+                    if let Some(built) = job.advance(columns, units).unwrap() {
                         break built;
                     }
                     shares += 1;
                 };
                 assert!(
-                    columns == usize::MAX || shares > 10,
-                    "{shares} shares of {columns} columns"
+                    (columns, units) == (usize::MAX, usize::MAX) || shares > 10,
+                    "{shares} shares of {columns} columns and {units} units"
                 );
                 engine.install_world(built);
             }
@@ -212,8 +212,12 @@ fn a_world_built_off_the_step_whole_or_in_shares_runs_as_one_built_in_it() {
         })
     };
     let (in_step, hash_in_step, _) = run(None);
-    for columns in [usize::MAX, 500] {
-        let (off_step, hash_off_step, _) = run(Some(columns));
+    for share in [
+        (usize::MAX, usize::MAX),
+        (500, usize::MAX),
+        (usize::MAX, 16),
+    ] {
+        let (off_step, hash_off_step, _) = run(Some(share));
         assert_eq!(in_step, off_step);
         assert_eq!(hash_in_step, hash_off_step);
     }
