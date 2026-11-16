@@ -118,12 +118,12 @@ pub fn inspect(path: &Path) -> Result<Done, Failure> {
             "joints": joints,
             "clips": pack.clips.iter().map(|c| json!({
                 "name": c.name,
-                "duration_s": c.duration,
+                "duration_s": decimal(c.duration),
                 "looping": c.looping,
                 "channels": c.channels.len(),
                 "keys": c.channels.iter().map(|ch| ch.times.len()).sum::<usize>(),
-                "markers": c.markers.iter().map(|m| json!({"name": m.name, "time_s": m.time})).collect::<Vec<_>>(),
-                "ground_speed_m_s": c.ground_speed,
+                "markers": c.markers.iter().map(|m| json!({"name": m.name, "time_s": decimal(m.time)})).collect::<Vec<_>>(),
+                "ground_speed_m_s": c.ground_speed.map(decimal),
                 "bounds": c.bounds,
             })).collect::<Vec<_>>(),
             "parts": pack.parts.iter().map(|p| json!({"name": p.name, "visible": p.visible})).collect::<Vec<_>>(),
@@ -135,6 +135,11 @@ pub fn inspect(path: &Path) -> Result<Done, Failure> {
             "bounds": pack.bounds,
         }),
     })
+}
+
+/// `x` as the shortest decimal that reads back as it, so 0.8 prints as 0.8.
+fn decimal(x: f32) -> f64 {
+    x.to_string().parse().unwrap_or(f64::from(x))
 }
 
 /// Sizes of what the pack holds.

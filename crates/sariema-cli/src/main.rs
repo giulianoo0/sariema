@@ -10,12 +10,14 @@ use sariema_import::TextureMode;
 use sariema_render::Quality;
 
 mod actor;
+mod filmstrip;
 mod golden;
 mod output;
 mod pack;
 mod player;
 mod project;
 mod run;
+mod stage;
 
 #[derive(Parser)]
 #[command(
@@ -96,6 +98,8 @@ struct RunArgs {
     /// Fail with E_ROOM_VOID when a larger fraction of the frame shows no geometry.
     #[arg(long, value_parser = fraction, requires = "headless")]
     max_background: Option<f32>,
+    #[command(flatten)]
+    stage: stage::StageArgs,
 }
 
 #[derive(Clone, Copy, ValueEnum)]

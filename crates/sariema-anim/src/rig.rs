@@ -199,8 +199,28 @@ impl Rig {
         Some(SocketId(i as u32))
     }
 
+    pub fn sockets(&self) -> usize {
+        self.sockets.len()
+    }
+
+    pub fn socket_name(&self, socket: SocketId) -> &str {
+        &self.sockets[socket.0 as usize].0
+    }
+
     pub fn faces(&self) -> usize {
         self.faces.len()
+    }
+
+    pub fn face_name(&self, face: FaceId) -> &str {
+        &self.faces[face.0 as usize].name
+    }
+
+    /// The names of `face`'s frames, in the pack's order.
+    pub fn face_frames(&self, face: FaceId) -> impl Iterator<Item = &str> {
+        self.faces[face.0 as usize]
+            .frames
+            .iter()
+            .map(|f| f.0.as_str())
     }
 
     pub fn face(&self, name: &str) -> Option<FaceId> {

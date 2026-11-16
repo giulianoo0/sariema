@@ -23,6 +23,7 @@ use winit::window::{Window, WindowId};
 use crate::RunArgs;
 use crate::output::{Done, Failure};
 use crate::run::frame_stats_json;
+use crate::stage::Stage;
 
 /// Below this pitch the floor is nearly edge-on, and a vertical drag
 /// corrected for its foreshortening would throw the focus far away.
@@ -256,7 +257,8 @@ pub fn play(room: &RoomPack, args: &RunArgs, frames: Option<u32>) -> Result<Done
         args,
         limit: frames,
         settings: PlayerSettings::default(),
-        orbit: OrbitState::new(&room.camera, room.look.tilt),
+        camera: args.stage.camera(&room.camera),
+        orbit: OrbitState::new(&args.stage.camera(&room.camera), room.look.tilt),
         look: room.look.clone(),
         screen: None,
         dragging: false,
@@ -268,6 +270,7 @@ pub fn play(room: &RoomPack, args: &RunArgs, frames: Option<u32>) -> Result<Done
         skipped: 0,
         clock: FrameClock::default(),
         stopped: None,
+        stage: None,
     };
     event_loop.run_app(&mut player).map_err(window_error)?;
     match player.stopped.take() {
@@ -298,6 +301,8 @@ pub fn play(room: &RoomPack, args: &RunArgs, frames: Option<u32>) -> Result<Done
 
 struct Player<'a> {
     room: &'a RoomPack,
+    /// The room's camera with the run's overrides.
+    camera: RoomCamera,
     args: &'a RunArgs,
     limit: Option<u32>,
     settings: PlayerSettings,
@@ -316,6 +321,8 @@ struct Player<'a> {
     skipped: u32,
     clock: FrameClock,
     stopped: Option<Stop>,
+    /// The run's actors, once the window has a renderer.
+    stage: Option<Stage>,
 }
 
 enum Stop {
@@ -327,7 +334,8 @@ impl ApplicationHandler for Player<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.guard(event_loop, |player| {
             if player.screen.is_none() {
-                let screen = Screen::open(event_loop, player.room, player.args)?;
+                let mut screen = Screen::open(event_loop, player.room, player.args)?;
+                player.stage = Some(Stage::load(&mut screen.renderer, &player.args.stage)?);
                 screen.window.request_redraw();
                 player.screen = Some(screen);
             }
@@ -364,7 +372,7 @@ impl Player<'_> {
         let room = self.room;
         apply_input(
             &mut self.orbit,
-            &room.camera,
+            &self.camera,
             &room.look,
             &self.settings,
             input,
@@ -456,7 +464,7 @@ impl Player<'_> {
             .replace(now)
             .map_or(0.0, |last| (now - last).as_secs_f32());
         self.input(PlayerInput::Tick(seconds));
-        let look = self.orbit.look(&self.room.look, &self.room.camera);
+        let look = self.orbit.look(&self.room.look, &self.camera);
         let Some(screen) = &mut self.screen else {
             return Ok(());
         };
@@ -465,8 +473,11 @@ impl Player<'_> {
             self.look = look;
         }
         let aspect = screen.config.width as f32 / screen.config.height as f32;
-        let camera = self.orbit.camera(&self.room.camera, aspect);
+        let camera = self.orbit.camera(&self.camera, aspect);
         let time_s = self.started.elapsed().as_secs_f32();
+        if let Some(stage) = &mut self.stage {
+            stage.pose(&mut screen.renderer, self.args.stage.time + time_s)?;
+        }
         match screen.draw(&camera, time_s, self.skipped, &self.settings)? {
             Outcome::Presented => {
                 self.frames += 1;

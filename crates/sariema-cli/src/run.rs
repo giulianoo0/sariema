@@ -5,14 +5,14 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use sariema_core::room_camera;
 use sariema_format::RoomPack;
 use sariema_render::{FrameStats, Headless, render_coverage};
 use serde_json::{Value, json};
 
 use crate::RunArgs;
 use crate::output::{Done, Failure};
-use crate::{pack, player};
+use crate::stage::{self, Stage};
+use crate::{filmstrip, pack, player};
 
 /// What `run` was asked for, with what each way of drawing needs.
 enum Mode<'a> {
@@ -61,16 +61,27 @@ fn headless(
     screenshot: &Path,
     max_background: Option<f32>,
 ) -> Result<Done, Failure> {
-    let camera = room_camera(&room.camera, args.width as f32 / args.height as f32);
+    let camera = stage::camera(
+        &args.stage,
+        &room.camera,
+        args.width as f32 / args.height as f32,
+    );
     let mut headless = Headless::new(args.width, args.height, args.quality.settings())?;
     let loading = Instant::now();
     headless.renderer().load_room(room)?;
     let load_room_ms = loading.elapsed().as_secs_f64() * 1000.0;
+    let loading = Instant::now();
+    let mut stage = Stage::load(headless.renderer(), &args.stage)?;
+    let load_actors_ms = loading.elapsed().as_secs_f64() * 1000.0;
     let pipelines = headless.renderer().pipelines_created();
-    let mut cpu = Duration::ZERO;
+    let (mut cpu, mut posing) = (Duration::ZERO, Duration::ZERO);
     let started = Instant::now();
     for frame in 0..frames {
         let start = Instant::now();
+        // The last frame shows `--time`; each one before it, a step earlier.
+        let time = args.stage.time - (frames - 1 - frame) as f32 / 60.0;
+        stage.pose(headless.renderer(), time)?;
+        posing += start.elapsed();
         headless.draw(&camera, frame as f32 / 60.0);
         cpu += start.elapsed();
     }
@@ -78,8 +89,25 @@ fn headless(
     let wall = started.elapsed();
     let pipelines_created = headless.renderer().pipelines_created() - pipelines;
     let stats = headless.renderer().last_frame_stats();
-    headless
-        .image()
+    let (image, strip) = match args.stage.filmstrip {
+        Some(count) => {
+            let span = (args.stage.span).or(stage.first_clip_s()).unwrap_or(0.0);
+            let times = filmstrip::times(args.stage.time, span, count);
+            let mut frames = Vec::with_capacity(times.len());
+            for &time in &times {
+                stage.pose(headless.renderer(), time)?;
+                frames.push(headless.render(&camera, time));
+            }
+            let strip = json!({
+                "frames": count,
+                "columns": args.stage.columns.min(count),
+                "times_s": times,
+            });
+            (filmstrip::tile(&frames, args.stage.columns), Some(strip))
+        }
+        None => (headless.image(), None),
+    };
+    image
         .save(screenshot)
         .map_err(|e| Failure::io(screenshot, e))?;
     let background = render_coverage(room, &camera, args.width, args.height)?;
@@ -98,6 +126,7 @@ fn headless(
     }
     let per_frame_ms = |d: Duration| d.as_secs_f64() * 1000.0 / frames as f64;
     let (cpu_ms, wall_ms) = (per_frame_ms(cpu), per_frame_ms(wall));
+    let actors_ms = per_frame_ms(posing);
     Ok(Done {
         json: json!({
             "frames": frames,
@@ -108,6 +137,10 @@ fn headless(
             "pipelines_created_during_frames": pipelines_created,
             "background_ratio": background,
             "frame_stats": frame_stats_json(&stats),
+            "load_actors_ms": load_actors_ms,
+            "actors_ms_per_frame": actors_ms,
+            "actors": stage.json(),
+            "filmstrip": strip,
         }),
         text: format!(
             "{} frames into {}: {cpu_ms:.2} ms CPU and {wall_ms:.2} ms wall per frame, \
@@ -138,5 +171,7 @@ pub fn frame_stats_json(stats: &FrameStats) -> Value {
         "shadows_skipped": stats.shadows_skipped,
         "post_passes": stats.post_passes,
         "draws_culled": stats.draws_culled,
+        "actors_drawn": stats.actors_drawn,
+        "actors_culled": stats.actors_culled,
     })
 }
