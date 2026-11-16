@@ -411,12 +411,12 @@ fn bake_piece(
     })
 }
 
-/// The hull's vertices, down to at most `max` of them by keeping the
-/// farthest point along `max` directions spread over the sphere.
+/// The hull of `points` with at most `max` vertices: the farthest point
+/// along each of `max` directions spread over the sphere, which is always a
+/// vertex of the full hull, so the full hull is never computed.
 fn reduced_hull(points: &[Vec3], max: usize) -> Option<Vec<Vec3>> {
-    let hull = convex_hull(points)?;
-    if hull.vertices.len() <= max {
-        return Some(hull.vertices);
+    if points.len() <= max {
+        return convex_hull(points).map(|h| h.vertices);
     }
     let golden = std::f32::consts::PI * (3.0 - libm::sqrtf(5.0));
     let mut kept: Vec<u32> = (0..max)
@@ -425,19 +425,19 @@ fn reduced_hull(points: &[Vec3], max: usize) -> Option<Vec<Vec3>> {
             let r = libm::sqrtf(1.0 - y * y);
             let a = golden * i as f32;
             let dir = Vec3::new(r * libm::cosf(a), y, r * libm::sinf(a));
-            (0..hull.vertices.len() as u32)
+            (0..points.len() as u32)
                 .max_by(|&a, &b| {
-                    dir.dot(hull.vertices[a as usize])
-                        .total_cmp(&dir.dot(hull.vertices[b as usize]))
+                    dir.dot(points[a as usize])
+                        .total_cmp(&dir.dot(points[b as usize]))
                         .then(b.cmp(&a))
                 })
-                .expect("a hull has vertices")
+                .expect("there are more points than directions")
         })
         .collect();
     kept.sort_unstable();
     kept.dedup();
-    let reduced: Vec<Vec3> = kept.iter().map(|&i| hull.vertices[i as usize]).collect();
-    convex_hull(&reduced).map(|h| h.vertices)
+    let extremes: Vec<Vec3> = kept.iter().map(|&i| points[i as usize]).collect();
+    convex_hull(&extremes).map(|h| h.vertices)
 }
 
 /// Whether every face of `hull` lies within `tolerance` of the piece's
