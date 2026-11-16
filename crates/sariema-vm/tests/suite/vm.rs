@@ -239,3 +239,56 @@ fn the_same_module_and_events_give_the_same_memory() {
     };
     assert_eq!(run(), run());
 }
+
+#[test]
+fn submitting_more_than_the_step_allows_stops_the_game() {
+    let wasm = module(
+        r#"(func (export "sariema_tick") (local $i i32)
+             (loop $l
+               (call $submit (i32.const 0) (i32.const 65536))
+               (local.set $i (i32.add (local.get $i) (i32.const 1)))
+               (br_if $l (i32.lt_u (local.get $i) (i32.const 64)))))"#,
+    );
+    let mut vm = load(
+        &wasm,
+        VmSettings {
+            commands_bytes_per_step: 1 << 20,
+            ..settings()
+        },
+    )
+    .unwrap();
+    assert_eq!(tick(&mut vm), Err(VmError::Budget));
+    assert_eq!(vm.stopped(), Some(&VmError::Budget));
+}
+
+#[test]
+fn log_lines_past_the_step_cap_are_dropped() {
+    let wasm = module(
+        r#"(func (export "sariema_tick") (local $i i32)
+             (loop $l
+               (call $log (i32.const 1) (i32.const 0) (i32.const 0))
+               (local.set $i (i32.add (local.get $i) (i32.const 1)))
+               (br_if $l (i32.lt_u (local.get $i) (i32.const 1000)))))"#,
+    );
+    let mut vm = load(
+        &wasm,
+        VmSettings {
+            log_lines_per_step: 8,
+            ..settings()
+        },
+    )
+    .unwrap();
+    tick(&mut vm).unwrap();
+    assert_eq!(vm.log().len(), 8);
+}
+
+#[test]
+fn a_range_past_the_end_of_the_address_space_traps() {
+    let wasm = module(
+        r#"(func (export "sariema_tick") (call $submit (i32.const 0xFFFFFFF0) (i32.const 0x100)))"#,
+    );
+    let mut vm = load(&wasm, settings()).unwrap();
+    let error = tick(&mut vm).unwrap_err();
+    assert_eq!(error.code(), "E_GAME_TRAP");
+    assert!(error.to_string().contains("outside"), "{error}");
+}

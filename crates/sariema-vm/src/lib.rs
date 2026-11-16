@@ -38,6 +38,10 @@ pub struct VmSettings {
     pub max_regions: u32,
     /// Bytes of log text kept per tick; the rest is dropped.
     pub log_bytes_per_step: u32,
+    /// Log lines kept per tick; the rest are dropped.
+    pub log_lines_per_step: u32,
+    /// Bytes of commands a tick may submit; more stops the game.
+    pub commands_bytes_per_step: u32,
 }
 
 impl Default for VmSettings {
@@ -50,6 +54,8 @@ impl Default for VmSettings {
             max_call_depth: 1000,
             max_regions: 16,
             log_bytes_per_step: 4096,
+            log_lines_per_step: 64,
+            commands_bytes_per_step: 4 << 20,
         }
     }
 }
@@ -172,6 +178,7 @@ impl Vm {
                 Ok(())
             }
             Err(e) => {
+                let e = self.host.stop.take().unwrap_or(e);
                 self.stopped = Some(e.clone());
                 Err(e)
             }

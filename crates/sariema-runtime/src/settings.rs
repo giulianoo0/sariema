@@ -180,4 +180,9 @@ pub const DOCS: &[(&str, &str)] = &[
     ("vm.max_call_depth", "Nested calls before the game traps."),
     ("vm.max_regions", "Bulk data regions a game may register."),
     ("vm.log_bytes_per_step", "Bytes of log text kept per tick."),
+    ("vm.log_lines_per_step", "Log lines kept per tick."),
+    (
+        "vm.commands_bytes_per_step",
+        "Bytes of commands one tick may submit; more stops the game with E_GAME_BUDGET.",
+    ),
 ];
