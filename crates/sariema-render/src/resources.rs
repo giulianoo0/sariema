@@ -452,11 +452,8 @@ impl Room {
     }
 
     fn write_draw(&mut self, d: usize, model: Mat4) {
-        let mut uniform = draw_uniform(&model.to_cols_array());
         let item = &self.draws[d];
-        uniform.normal[0][3] = item.presence;
-        [uniform.normal[1][3], uniform.normal[2][3]] = item.glow;
-        set_anchor(&mut uniform, item.anchor, item.one_sided);
+        let uniform = item_uniform(model, item.presence, item.glow, item.anchor, item.one_sided);
         let at = d * self.draw_stride as usize;
         self.draw_bytes[at..at + size_of::<DrawUniform>()]
             .copy_from_slice(bytemuck::bytes_of(&uniform));
@@ -469,6 +466,21 @@ impl Room {
             None => (d, d),
         });
     }
+}
+
+/// A draw's uniform with its presence, glow and cut anchor in place.
+fn item_uniform(
+    model: Mat4,
+    presence: f32,
+    glow: [f32; 2],
+    anchor: Option<CutAnchor>,
+    one_sided: bool,
+) -> DrawUniform {
+    let mut uniform = draw_uniform(&model.to_cols_array());
+    uniform.normal[0][3] = presence;
+    [uniform.normal[1][3], uniform.normal[2][3]] = glow;
+    set_anchor(&mut uniform, anchor, one_sided);
+    uniform
 }
 
 fn set_anchor(uniform: &mut DrawUniform, anchor: Option<CutAnchor>, one_sided: bool) {
@@ -503,12 +515,16 @@ fn on_wall(a: CutAnchor, min: Vec3, max: Vec3) -> (Vec3, Vec3) {
     (Vec3::new(lo.x, 0.0, lo.y), Vec3::new(hi.x, 0.0, hi.y))
 }
 
-/// Byte offset of a draw's presence in its uniform: the w of the normal
-/// matrix's first column.
-const PRESENCE_OFFSET: usize = 64 + 12;
+/// Byte offset of the w of the normal matrix's column `c` in a draw's uniform.
+const fn normal_w(c: usize) -> usize {
+    std::mem::offset_of!(DrawUniform, normal) + c * size_of::<[f32; 4]>() + 3 * size_of::<f32>()
+}
+
+/// The draw's presence: the w of the first column.
+const PRESENCE_OFFSET: usize = normal_w(0);
 /// The w of the second and third columns: the glow's fill and rim.
-const FILL_OFFSET: usize = 64 + 16 + 12;
-const RIM_OFFSET: usize = 64 + 32 + 12;
+const FILL_OFFSET: usize = normal_w(1);
+const RIM_OFFSET: usize = normal_w(2);
 
 /// The box around `min..max` moved by `m`.
 fn moved_bounds(m: Mat4, min: Vec3, max: Vec3) -> (Vec3, Vec3) {
@@ -1187,5 +1203,99 @@ fn draw_uniform(transform: &[f32; 16]) -> DrawUniform {
         normal,
         cut: [0.0; 4],
         cut_flags: [0.0; 4],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::mem::offset_of;
+
+    use super::*;
+
+    fn f32_at(bytes: &[u8], at: usize) -> f32 {
+        f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+    }
+
+    #[test]
+    fn a_draw_with_glow_and_a_cut_keeps_every_term_in_its_own_bytes() {
+        let anchor = CutAnchor {
+            at: [1.5, -2.0],
+            along: [0.0, 1.0],
+        };
+        let model = Mat4::from_translation(Vec3::new(3.0, 0.0, 4.0));
+        let uniform = item_uniform(model, 0.5, [0.2, 0.7], Some(anchor), true);
+        let mut bytes = bytemuck::bytes_of(&uniform).to_vec();
+        let cut = offset_of!(DrawUniform, cut);
+        let flags = offset_of!(DrawUniform, cut_flags);
+        let read = |b: &[u8]| {
+            (
+                f32_at(b, PRESENCE_OFFSET),
+                f32_at(b, FILL_OFFSET),
+                f32_at(b, RIM_OFFSET),
+                [0, 1, 2, 3].map(|i| f32_at(b, cut + 4 * i)),
+                [0, 1].map(|i| f32_at(b, flags + 4 * i)),
+            )
+        };
+        assert_eq!(
+            read(&bytes),
+            (0.5, 0.2, 0.7, [1.5, -2.0, 0.0, 1.0], [1.0, 1.0])
+        );
+
+        bytes[FILL_OFFSET..][..4].copy_from_slice(&0.9f32.to_le_bytes());
+        bytes[RIM_OFFSET..][..4].copy_from_slice(&0.1f32.to_le_bytes());
+        bytes[PRESENCE_OFFSET..][..4].copy_from_slice(&(-0.25f32).to_le_bytes());
+        assert_eq!(
+            read(&bytes),
+            (-0.25, 0.9, 0.1, [1.5, -2.0, 0.0, 1.0], [1.0, 1.0])
+        );
+        let after: &DrawUniform = bytemuck::from_bytes(&bytes);
+        assert_eq!(after.model, uniform.model);
+        for c in 0..3 {
+            assert_eq!(after.normal[c][..3], uniform.normal[c][..3]);
+        }
+
+        let plain = item_uniform(model, 1.0, [0.0; 2], None, false);
+        assert_eq!(plain.cut_flags, [0.0; 4]);
+        assert_eq!(plain.normal[1][3], 0.0);
+        assert_eq!(plain.normal[2][3], 0.0);
+    }
+
+    #[test]
+    fn the_draw_uniform_lays_out_as_the_shaders_draw() {
+        for path in [crate::RenderPath::Full, crate::RenderPath::Downlevel] {
+            let quality = crate::Quality {
+                path,
+                ..crate::Quality::medium()
+            };
+            draw_matches_wgsl(&crate::scene::source(&quality));
+        }
+    }
+
+    fn draw_matches_wgsl(source: &str) {
+        let module = naga::front::wgsl::parse_str(source).unwrap();
+        let (span, members) = (module.types.iter())
+            .find_map(|(_, t)| match (&t.name, &t.inner) {
+                (Some(name), naga::TypeInner::Struct { members, span }) if name == "Draw" => {
+                    Some((*span, members.clone()))
+                }
+                _ => None,
+            })
+            .expect("struct Draw");
+        let laid: Vec<(String, u32)> = (members.iter())
+            .map(|m| (m.name.clone().unwrap(), m.offset))
+            .collect();
+        let column = size_of::<[f32; 4]>();
+        let normal = offset_of!(DrawUniform, normal);
+        let expected = [
+            ("model", offset_of!(DrawUniform, model)),
+            ("normal_x", normal),
+            ("normal_y", normal + column),
+            ("normal_z", normal + 2 * column),
+            ("cut", offset_of!(DrawUniform, cut)),
+            ("cut_flags", offset_of!(DrawUniform, cut_flags)),
+        ]
+        .map(|(n, at)| (n.to_string(), at as u32));
+        assert_eq!(laid, expected);
+        assert_eq!(span as usize, size_of::<DrawUniform>());
     }
 }

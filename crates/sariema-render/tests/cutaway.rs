@@ -11,7 +11,7 @@ use common::downlevel;
 use image::RgbaImage;
 use sariema_core::{Camera, room_camera};
 use sariema_format::demo::demo_room;
-use sariema_format::{Aabb, CutAnchor, CutLine, CutStyle, Cutaway, Draw, Material, RoomPack};
+use sariema_format::{Aabb, CutAnchor, CutLine, CutStyle, Cutaway, Draw, Material, Node, RoomPack};
 use sariema_render::{CutState, Headless, Quality};
 
 const W: u32 = 320;
@@ -422,5 +422,55 @@ fn a_height_lowered_under_a_draw_kept_apart_below_it_cuts_that_draw_too() {
             "{:?}: the foot is cut too: {lowered} against {built}",
             q.path
         );
+    }
+}
+
+/// Whether `after` is `before` with only magenta added: what a magenta
+/// piece's glow does to its own pixels. A pixel the cut shows or hides
+/// differently changes its green too.
+fn only_magenta_added(before: &image::Rgba<u8>, after: &image::Rgba<u8>) -> bool {
+    before[1].abs_diff(after[1]) <= 1 && after[0] >= before[0] && after[2] >= before[2]
+}
+
+#[test]
+fn a_glowing_piece_in_a_cutaway_is_cut_as_it_is_without_its_glow() {
+    for q in &paths() {
+        let state = cut(0.3, 0.3);
+        for (anchor, shown) in [
+            (None, true),
+            (front([-1.25, 0.4]), false),
+            (front([-1.25, 0.2]), true),
+        ] {
+            let mut room = lintelled(anchor, CutStyle::Cut, 0.0);
+            room.nodes.push(Node {
+                name: "lintel".into(),
+                pivot: glam::Mat4::IDENTITY.to_cols_array(),
+                draws: vec![room.draws.len() as u32 - 1],
+                visible: true,
+                hinge: None,
+            });
+            let node = room.nodes.len() - 1;
+            let mut h = Headless::new(W, H, q.clone()).unwrap();
+            h.renderer().load_room(&room).unwrap();
+            assert!(h.renderer().set_cutaway(0, 0, state));
+            let plain = h.render(&camera_of(&room), 0.0);
+            assert!(h.renderer().set_node_glow(0, node, 0.3, 0.8));
+            let glowing = h.render(&camera_of(&room), 0.0);
+            let changed: Vec<_> = (plain.pixels().zip(glowing.pixels()))
+                .filter(|(a, b)| a != b)
+                .collect();
+            assert!(
+                changed.iter().all(|(a, b)| only_magenta_added(a, b)),
+                "{:?} {anchor:?}: only what is left of the lintel changes",
+                q.path
+            );
+            assert_eq!(
+                !changed.is_empty(),
+                shown,
+                "{:?} {anchor:?}: {} pixels glow",
+                q.path,
+                changed.len()
+            );
+        }
     }
 }
