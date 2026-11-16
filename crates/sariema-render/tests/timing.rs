@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{Duration, Instant};
+
 use sariema_core::room_camera;
 use sariema_format::RoomPack;
 use sariema_format::demo::demo_room;
-use sariema_render::{Headless, Quality};
+use sariema_render::{FrameTimings, Headless, Quality};
 
 const W: u32 = 480;
 const H: u32 = 270;
@@ -43,13 +47,37 @@ fn frame_stats_count_passes_draws_and_uploads() {
 }
 
 #[test]
-fn timings_cover_the_frame() {
+fn frames_read_no_clock_unless_given_one() {
     let room = demo_room();
     let mut h = headless(&room);
+    h.draw(&camera(&room), 0.0);
+    assert_eq!(h.renderer().last_frame_timings(), FrameTimings::default());
+}
+
+static READS: AtomicU32 = AtomicU32::new(0);
+
+fn counting_clock() -> Duration {
+    static ORIGIN: OnceLock<Instant> = OnceLock::new();
+    READS.fetch_add(1, Ordering::Relaxed);
+    ORIGIN.get_or_init(Instant::now).elapsed()
+}
+
+#[test]
+fn timings_cover_the_frame_with_the_clock_given() {
+    let room = demo_room();
+    let mut h = headless(&room);
+    h.renderer().time_cpu_stages(Some(counting_clock));
     h.draw(&camera(&room), 0.0);
     let t = h.renderer().last_frame_timings();
     let stages = [t.cull, t.bin, t.record, t.post, t.finish, t.submit];
     assert!(stages.iter().all(|s| !s.is_zero()), "{t:?}");
+    assert!(READS.load(Ordering::Relaxed) > 0);
+
+    h.renderer().time_cpu_stages(None);
+    let reads = READS.load(Ordering::Relaxed);
+    h.draw(&camera(&room), 0.0);
+    assert_eq!(READS.load(Ordering::Relaxed), reads);
+    assert_eq!(h.renderer().last_frame_timings(), FrameTimings::default());
 }
 
 #[test]

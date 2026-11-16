@@ -19,7 +19,7 @@
 use std::cell::Cell;
 use std::fmt;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::Duration;
 
 use sariema_core::Camera;
 use sariema_format::actor::ActorPack;
@@ -50,7 +50,7 @@ use post::Post;
 use resources::Room;
 use scene::Scene;
 use shadow::{Assigned, Shadows};
-use timing::GpuTimer;
+use timing::{GpuTimer, Stopwatch};
 
 #[derive(Clone, Debug)]
 pub struct RenderConfig {
@@ -190,6 +190,7 @@ pub struct Renderer {
     visible: Visible,
     stats: FrameStats,
     timings: FrameTimings,
+    cpu_clock: Option<fn() -> Duration>,
     warned: bool,
 }
 
@@ -246,6 +247,7 @@ impl Renderer {
             visible: Visible::default(),
             stats: FrameStats::default(),
             timings: FrameTimings::default(),
+            cpu_clock: None,
             warned: false,
         })
     }
@@ -338,7 +340,7 @@ impl Renderer {
     /// Draws a frame into `target`, which must be `width × height` in the
     /// configured output format.
     pub fn render(&mut self, camera: &Camera, time_s: f32, target: &wgpu::TextureView) {
-        let start = Instant::now();
+        let mut watch = Stopwatch::start(self.cpu_clock);
         for count in [&self.gpu.passes, &self.gpu.draws] {
             count.set(0);
         }
@@ -362,7 +364,7 @@ impl Renderer {
         let draws_culled = self.scene.cull(room, camera);
         let actor_stats = (self.actors).prepare(camera, |b| self.shadows.maps(b));
         self.actors.forget_moves();
-        let culled = Instant::now();
+        let cull = watch.lap();
         let mut stats = self.scene.prepare(
             &self.gpu,
             room,
@@ -371,7 +373,7 @@ impl Renderer {
             &self.visible,
             self.shadows.assigned(),
         );
-        let binned = Instant::now();
+        let bin = watch.lap();
         stats.draws_culled = draws_culled;
         stats.actors_drawn = actor_stats.drawn;
         stats.actors_culled = actor_stats.culled;
@@ -400,26 +402,26 @@ impl Renderer {
             &self.actors,
             keep_depth,
         );
-        let recorded = Instant::now();
+        let record = watch.lap();
         self.stats.post_passes = self.post.draw(&self.gpu, &mut encoder, camera, target);
         if let Some(timer) = &self.gpu.timer {
             timer.end_frame(&mut encoder);
         }
-        let posted = Instant::now();
+        let post = watch.lap();
         let commands = encoder.finish();
-        let finished = Instant::now();
+        let finish = watch.lap();
         self.gpu.queue.submit([commands]);
-        let submitted = Instant::now();
+        let submit = watch.lap();
         self.stats.passes = self.gpu.passes.get();
         self.stats.draws = self.gpu.draws.get();
         self.stats.bytes_uploaded = self.gpu.uploaded.get();
         self.timings = FrameTimings {
-            cull: culled - start,
-            bin: binned - culled,
-            record: recorded - binned,
-            post: posted - recorded,
-            finish: finished - posted,
-            submit: submitted - finished,
+            cull,
+            bin,
+            record,
+            post,
+            finish,
+            submit,
         };
     }
 
@@ -456,8 +458,18 @@ impl Renderer {
         self.stats
     }
 
+    /// The CPU time of each stage of the last frame, zero unless
+    /// [`Renderer::time_cpu_stages`] gave a clock.
     pub fn last_frame_timings(&self) -> FrameTimings {
         self.timings
+    }
+
+    /// Times each stage of the next frames with `clock`, the time since any
+    /// fixed origin; `None`, the default, reads no clock at all. A clock
+    /// built on `std::time::Instant` panics on wasm32-unknown-unknown, so
+    /// the web passes one built on `performance.now()`.
+    pub fn time_cpu_stages(&mut self, clock: Option<fn() -> Duration>) {
+        self.cpu_clock = clock;
     }
 
     /// Times every render pass of the next `frames` frames on the GPU; false,

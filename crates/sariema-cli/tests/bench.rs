@@ -64,6 +64,8 @@ fn bench_reports_stages_counts_and_load() {
         let (p50, p90) = (s["median"].as_f64().unwrap(), s["p90"].as_f64().unwrap());
         assert!(p50 >= 0.0 && p90 >= p50, "{stage}: {s}");
     }
+    let finish = out["cpu_ms"]["finish"]["median"].as_f64().unwrap();
+    assert!(finish > 0.0, "the stages are timed");
     assert_eq!(
         out["wall_ms_per_frame"]["runs"].as_array().unwrap().len(),
         2

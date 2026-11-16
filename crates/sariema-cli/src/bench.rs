@@ -4,7 +4,7 @@
 //! reports where the time goes, by load stage, frame stage and GPU pass.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use clap::{Args, ValueEnum, value_parser};
@@ -113,6 +113,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     };
     let mut renderer = Renderer::new(device.clone(), queue, config)?;
     let pipelines_ms = lap();
+    renderer.time_cpu_stages(Some(since_start));
     renderer.load_room(&room)?;
     wait(&device)?;
     let upload_ms = lap();
@@ -307,6 +308,12 @@ fn wait(device: &wgpu::Device) -> Result<(), Failure> {
         .poll(wgpu::PollType::wait_indefinitely())
         .map(drop)
         .map_err(|e| Failure::new("E_GPU", e.to_string()))
+}
+
+/// The time since its first call, the clock of the frame's stages.
+fn since_start() -> Duration {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed()
 }
 
 fn ms(d: Duration) -> f64 {

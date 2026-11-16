@@ -13,7 +13,8 @@ use crate::RenderError;
 /// `finish`, so most of a pass's cost lands there.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct FrameTimings {
-    /// Light culling and shadow slot assignment.
+    /// The actors' upload, light culling, shadow slot assignment, and the
+    /// culling of room draws and actors to the view.
     pub cull: Duration,
     /// Light clustering and the frame's buffer writes.
     pub bin: Duration,
@@ -25,6 +26,32 @@ pub struct FrameTimings {
     pub finish: Duration,
     /// `Queue::submit`.
     pub submit: Duration,
+}
+
+/// Splits a frame into stages with the clock given to
+/// [`crate::Renderer::time_cpu_stages`]; without one it reads no clock and
+/// every stage takes zero.
+pub(crate) struct Stopwatch {
+    clock: Option<fn() -> Duration>,
+    last: Duration,
+}
+
+impl Stopwatch {
+    pub fn start(clock: Option<fn() -> Duration>) -> Stopwatch {
+        let last = clock.map_or(Duration::ZERO, |now| now());
+        Stopwatch { clock, last }
+    }
+
+    /// The time since the previous lap.
+    pub fn lap(&mut self) -> Duration {
+        let Some(now) = self.clock else {
+            return Duration::ZERO;
+        };
+        let now = now();
+        let lap = now.saturating_sub(self.last);
+        self.last = now;
+        lap
+    }
 }
 
 /// One render pass of one frame on the GPU, in milliseconds from the start

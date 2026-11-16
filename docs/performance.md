@@ -36,7 +36,8 @@ The JSON report holds:
   the upload, and the first frame's CPU and wall time.
 - `cpu_ms`: per frame, the median, 90th and 99th percentiles, minimum and
   maximum of the whole `Renderer::render` call (`frame`) and of its stages:
-  `cull` (light culling and shadow slots), `bin` (light clustering and
+  `cull` (the actors' upload, light culling, shadow slots, and the
+  culling of room draws and actors), `bin` (light clustering and
   buffer writes), `record` (the shadow and scene passes), `post` (the
   post-processing passes), `finish` (`CommandEncoder::finish`) and `submit`
   (`Queue::submit`). wgpu records a pass's commands as they come and turns
@@ -59,7 +60,8 @@ The JSON report holds:
 
 The renderer exposes the same data to code: `Renderer::last_frame_stats`
 (passes, draws, bytes uploaded), `Renderer::last_frame_timings` (the CPU
-stages) and `Renderer::time_gpu_passes` with `Renderer::gpu_pass_times`.
+stages, once `Renderer::time_cpu_stages` has given the renderer a clock;
+without one a frame reads no clock) and `Renderer::time_gpu_passes` with `Renderer::gpu_pass_times`.
 
 Timings on a shared machine move by tens of percent from run to run. Pass,
 draw, byte and allocation counts do not: compare those first, and compare
