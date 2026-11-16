@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 pub mod demo;
 
 pub const MAGIC: [u8; 4] = *b"SRMA";
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 
 const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
