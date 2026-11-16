@@ -132,7 +132,8 @@ struct Targets {
 
 pub(crate) struct Scene {
     layouts: Layouts,
-    pipelines: [wgpu::RenderPipeline; Kind::ALL.len()],
+    /// Indexed by `double_sided as usize`, then by `Kind`.
+    pipelines: [[wgpu::RenderPipeline; Kind::ALL.len()]; 2],
     background: wgpu::RenderPipeline,
     depth_only: wgpu::RenderPipeline,
     frame: wgpu::Buffer,
@@ -170,8 +171,10 @@ impl Scene {
         };
         let mesh_layout = pipeline_layout(&[&layouts.frame, &layouts.draw, &layouts.material]);
         let msaa = quality.msaa;
-        let pipelines =
-            Kind::ALL.map(|kind| mesh_pipeline(gpu, &mesh_layout, &module, kind, quality));
+        let pipelines = [false, true].map(|double_sided| {
+            Kind::ALL
+                .map(|kind| mesh_pipeline(gpu, &mesh_layout, &module, kind, double_sided, quality))
+        });
         let background = gpu.pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("background"),
             layout: Some(&pipeline_layout(&[&layouts.frame])),
@@ -205,7 +208,7 @@ impl Scene {
                 compilation_options: Default::default(),
                 buffers: &[Some(vertex_layout())],
             },
-            primitive: primitive(),
+            primitive: primitive(false),
             depth_stencil: Some(depth_state(true, wgpu::CompareFunction::Less)),
             multisample: Default::default(),
             fragment: None,
@@ -493,10 +496,11 @@ pub(crate) fn vertex_layout() -> wgpu::VertexBufferLayout<'static> {
     }
 }
 
-/// Counter-clockwise front faces with back faces culled, three.js's `FrontSide`.
-fn primitive() -> wgpu::PrimitiveState {
+/// Counter-clockwise front faces with back faces culled, three.js's `FrontSide`,
+/// or kept when `double_sided`, its `DoubleSide`.
+fn primitive(double_sided: bool) -> wgpu::PrimitiveState {
     wgpu::PrimitiveState {
-        cull_mode: Some(wgpu::Face::Back),
+        cull_mode: (!double_sided).then_some(wgpu::Face::Back),
         ..Default::default()
     }
 }
@@ -516,6 +520,7 @@ fn mesh_pipeline(
     layout: &wgpu::PipelineLayout,
     module: &wgpu::ShaderModule,
     kind: Kind,
+    double_sided: bool,
     quality: &Quality,
 ) -> wgpu::RenderPipeline {
     // three.js lights a standard material under additive blending too.
@@ -540,7 +545,7 @@ fn mesh_pipeline(
             compilation_options: options.clone(),
             buffers: &[Some(vertex_layout())],
         },
-        primitive: primitive(),
+        primitive: primitive(double_sided),
         depth_stencil: Some(depth_state(kind.is_opaque(), wgpu::CompareFunction::Less)),
         multisample: wgpu::MultisampleState {
             count: quality.msaa,

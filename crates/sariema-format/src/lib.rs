@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 pub mod demo;
 
 pub const MAGIC: [u8; 4] = *b"SRMA";
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
@@ -74,6 +74,8 @@ pub struct Material {
     pub emissive_texture: Option<u32>,
     pub shading: Shading,
     pub alpha: AlphaMode,
+    /// Back faces are drawn too, shaded from their own side (glTF `doubleSided`).
+    pub double_sided: bool,
     /// Marks the "drawn" look, which colour grading leaves untouched.
     pub drawn: bool,
     /// Rim light strength; 0 turns it off.

@@ -64,9 +64,10 @@ impl Scene {
         let mut current = None;
         for i in order {
             let draw = &room.draws[i];
-            if current != Some(draw.kind) {
-                pass.set_pipeline(&self.pipelines[draw.kind as usize]);
-                current = Some(draw.kind);
+            let pipeline = (draw.double_sided, draw.kind);
+            if current != Some(pipeline) {
+                pass.set_pipeline(&self.pipelines[draw.double_sided as usize][draw.kind as usize]);
+                current = Some(pipeline);
             }
             let material = &room.materials[draw.material as usize];
             if matches!(draw.kind, Kind::LitBlend | Kind::UnlitBlend) {

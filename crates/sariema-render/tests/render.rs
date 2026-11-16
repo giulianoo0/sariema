@@ -173,6 +173,41 @@ fn additive_surface_is_lit() {
     );
 }
 
+/// The demo room with an untextured floor, turned upside down when `flipped`.
+fn plain_floor(flipped: bool, double_sided: bool) -> RoomPack {
+    let mut room = demo_room();
+    room.materials[0].base_color_texture = None;
+    room.materials[0].double_sided = double_sided;
+    if flipped {
+        let floor = &mut room.draws[0];
+        let half_turn = glam::Mat4::from_rotation_z(std::f32::consts::PI);
+        floor.transform =
+            (glam::Mat4::from_cols_array(&floor.transform) * half_turn).to_cols_array();
+    }
+    room
+}
+
+#[test]
+fn double_sided_material_draws_and_lights_back_faces() {
+    let floor_luma = |room: &RoomPack| {
+        let img = render(room);
+        let strip: Vec<f32> = (H - 40..H)
+            .flat_map(|y| (0..W).map(move |x| (x, y)))
+            .map(|(x, y)| luma(img.get_pixel(x, y)))
+            .collect();
+        strip.iter().sum::<f32>() / strip.len() as f32
+    };
+    let front = floor_luma(&plain_floor(false, false));
+    let culled = floor_luma(&plain_floor(true, false));
+    let both = floor_luma(&plain_floor(true, true));
+    assert!(culled < 0.5 * front, "culled {culled}, front {front}");
+    // Shaded with the normal turned towards the viewer, as three.js's DoubleSide does.
+    assert!(
+        (both - front).abs() < 0.05 * front,
+        "back {both}, front {front}"
+    );
+}
+
 #[test]
 fn blended_draw_shows_what_is_behind() {
     let mut room = demo_room();

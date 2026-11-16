@@ -162,6 +162,7 @@ fn material(name: &str, rgb: [f32; 3]) -> Material {
         emissive_texture: None,
         shading: Shading::Lit,
         alpha: AlphaMode::Opaque,
+        double_sided: false,
         drawn: false,
         rim: 0.0,
     }

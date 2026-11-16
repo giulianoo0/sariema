@@ -38,6 +38,7 @@ pub(crate) struct DrawItem {
     pub visible: bool,
     pub casts_shadow: bool,
     pub kind: Kind,
+    pub double_sided: bool,
     pub material: u32,
     /// World-space bounds.
     pub min: Vec3,
@@ -201,13 +202,15 @@ pub(crate) fn upload(gpu: &Gpu, layouts: &Layouts, room: &RoomPack) -> Result<Ro
                 Some(first) if mirrors(&d.transform) => first,
                 _ => first_index,
             };
-            let kind = Kind::of(&room.materials[d.material as usize]);
+            let material = &room.materials[d.material as usize];
+            let kind = Kind::of(material);
             DrawItem {
                 name: d.name.clone(),
                 visible: d.visible,
                 // A depth map holds no opacity: blended and additive surfaces block no light.
                 casts_shadow: d.casts_shadow && kind.is_opaque(),
                 kind,
+                double_sided: material.double_sided,
                 material: d.material,
                 min: d.bounds.min.into(),
                 max: d.bounds.max.into(),

@@ -88,10 +88,11 @@ fn vs_depth(v: VertexIn) -> @builtin(position) vec4<f32> {
 }
 
 @fragment
-fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     let base = material.base_color * textureSample(base_texture, material_sampler, in.uv) * in.color;
     let emissive = material.emissive * textureSample(emissive_texture, material_sampler, in.uv).rgb;
-    let n = normalize(in.normal);
+    // A back face, drawn only for double-sided materials, is shaded from its own side.
+    let n = normalize(in.normal) * select(-1.0, 1.0, front);
     let v = normalize(frame.camera_pos.xyz - in.world);
     var color = base.rgb;
     if LIT {

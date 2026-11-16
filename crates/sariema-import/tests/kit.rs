@@ -216,7 +216,7 @@ fn materials_follow_the_mapping_rules() {
                 "extras": { "aditivo": true }
             },
             { "name": "cone_aditivo" },
-            { "name": "vidro", "alphaMode": "BLEND" },
+            { "name": "vidro", "alphaMode": "BLEND", "doubleSided": true },
             {
                 "name": "lampada",
                 "emissiveFactor": [1.0, 0.5, 0.25],
@@ -239,6 +239,7 @@ fn materials_follow_the_mapping_rules() {
     assert_eq!(material("brilho").shading, Shading::Additive);
     assert_eq!(material("cone_aditivo").shading, Shading::Additive);
     assert_eq!(material("vidro").alpha, AlphaMode::Blend);
+    assert!(material("vidro").double_sided && !liso.double_sided);
     assert_eq!(material("lampada").emissive, [4.0, 2.0, 1.0]);
 }
 

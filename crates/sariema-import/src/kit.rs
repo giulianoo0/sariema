@@ -182,6 +182,7 @@ fn material(doc: &gltf::Document, m: &gltf::Material) -> Result<Material, Import
             Some("BLEND") => AlphaMode::Blend,
             _ => AlphaMode::Opaque,
         },
+        double_sided: m.double_sided,
         drawn: false,
         rim: 0.0,
     })
@@ -231,6 +232,7 @@ fn default_material() -> Material {
         emissive_texture: None,
         shading: Shading::Lit,
         alpha: AlphaMode::Opaque,
+        double_sided: false,
         drawn: false,
         rim: 0.0,
     }

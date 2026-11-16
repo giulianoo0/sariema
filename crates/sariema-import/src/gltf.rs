@@ -465,6 +465,8 @@ pub struct Material {
     pub emissive_texture: Option<TextureInfo>,
     pub alpha_mode: Option<String>,
     #[serde(default)]
+    pub double_sided: bool,
+    #[serde(default)]
     pub extensions: MaterialExtensions,
     pub extras: Option<Value>,
 }
