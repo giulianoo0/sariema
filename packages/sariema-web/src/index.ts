@@ -36,6 +36,25 @@ export interface Options {
   autoStart?: boolean;
 }
 
+export interface GameOptions {
+  /** The game's random seed. Default 0, as `sariema run --game`. */
+  seed?: number;
+  /**
+   * False mixes the sound with the steps instead of playing it, as a run to
+   * compare with `sariema run --headless --game` needs. Default true.
+   */
+  audio?: boolean;
+}
+
+/** As `sariema run --headless --game` prints them. */
+export interface GameHashes {
+  steps: number;
+  engine_hash: string;
+  state_hash: string;
+  physics_hash: string;
+  audio_hash: string;
+}
+
 export interface UiEvent {
   step: number;
   type: "press" | "drag" | "release" | "click" | "stick" | "tap" | "held" | "focus";
@@ -69,7 +88,9 @@ export type Variants = Partial<Record<"astc" | "rgba8", string>>;
 
 /** A game folder's `sariema-web.json`, which `sariema web` writes. */
 export interface GameManifest {
-  rooms: Record<string, Variants>;
+  /** A game project's pack, which carries its rooms, actors, sounds and HUD. */
+  game?: Variants;
+  rooms?: Record<string, Variants>;
   start?: string;
   actors?: Record<string, Variants>;
   sounds?: string;
@@ -134,6 +155,8 @@ export class Sariema {
   #loads: Load[] = [];
   #listeners = new Map<keyof Events, Set<(e: never) => void>>();
   #audio: AudioOut | null = null;
+  /** The game pack playing, which a new GPU loads its room and actors from. */
+  #gamePack: Uint8Array | null = null;
   #detach: (() => void)[] = [];
   backend = "";
 
@@ -175,21 +198,29 @@ export class Sariema {
     engine.resize(w, h, css.width || w);
   }
 
-  /** Makes the engine anew on the canvas and replays every load. */
+  /**
+   * Makes the engine anew on the canvas and replays every load; a game goes
+   * on at the step it had reached.
+   */
   async rebuild(): Promise<void> {
-    this.#engine?.free();
+    const old = this.#engine;
     this.#engine = null;
     const css = this.#canvas.getBoundingClientRect();
     const [width, height] = [css.width || this.#canvas.width, css.height || this.#canvas.height];
     let engine: Engine;
     try {
-      engine = await Engine.create(this.#canvas, this.#settings(), width, height, devicePixelRatio);
+      engine =
+        old && this.#gamePack
+          ? await old.restored(this.#canvas, width, height, devicePixelRatio, this.#gamePack)
+          : (old?.free(), await Engine.create(this.#canvas, this.#settings(), width, height, devicePixelRatio));
     } catch (e) {
+      this.#gamePack = null;
       throw SariemaError.from(e);
     }
     this.#fit(engine);
     this.#engine = engine;
     this.backend = engine.backend();
+    if (this.#gamePack) return;
     this.#audio?.restart();
     const loads = this.#loads;
     this.#loads = [];
@@ -252,13 +283,20 @@ export class Sariema {
 
   #game: { root: URL; manifest: GameManifest } | null = null;
 
-  /** Loads a game folder's manifest, its start room, sounds and UI. */
-  async loadGame(base: string | URL): Promise<GameManifest> {
+  /**
+   * Loads a game folder: a game project's pack, played from its first step,
+   * or else the manifest's start room, sounds and UI.
+   */
+  async loadGame(base: string | URL, options: GameOptions = {}): Promise<GameManifest> {
     const root = new URL(base, location.href);
     if (!root.pathname.endsWith("/")) root.pathname += "/";
     const manifest = JSON.parse(new TextDecoder().decode(await fetchBytes(new URL("sariema-web.json", root)))) as GameManifest;
     this.#game = { root, manifest };
-    const start = manifest.start ?? Object.keys(manifest.rooms)[0];
+    if (manifest.game) {
+      await this.playGame(new URL(this.pick(manifest.game, "the game"), root), options);
+      return manifest;
+    }
+    const start = manifest.start ?? Object.keys(manifest.rooms ?? {})[0];
     if (start) await this.enterRoom(start);
     if (manifest.sounds) await this.loadSounds(new URL(manifest.sounds, root));
     if (manifest.ui) {
@@ -278,7 +316,39 @@ export class Sariema {
   /** Loads room `id` of the loaded game in this device's texture variant. */
   async enterRoom(id: string): Promise<void> {
     const { root, manifest } = this.#inGame();
-    await this.loadRoom(new URL(this.pick(manifest.rooms[id], `room ${id}`), root));
+    await this.loadRoom(new URL(this.pick(manifest.rooms?.[id], `room ${id}`), root));
+  }
+
+  /**
+   * Plays game pack `source` (`.srmg`) from its first step, in place of any
+   * room or actors shown: its logic, collision, animation, sound and HUD.
+   */
+  async playGame(source: Source, options: GameOptions = {}): Promise<void> {
+    const bytes = await this.#bytes(source);
+    let rate: number | undefined;
+    if (options.audio ?? true) {
+      rate = await this.#output().open();
+      this.#audio!.restart();
+    }
+    this.#call((e) => e.load_game(bytes, options.seed ?? 0, rate));
+    this.#gamePack = bytes;
+  }
+
+  /**
+   * Steps the game to step `to` with input log `log` (its JSON or the
+   * object), as `sariema run --headless --game --input` does; returns the
+   * hashes that prints.
+   */
+  replayGame(log: string | object, to: number): GameHashes {
+    const text = typeof log === "string" ? log : JSON.stringify(log);
+    this.#call((e) => e.replay_game(text, to));
+    return this.gameHashes()!;
+  }
+
+  /** The game's steps and hashes; null with no game playing. */
+  gameHashes(): GameHashes | null {
+    const json = this.#call((e) => e.game_hashes());
+    return json ? JSON.parse(json) : null;
   }
 
   /** Loads actor `id` of the loaded game; returns the model to spawn. */
@@ -310,16 +380,20 @@ export class Sariema {
     this.#loads.push({ kind: "actorState", actor, state });
   }
 
-  /** Loads a sound bank (`.srms`), mixed at the page's audio rate. */
-  async loadSounds(source: Source): Promise<void> {
-    const bytes = await this.#bytes(source);
+  #output(): AudioOut {
     this.#audio ??= new AudioOut(
       this.#options.workletUrl ?? new URL("./audio-worklet.js", import.meta.url),
       this.#call((e) => e.audio_block_frames()),
       (played) => this.#engine?.mix(played) ?? new Float32Array(),
     );
-    const rate = await this.#audio.open();
-    this.#audio.restart();
+    return this.#audio;
+  }
+
+  /** Loads a sound bank (`.srms`), mixed at the page's audio rate. */
+  async loadSounds(source: Source): Promise<void> {
+    const bytes = await this.#bytes(source);
+    const rate = await this.#output().open();
+    this.#audio!.restart();
     this.#call((e) => e.load_sounds(bytes, rate));
     this.#loads = this.#loads.filter((l) => l.kind !== "sounds");
     this.#loads.push({ kind: "sounds", source });
@@ -478,7 +552,10 @@ export class Sariema {
     };
     const pointer = (e: PointerEvent) => {
       if (e.type === "pointerdown") {
-        c.setPointerCapture(e.pointerId);
+        // Throws for a pointer the browser does not know, as a synthetic one.
+        try {
+          c.setPointerCapture(e.pointerId);
+        } catch {}
         void this.#audio?.resume();
       }
       this.#engine?.pointer(e.type, e.pointerId, e.offsetX, e.offsetY);
@@ -533,6 +610,7 @@ export class Sariema {
     this.#detach = [];
     this.#engine?.free();
     this.#engine = null;
+    this.#gamePack = null;
     void this.#audio?.close();
     this.#audio = null;
   }

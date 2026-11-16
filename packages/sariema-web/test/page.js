@@ -65,12 +65,23 @@ function once(type, ms) {
 }
 
 let arm = null;
+// `?counting` loads the build whose allocator counts.
+const counting = new URLSearchParams(location.search).has("counting");
+const wasmUrl = counting ? new URL("../dist/wasm/sariema_web_counting_bg.wasm", import.meta.url) : undefined;
+const climb = at("climb/");
+let playLog = null;
+
+async function playClimb(options) {
+  playLog ??= await (await fetch(at("climb/play.json"))).text();
+  const m = await sariema.loadGame(climb, options);
+  return sariema.pick(m.game, "climb");
+}
 
 window.suite = {
   async start(options = {}) {
     manifest = await (await fetch(at("fixtures.json"))).json();
     const t0 = performance.now();
-    sariema = await mount(canvas, { quality: manifest.quality, maxPixelRatio: 1, autoStart: false, ...options });
+    sariema = await mount(canvas, { quality: manifest.quality, maxPixelRatio: 1, autoStart: false, wasmUrl, ...options });
     sariema.on("ui", (e) => uiEvents.push(e));
     return { mount_ms: performance.now() - t0, capabilities: sariema.capabilities(), scenes: manifest.scenes };
   },
@@ -101,8 +112,149 @@ window.suite = {
   async remount(options) {
     sariema.destroy();
     arm = null;
-    sariema = await mount(canvas, { quality: manifest.quality, maxPixelRatio: 1, autoStart: false, ...options });
+    sariema = await mount(canvas, { quality: manifest.quality, maxPixelRatio: 1, autoStart: false, wasmUrl, ...options });
     return sariema.capabilities();
+  },
+
+  /** The climb replayed with its input log, its hashes and frame at each of `steps`. */
+  async climbReplay(steps) {
+    const file = await playClimb({ audio: false });
+    const variant = file.includes(".rgba8.") ? "rgba8" : "astc";
+    const at_ = [];
+    for (const n of steps) {
+      const hashes = sariema.replayGame(playLog, n);
+      const frame = await sariema.capture();
+      const diff = compare(frame.data, await referencePixels(at(`climb/${variant}-${n}.png`)));
+      at_.push({ n, hashes, ...diff, png: await pngDataUrl(frame) });
+    }
+    return { file, variant, at: at_ };
+  },
+
+  /** Mean milliseconds a replayed step takes, over `steps` steps, for each of `reps` fresh games. */
+  async climbStepCost(steps, reps) {
+    const per_step_ms = [];
+    for (let r = 0; r < reps; r++) {
+      await playClimb({ audio: false });
+      const t0 = performance.now();
+      sariema.replayGame(playLog, steps);
+      per_step_ms.push((performance.now() - t0) / steps);
+    }
+    return per_step_ms;
+  },
+
+  /**
+   * With the counting build: the allocations the replayed steps have made
+   * by each of `steps`, then those of a second of live frames (steps and
+   * audio feed) after the last.
+   */
+  async climbAllocations(steps) {
+    await playClimb({ audio: false });
+    const at_ = [];
+    for (const n of steps) {
+      sariema.replayGame(playLog, n);
+      at_.push(sariema.stats().game.step_allocations);
+    }
+    sariema.start();
+    await sleep(1000);
+    const live = sariema.stats().game;
+    sariema.stop();
+    return { steps, step_allocations: at_, live_frame_allocations: live.frame_allocations, live_steps: live.steps - steps.at(-1) };
+  },
+
+  /** The climb played live for `ms`, its music through the worklet. */
+  async climbAudio(ms) {
+    await playClimb({});
+    sariema.start();
+    await sariema.resumeAudio();
+    await sleep(ms);
+    const stats = await sariema.audioStats();
+    const game = sariema.stats().game;
+    sariema.stop();
+    return { ...stats, steps: game.steps };
+  },
+
+  async climbLive() {
+    await playClimb({ audio: false });
+    sariema.start();
+    await sleep(300);
+    return sariema.stats().game;
+  },
+
+  /** A synthetic touch drag on the HUD's joystick zone, held `ms`. */
+  async touchJoystick(dx, ms) {
+    const box = canvas.getBoundingClientRect();
+    const [x, y] = [box.left + 80, box.bottom - 80];
+    const fire = (type, cx) =>
+      canvas.dispatchEvent(new PointerEvent(type, { pointerId: 7, pointerType: "touch", isPrimary: true, clientX: cx, clientY: y, bubbles: true }));
+    const before = sariema.stats().game.hero;
+    fire("pointerdown", x);
+    for (let i = 1; i <= 5; i++) {
+      await sleep(16);
+      fire("pointermove", x + (dx * i) / 5);
+    }
+    await sleep(ms);
+    const held = sariema.stats().game.hero;
+    fire("pointerup", x + dx);
+    await sleep(100);
+    sariema.stop();
+    return { before, held, after: sariema.stats().game.hero };
+  },
+
+  /** A game whose logic never returns: the error, how long the page stalled, and a timer after it. */
+  async forever() {
+    const errored = once("error", 20000);
+    await sariema.playGame(at(manifest.forever), { audio: false });
+    let longest = 0;
+    let last = performance.now();
+    const watch = setInterval(() => {
+      const now = performance.now();
+      longest = Math.max(longest, now - last);
+      last = now;
+    }, 10);
+    const t0 = performance.now();
+    sariema.start();
+    const error = await errored.catch((e) => ({ code: null, message: e.message }));
+    const error_ms = performance.now() - t0;
+    const t1 = performance.now();
+    await sleep(50);
+    const timer_ms = performance.now() - t1;
+    clearInterval(watch);
+    return { error, error_ms, longest_gap_ms: longest, timer_ms, running: sariema.running, stats: sariema.stats().game };
+  },
+
+  /** Loses the GPU mid-game: the game's step and hash when lost and when restored. */
+  async climbLoseContext() {
+    await playClimb({ audio: false });
+    sariema.replayGame(playLog, 300);
+    const when = (type, ms) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`no ${type} event in ${ms} ms`)), ms);
+        const off = sariema.on(type, () => {
+          clearTimeout(timer);
+          off();
+          resolve(sariema.gameHashes());
+        });
+      });
+    const lost = when("lost", 5000);
+    const restored = when("restored", 15000);
+    sariema.start();
+    await sleep(50);
+    const backend = sariema.backend;
+    if (backend === "webgl2") {
+      const ext = canvas.getContext("webgl2").getExtension("WEBGL_lose_context");
+      ext.loseContext();
+      await lost;
+      await sleep(50);
+      ext.restoreContext();
+    } else {
+      sariema.loseDevice();
+    }
+    const [atLoss, atRestore] = [await lost, await restored];
+    await sleep(200);
+    sariema.stop();
+    const after = sariema.gameHashes();
+    const frame = await sariema.capture();
+    return { backend, atLoss, atRestore, after, drawn: frame.data.some((v, i) => i % 4 !== 3 && v > 30) };
   },
 
   async game() {

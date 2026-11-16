@@ -7,7 +7,8 @@
 //!
 //! `<out>` gets the demo room with and without occlusion, the demo arm, a
 //! sound bank with a beep, the UI example and its font, the goldens those
-//! scenes match, and `fixtures.json` listing the scenes. Each `.srma` in
+//! scenes match, a game whose logic never returns (`forever.srmg`), and
+//! `fixtures.json` listing the scenes. Each `.srma` in
 //! `--packs` is drawn natively at the same size and quality, the reference
 //! kept beside it as `<pack>.png`: game rooms and their images stay in
 //! that folder, outside the repository.
@@ -17,6 +18,7 @@ use std::path::{Path, PathBuf};
 use sariema_core::room_camera;
 use sariema_format::actor::demo::demo_arm;
 use sariema_format::demo::demo_room;
+use sariema_format::script::{BATCH_VERSION, GameAssets, GamePack, encode_game};
 use sariema_format::sound::{Bus, Container, Load, Loudness, Sound, SoundBank};
 use sariema_render::{Headless, Quality};
 use serde_json::{Value, json};
@@ -98,6 +100,22 @@ fn main() {
         &sariema_format::actor::encode(&demo_arm()),
     );
     write(&out, "beep.srms", &beep_bank(48_000));
+    let forever = GamePack {
+        name: "forever".into(),
+        batch_version: BATCH_VERSION,
+        wasm: wat::parse_str(
+            r#"(module (memory (export "memory") 1) (func (export "sariema_tick") (loop $l (br $l))))"#,
+        )
+        .unwrap(),
+        cutscenes: Vec::new(),
+        names: Vec::new(),
+        settings: "{}".into(),
+        assets: GameAssets {
+            room: Some(sariema_format::encode(&demo_room())),
+            ..GameAssets::default()
+        },
+    };
+    write(&out, "forever.srmg", &encode_game(&forever));
     for (from, to) in [
         ("examples/ui/controls.json", "controls.json"),
         ("crates/sariema-ui/fonts/Nunito.ttf", "Nunito.ttf"),
@@ -141,6 +159,7 @@ fn main() {
         "quality": "high",
         "scenes": scenes,
         "sounds": "beep.srms",
+        "forever": "forever.srmg",
         "ui": { "description": "controls.json", "font": "../../crates/sariema-ui/fonts/Nunito.ttf", "font_file": "Nunito.ttf" },
     });
     write(

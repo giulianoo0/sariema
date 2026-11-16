@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Reads what the browser offers without the engine, then on request mounts
-// the engine on the demo game and plays a chime through the worklet. Every
+// the engine and plays the demo game (examples/climb) for a moment, its
+// music through the worklet. Every
 // finding lands in one JSON object, shown and copied as it is; `?auto`
 // runs the smoke test at once and leaves the result on window.probeResult.
 
@@ -169,38 +170,26 @@ async function smoke() {
     const t1 = performance.now();
     const manifest = await sariema.loadGame(new URL("../demo/", import.meta.url));
     s.load_ms = performance.now() - t1;
-    s.room_file = sariema.pick(manifest.rooms[manifest.start], manifest.start);
+    s.game_file = sariema.pick(manifest.game, "the game");
     sariema.start();
     s.first_frame_ms = await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(performance.now() - t0))));
+    await sariema.resumeAudio();
+    // The game fades its music in over its first second.
+    await new Promise((r) => setTimeout(r, 1500));
     sariema.stop();
     const frame = await sariema.capture();
     let lit = 0;
     for (let i = 0; i < frame.data.length; i += 4) if (frame.data[i] + frame.data[i + 1] + frame.data[i + 2] > 30) lit++;
     s.lit_fraction = lit / (frame.data.length / 4);
     s.stats = sariema.stats();
-    s.ok = s.lit_fraction > 0.1;
-    s.audio_ok = await tone(sariema);
+    s.ok = s.lit_fraction > 0.1 && s.stats.game.steps > 0;
+    s.audio = await sariema.audioStats();
+    s.audio_ok = s.audio.received > 0 && s.audio.peak > 0.05;
   } catch (e) {
     s.error = String(e?.message ?? e);
   }
   show();
   return result;
-}
-
-/** The audio example's chime, mixed by the engine and played by its worklet. */
-async function tone(sariema) {
-  try {
-    await sariema.loadSounds(new URL("../demo/sounds.srms", import.meta.url));
-    await sariema.resumeAudio();
-    sariema.play("chime");
-    await new Promise((r) => setTimeout(r, 1200));
-    const stats = await sariema.audioStats();
-    result.smoke.audio = stats;
-    return stats.received > 0 && stats.peak > 0.05;
-  } catch (e) {
-    result.smoke.audio_error = String(e?.message ?? e);
-    return false;
-  }
 }
 
 function pick(o, keys) {

@@ -2,12 +2,15 @@
 
 // Builds dist/: the engine compiled to WebAssembly, its JavaScript bindings,
 // the shrunk .wasm, the typed API, the audio worklet, the probe page and the
-// demo game it draws. Prints the .wasm's sizes as JSON.
+// demo game it plays (examples/climb). Prints the .wasm's sizes as JSON.
 //
 //   node scripts/build.mjs [--speed] [--debug] [--no-opt]
+//   node scripts/build.mjs --alloc-count
 //
 // The default optimises for size; --speed for speed (opt-level 3, wasm-opt
-// -O3), a larger download for less CPU a frame.
+// -O3), a larger download for less CPU a frame. --alloc-count adds to an
+// existing dist/ the .wasm whose allocator counts, for the tests:
+// dist/wasm/sariema_web_counting_bg.wasm, which takes the same bindings.
 //
 // CARGO_TARGET_DIR is honoured; SARIEMA_CARGO names a cargo to use instead
 // of the repository's pinned toolchain.
@@ -27,6 +30,7 @@ const args = new Set(process.argv.slice(2));
 const debug = args.has("--debug");
 const optimise = !debug && !args.has("--no-opt");
 const speed = args.has("--speed");
+const counting = args.has("--alloc-count");
 
 function run(cmd, argv, env = {}) {
   execFileSync(cmd, argv, { stdio: ["ignore", "inherit", "inherit"], cwd: repo, env: { ...process.env, ...env } });
@@ -57,26 +61,43 @@ const sizeProfile = debug
       CARGO_PROFILE_RELEASE_PANIC: "abort",
       CARGO_PROFILE_RELEASE_STRIP: "debuginfo",
     };
-run(cargo, ["build", "-p", "sariema-web", "--lib", "--target", "wasm32-unknown-unknown", "--profile", profile], {
+const features = counting ? ["--features", "alloc-count"] : [];
+run(cargo, ["build", "-p", "sariema-web", "--lib", "--target", "wasm32-unknown-unknown", "--profile", profile, ...features], {
   ...env,
   ...sizeProfile,
   CARGO_TARGET_DIR: target,
 });
 
-rmSync(dist, { recursive: true, force: true });
-mkdirSync(join(dist, "wasm"), { recursive: true });
 const built = join(target, "wasm32-unknown-unknown", debug ? "debug" : "release", "sariema_web.wasm");
 const bindgen = process.env.WASM_BINDGEN ?? join(homedir(), ".cargo", "bin", "wasm-bindgen");
-run(existsSync(bindgen) ? bindgen : "wasm-bindgen", [
-  "--target",
-  "web",
-  "--out-dir",
-  join(dist, "wasm"),
-  "--out-name",
-  "sariema_web",
-  ...(debug ? ["--debug", "--keep-debug"] : []),
-  built,
-]);
+const bind = (outDir) =>
+  run(existsSync(bindgen) ? bindgen : "wasm-bindgen", [
+    "--target",
+    "web",
+    "--out-dir",
+    outDir,
+    "--out-name",
+    "sariema_web",
+    ...(debug ? ["--debug", "--keep-debug"] : []),
+    built,
+  ]);
+
+if (counting) {
+  const glue = join(dist, "wasm", "sariema_web.js");
+  if (!existsSync(glue)) throw new Error("dist/ is missing: run the build without --alloc-count first");
+  const tmp = join(target, "sariema-web-counting");
+  bind(tmp);
+  const same = readFileSync(join(tmp, "sariema_web.js"), "utf8") === readFileSync(glue, "utf8");
+  copyFileSync(join(tmp, "sariema_web_bg.wasm"), join(dist, "wasm", "sariema_web_counting_bg.wasm"));
+  rmSync(tmp, { recursive: true, force: true });
+  if (!same) throw new Error("the counting build's bindings differ from dist/'s: rebuild dist/ with the same flags");
+  console.log(JSON.stringify({ wasm: "dist/wasm/sariema_web_counting_bg.wasm" }));
+  process.exit(0);
+}
+
+rmSync(dist, { recursive: true, force: true });
+mkdirSync(join(dist, "wasm"), { recursive: true });
+bind(join(dist, "wasm"));
 
 const wasm = join(dist, "wasm", "sariema_web_bg.wasm");
 const bindgenBytes = statSync(wasm).size;
@@ -100,8 +121,7 @@ copyFileSync(join(pkg, "src", "audio-worklet.js"), join(dist, "audio-worklet.js"
 cpSync(join(pkg, "probe"), join(dist, "probe"), { recursive: true });
 const cli = (...argv) =>
   run("cargo", ["run", "-q", "-p", "sariema-cli", "--release", "--", ...argv, "--json"], { CARGO_TARGET_DIR: target });
-cli("web", join(repo, "examples", "demo"), "-o", join(dist, "demo"));
-cli("audio", "build", join(repo, "examples", "audio"), "-o", join(dist, "demo", "sounds.srms"));
+cli("web", join(repo, "examples", "climb"), "-o", join(dist, "demo"));
 
 const bytes = readFileSync(wasm);
 const sizes = {

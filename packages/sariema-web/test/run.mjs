@@ -7,8 +7,13 @@
 // Writes the fixtures and native references (cargo), serves them with
 // dist/, and in each browser draws the reference scenes and compares them
 // with the native frames, plays a sound through the audio worklet, taps a
-// UI button and loses and restores the GPU. Results land in
-// test/out/results.json; the exit code is the verdict.
+// UI button and loses and restores the GPU. Then it plays the climb game
+// (examples/climb): its replay reaches the native hashes and frames, its
+// steps allocate nothing (the counting build, which this command builds),
+// its music plays without underruns, a touch on its joystick moves the
+// hero, a game that never returns is stopped by its budget, and a lost GPU
+// leaves the game at its step. Results land in test/out/results.json; the
+// exit code is the verdict.
 //
 //   SARIEMA_BROWSERS   comma list of chromium-webgpu, chromium-webgl2, webkit-webgpu,
 //                      webkit-webgl2 (default all)
@@ -17,9 +22,9 @@
 //   SARIEMA_CHROMIUM   Chromium executable (default Playwright's chromium-1248)
 
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { homedir } from "node:os";
+import { homedir, loadavg } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -74,6 +79,46 @@ execFileSync(
   { cwd: repo, stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, CARGO_TARGET_DIR: cargoTarget } },
 );
 
+const CLIMB_STEPS = [120, 300, 600, 900];
+const climbDir = join(fixtures, "climb");
+const climbLog = join(repo, "examples", "climb", "input", "play.json");
+const cli = (...argv) =>
+  JSON.parse(
+    execFileSync(cargoBin("sariema"), [...argv, "--json"], { cwd: repo, stdio: ["ignore", "pipe", "inherit"] }).toString(),
+  );
+function cargoBin(name) {
+  return join(cargoTarget, "release", name);
+}
+execFileSync("cargo", ["build", "-q", "-p", "sariema-cli", "--release"], {
+  cwd: repo,
+  stdio: ["ignore", "inherit", "inherit"],
+  env: { ...process.env, CARGO_TARGET_DIR: cargoTarget },
+});
+cli("web", join(repo, "examples", "climb"), "-o", climbDir);
+copyFileSync(climbLog, join(climbDir, "play.json"));
+const nativeClimb = {};
+for (const [variant, file] of [
+  ["astc", "game.srmg"],
+  ["rgba8", "game.rgba8.srmg"],
+]) {
+  for (const n of CLIMB_STEPS) {
+    const r = cli(
+      "run", "--headless", "--game", join(climbDir, file), "--input", climbLog, "--steps", String(n),
+      "--screenshot", join(climbDir, `${variant}-${n}.png`), "--width", "960", "--height", "540", "--quality", "high",
+    );
+    nativeClimb[n] ??= r;
+    if (r.engine_hash !== nativeClimb[n].engine_hash) throw new Error(`the two variants' engine hashes differ at step ${n}`);
+  }
+}
+const nativeCost = JSON.parse(
+  execFileSync(
+    "cargo",
+    ["run", "-q", "-p", "sariema-web", "--example", "replay", "--release", "--", join(climbDir, "game.rgba8.srmg"), climbLog, "900", "7"],
+    { cwd: repo, stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, CARGO_TARGET_DIR: cargoTarget } },
+  ).toString(),
+);
+execFileSync(process.execPath, [join(pkg, "scripts", "build.mjs"), "--alloc-count"], { cwd: pkg, stdio: ["ignore", "ignore", "inherit"] });
+
 const mounts = ["--mount", `/fixtures/=${fixtures}`, ...(packs ? ["--mount", `/fixtures/packs/=${packs}`] : [])];
 const server = spawn(process.execPath, [join(pkg, "scripts", "serve.mjs"), "--port", "0", ...mounts], {
   stdio: ["ignore", "pipe", "inherit"],
@@ -103,6 +148,10 @@ function check(browser, name, pass, detail) {
   checks.push({ browser, name, pass, ...detail });
   console.log(`${pass ? "ok  " : "FAIL"} ${browser} ${name} ${JSON.stringify(detail)}`);
 }
+
+const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+const spread = (xs) => ({ median: median(xs), min: Math.min(...xs), max: Math.max(...xs), n: xs.length });
+const numbers = { native_step_ms: spread(nativeCost.per_step_ms), load_average: loadavg(), browsers: {} };
 
 function saveRender(browser, scene) {
   if (!scene.png) return;
@@ -250,12 +299,83 @@ async function runBrowser(name, { engine, hideWebGpu }) {
       variants: plainCaps.texture_variants,
       file: plain.file,
     });
+
+    await climbChecks(name, page);
   } catch (e) {
     check(name, "runs", false, { error: String(e?.message ?? e).split("\n")[0] });
   } finally {
     await launched.close();
     if (logs.length) console.log(`${name} console:\n  ${logs.slice(0, 20).join("\n  ")}`);
   }
+}
+
+async function climbChecks(name, page) {
+  await page.evaluate(() => window.suite.remount({}));
+  const replay = await page.evaluate(([s]) => window.suite.climbReplay(s), [CLIMB_STEPS]);
+  for (const r of replay.at) {
+    const native = nativeClimb[r.n];
+    saveRender(name, { name: `climb-${replay.variant}-${r.n}`, png: r.png });
+    const same = ["engine_hash", "state_hash", "physics_hash"].every((h) => r.hashes[h] === native[h]);
+    check(name, `the climb replay reaches the native hashes at step ${r.n}`, same && r.hashes.steps === r.n, {
+      engine_hash: r.hashes.engine_hash,
+      native: native.engine_hash,
+      audio_hash_same: r.hashes.audio_hash === native.audio_hash,
+    });
+    check(name, `the climb's frame at step ${r.n} matches the native one`, within(r), {
+      file: replay.file,
+      max_channel_delta: r.max_channel_delta,
+      differing_pixels_ratio: Number(r.differing_pixels_ratio.toFixed(5)),
+    });
+  }
+
+  const cost = await page.evaluate(() => window.suite.climbStepCost(900, 7));
+  numbers.browsers[name] = { step_ms: spread(cost) };
+  check(name, "times the climb's step", cost.length === 7, { median_ms: Number(median(cost).toFixed(4)), native_ms: Number(numbers.native_step_ms.median.toFixed(4)) });
+
+  const audio = await page.evaluate(() => window.suite.climbAudio(3000));
+  check(name, "the climb's music plays without underruns at the default lead", audio.received > 0 && audio.peak > 0.05 && audio.underruns === 0, {
+    received: audio.received,
+    peak: Number((audio.peak ?? 0).toFixed(3)),
+    underruns: audio.underruns,
+    steps: audio.steps,
+  });
+
+  await page.evaluate(() => window.suite.climbLive());
+  const touch = await page.evaluate(() => window.suite.touchJoystick(60, 600));
+  const moved = touch.before && touch.held ? Math.hypot(touch.held[0] - touch.before[0], touch.held[2] - touch.before[2]) : 0;
+  check(name, "a touch on the HUD joystick moves the hero", moved > 0.2, { moved: Number(moved.toFixed(3)), ...touch });
+
+  const forever = await page.evaluate(() => window.suite.forever());
+  numbers.browsers[name].budget_stall_ms = forever.longest_gap_ms;
+  check(name, "a game that never returns raises E_GAME_BUDGET and the page goes on", forever.error.code === "E_GAME_BUDGET" && forever.timer_ms < 200 && !forever.running, {
+    code: forever.error.code,
+    error_ms: Math.round(forever.error_ms),
+    longest_gap_ms: Math.round(forever.longest_gap_ms),
+    timer_ms: Math.round(forever.timer_ms),
+  });
+
+  const lost = await page.evaluate(() => window.suite.climbLoseContext());
+  check(
+    name,
+    `a lost ${lost.backend === "webgl2" ? "context" : "device"} leaves the game at its step`,
+    lost.atLoss.steps === lost.atRestore.steps && lost.atLoss.engine_hash === lost.atRestore.engine_hash && lost.after.steps > lost.atRestore.steps && lost.drawn,
+    { at_loss: lost.atLoss.steps, at_restore: lost.atRestore.steps, after: lost.after.steps, drawn: lost.drawn },
+  );
+
+  await page.goto(new URL("test/page.html?counting", base).href);
+  await page.waitForFunction(() => window.suite);
+  await page.evaluate(() => window.suite.start());
+  // By step 600 the climb has run every event it has; the steps before
+  // allocate as natively (the HUD's relayouts, the line's first shaping).
+  const allocs = await page.evaluate(() => window.suite.climbAllocations([120, 600, 1200]));
+  const [warm, steady, end] = allocs.step_allocations;
+  numbers.browsers[name].allocations = allocs;
+  check(name, "the climb's steps allocate nothing once steady", end !== null && end - steady === 0, {
+    "120..600": steady - warm,
+    "600..1200": end - steady,
+    live_frame_allocations: allocs.live_frame_allocations,
+    live_steps: allocs.live_steps,
+  });
 }
 
 const wanted = (process.env.SARIEMA_BROWSERS ?? Object.keys(CONFIGS).join(",")).split(",");
@@ -270,6 +390,6 @@ try {
 }
 
 const failed = checks.filter((c) => !c.pass);
-writeFileSync(join(out, "results.json"), JSON.stringify({ tolerance: { MAX_DELTA, MAX_RATIO }, checks }, null, 2));
+writeFileSync(join(out, "results.json"), JSON.stringify({ tolerance: { MAX_DELTA, MAX_RATIO }, numbers, checks }, null, 2));
 console.log(JSON.stringify({ ok: failed.length === 0, checks: checks.length, failed: failed.length, results: join(out, "results.json") }));
 process.exit(failed.length ? 1 : 0);
