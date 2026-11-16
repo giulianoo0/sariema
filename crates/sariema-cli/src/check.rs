@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The `check` command: runs every check on the project's rooms and fails
-//! with the first error's code, listing every error in the message.
-//! Warnings do not fail it.
+//! The `check` command: runs every check on the project's rooms, then the
+//! cutscene rules on its game, and fails with the first error's code, listing
+//! every error of that kind in the message. Warnings do not fail it.
 
 use std::path::{Path, PathBuf};
 
@@ -11,8 +11,8 @@ use sariema_import::build_collision;
 use serde_json::{Value, json};
 
 use crate::output::{Done, Failure};
-use crate::project;
 use crate::spot_check::{self, SpotCheckSettings};
+use crate::{game, project};
 
 #[derive(Args)]
 pub struct CheckArgs {
@@ -85,12 +85,17 @@ pub fn check(dir: &Path, room: Option<&str>, spots: &SpotCheckSettings) -> Resul
         .iter()
         .map(|f| json!({ "code": f.code, "message": f.message }))
         .collect();
-    let mut text = format!("checked {}: no errors", ids.join(", "));
+    let cutscenes = game::check(dir)?;
+    let mut text = format!(
+        "checked rooms [{}] and cutscenes [{}]: no errors",
+        ids.join(", "),
+        cutscenes.join(", ")
+    );
     for f in &findings {
         text.push_str(&format!("\nwarning[{}]: {}", f.code, f.message));
     }
     Ok(Done {
-        json: json!({ "rooms": rooms, "warnings": warnings }),
+        json: json!({ "rooms": rooms, "cutscenes": cutscenes, "warnings": warnings }),
         text,
     })
 }

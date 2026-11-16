@@ -17,6 +17,7 @@ pub mod actor;
 pub mod collision;
 #[cfg(feature = "demo")]
 pub mod demo;
+pub mod script;
 pub mod sound;
 
 pub const MAGIC: [u8; 4] = *b"SRMA";

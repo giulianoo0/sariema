@@ -1,0 +1,15 @@
+{
+  "name": "jump",
+  "roles": { "hero": { "start": { "position": [0, 0, 0] } } },
+  "steps": [
+    { "hide": "hero" },
+    { "parallel": [
+      [ { "wait": 0.1 } ],
+      [ { "sound": { "sound": "creak" } } ]
+    ] },
+    { "teleport": { "role": "hero", "position": [5, 0, -5] } },
+    { "branch": { "flag": "lit", "then": [ { "wait": 0.1 } ], "else": [] } },
+    { "teleport": { "role": "hero", "position": [6, 0, -5] } },
+    { "show": "hero" }
+  ]
+}

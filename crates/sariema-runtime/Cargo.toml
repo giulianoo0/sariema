@@ -1,0 +1,27 @@
+[package]
+name = "sariema-runtime"
+description = "Game runtime of the Sariema engine: fixed-step simulation, world, input, camera, cutscenes and the script boundary."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+# The second interpreter, for the M1 measurement (examples/m1.rs).
+tinywasm = ["sariema-vm/tinywasm"]
+
+[dependencies]
+glam.workspace = true
+sariema-core = { path = "../sariema-core" }
+sariema-format = { path = "../sariema-format" }
+sariema-vm = { path = "../sariema-vm" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true
+wat.workspace = true
+
+[[example]]
+name = "m1"
+required-features = ["tinywasm"]

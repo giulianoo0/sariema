@@ -1,0 +1,19 @@
+[package]
+name = "sariema-vm"
+description = "Sandboxed WebAssembly machine that runs a Sariema game's logic, with a memory ceiling and an execution budget per step."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+# A second interpreter behind the same trait, measured against wasmi.
+tinywasm = ["dep:tinywasm"]
+
+[dependencies]
+serde.workspace = true
+tinywasm = { workspace = true, optional = true }
+wasmi.workspace = true
+
+[dev-dependencies]
+wat.workspace = true

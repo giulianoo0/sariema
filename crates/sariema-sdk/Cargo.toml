@@ -1,0 +1,15 @@
+[package]
+name = "sariema-sdk"
+description = "The no_std Rust SDK a Sariema game uses: typed command builders, event iteration, entity handles."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+# A `#[panic_handler]` for games built without std: logs the message and
+# traps. A game built with std leaves it off.
+panic-handler = []
+
+[dev-dependencies]
+sariema-format = { path = "../sariema-format" }

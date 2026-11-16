@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use sariema_format::encode;
 use sariema_import::{RoomSource, TextureMode, build_room};
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use crate::output::{Done, Failure, list};
@@ -28,7 +29,7 @@ pub struct Project {
 }
 
 /// Reads the project in `dir` and checks it against the schema.
-pub fn load(dir: &Path) -> Result<Project, Failure> {
+pub fn load<T: DeserializeOwned>(dir: &Path) -> Result<T, Failure> {
     let path = dir.join(FILE);
     let text = fs::read_to_string(&path).map_err(|e| Failure::io(&path, e))?;
     let schema_error = |why: String| Failure::new("E_SCHEMA", format!("{}: {why}", path.display()));
@@ -80,12 +81,12 @@ pub fn build(
 
 /// The project's room ids, in order.
 pub(crate) fn room_ids(dir: &Path) -> Result<Vec<String>, Failure> {
-    Ok(load(dir)?.rooms.into_keys().collect())
+    Ok(load::<Project>(dir)?.rooms.into_keys().collect())
 }
 
 /// Room `room`'s description, and the assets root its paths are relative to.
 pub(crate) fn room_source(dir: &Path, room: &str) -> Result<(RoomSource, PathBuf), Failure> {
-    let project = load(dir)?;
+    let project: Project = load(dir)?;
     let (description, text) = description(dir, "room", &project.rooms, room)?;
     let source = RoomSource::from_json(&text)
         .map_err(|e| Failure::new(e.code(), format!("{}: {e}", description.display())))?;

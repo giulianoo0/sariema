@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sariema game API",
+  "description": "What `sariema api --json` prints: the game module's boundary, every command and event of the batch with its opcode and fields, the enums they use, every runtime setting and every stable error code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok", "batch_version", "module", "commands", "events", "enums", "settings", "errors"],
+  "properties": {
+    "ok": { "const": true },
+    "batch_version": { "type": "integer", "minimum": 1 },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exports", "imports"],
+      "properties": {
+        "exports": { "type": "array", "items": { "$ref": "#/$defs/function" } },
+        "imports": { "type": "array", "items": { "$ref": "#/$defs/function" } }
+      }
+    },
+    "commands": { "type": "array", "items": { "$ref": "#/$defs/message" } },
+    "events": { "type": "array", "items": { "$ref": "#/$defs/message" } },
+    "enums": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "doc", "variants"],
+        "properties": {
+          "name": { "type": "string" },
+          "doc": { "type": "string" },
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "name", "doc"],
+              "properties": {
+                "value": { "type": "integer", "minimum": 0, "maximum": 255 },
+                "name": { "type": "string" },
+                "doc": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "settings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "default", "doc"],
+        "properties": {
+          "key": { "type": "string", "description": "Dotted path in the project's game.settings." },
+          "default": {},
+          "doc": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "kind", "meaning"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^E_[A-Z0-9_]+$" },
+          "kind": { "enum": ["failure", "rejected", "stop"], "description": "failure: a command or load fails; rejected: a game command is refused and a rejected event carries the code; stop: the game stops for good." },
+          "meaning": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "function": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "signature", "doc"],
+      "properties": {
+        "module": { "type": "string" },
+        "name": { "type": "string" },
+        "signature": { "type": "string" },
+        "doc": { "type": "string" }
+      }
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["opcode", "name", "doc", "fields"],
+      "properties": {
+        "opcode": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "doc": { "type": "string" },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "type", "doc"],
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "enum": ["u8", "u16", "u32", "u64", "i32", "f32", "bool", "Entity", "Vec3", "Str", "Bytes", "Kind", "Ease", "Property", "ClipMode", "Bus", "Controller", "Advance", "Orientation", "Anchor"] },
+              "doc": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

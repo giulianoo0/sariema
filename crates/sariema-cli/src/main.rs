@@ -10,11 +10,13 @@ use sariema_import::TextureMode;
 use sariema_render::Quality;
 
 mod actor;
+mod api;
 mod audio;
 mod bench;
 mod check;
 mod collision;
 mod filmstrip;
+mod game;
 mod golden;
 mod output;
 mod pack;
@@ -22,6 +24,8 @@ mod physics_map;
 mod player;
 mod project;
 mod run;
+mod scaffold;
+mod simulate;
 mod spot_check;
 mod stage;
 mod ui;
@@ -42,21 +46,24 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Build one room or one actor of a project into a pack.
+    /// Build one room or one actor of a project into a pack, or with neither
+    /// the project's game into a game pack.
+    #[command(group(clap::ArgGroup::new("source").args(["room", "actor"])))]
     Build {
         /// Directory holding sariema.json.
         project: PathBuf,
         /// Room id from the project's `rooms`.
-        #[arg(long, required_unless_present = "actor", conflicts_with = "actor")]
+        #[arg(long, conflicts_with = "actor")]
         room: Option<String>,
         /// Actor id from the project's `actors`.
         #[arg(long)]
         actor: Option<String>,
-        /// Pack to write, conventionally `.srma` for a room and `.srmk` for an actor.
+        /// Pack to write, conventionally `.srma` for a room, `.srmk` for an
+        /// actor and `.srmg` for a game.
         #[arg(short, long)]
         output: PathBuf,
         /// How to store colour textures, overriding the room file's `textures`.
-        #[arg(long, value_enum)]
+        #[arg(long, value_enum, requires = "source")]
         textures: Option<Textures>,
     },
     /// Show a room pack's stats, lights, materials and loose draws, an actor
@@ -74,7 +81,7 @@ enum Command {
     /// Offscreen, the report's cpu_ms_per_frame is the CPU time to encode and
     /// submit a frame and excludes GPU execution; wall_ms_per_frame waits for
     /// the GPU to finish every frame.
-    Run(RunArgs),
+    Run(Box<RunArgs>),
     /// Render each X.srma of a directory and compare it with X.golden.png beside it.
     Test {
         dir: PathBuf,
@@ -82,7 +89,8 @@ enum Command {
         #[arg(long)]
         update: bool,
     },
-    /// Check a project's rooms: every action spot clear and on ground, every route walkable.
+    /// Check a project's rooms (every action spot clear and on ground, every
+    /// route walkable) and its cutscenes (the no-teleport and start rules).
     Check(check::CheckArgs),
     /// Draw a collision pack from above into a PNG: colliders, walkable cells, triggers, spots, a path.
     PhysicsMap(physics_map::MapArgs),
@@ -94,13 +102,28 @@ enum Command {
     Audio(audio::AudioArgs),
     /// Draw UI descriptions headless at a screen size and a moment.
     Ui(ui::UiArgs),
+    /// Make a game project that builds, checks and runs as it is.
+    New {
+        /// Directory to create; it must be missing or empty.
+        dir: PathBuf,
+        /// The engine's crates/sariema-sdk, which the game depends on.
+        #[arg(long)]
+        sdk: Option<PathBuf>,
+        /// rustup toolchain the project builds its logic with, such as 1.100.0.
+        #[arg(long)]
+        toolchain: Option<String>,
+    },
+    /// Describe every command, event, enum, setting and error code of the game API.
+    Api,
 }
 
 #[derive(Args)]
 struct RunArgs {
-    pack: PathBuf,
-    /// Draw offscreen instead of in a window.
-    #[arg(long, requires_all = ["frames", "screenshot"])]
+    /// Room pack to draw.
+    #[arg(required_unless_present = "game")]
+    pack: Option<PathBuf>,
+    /// Draw offscreen instead of in a window; a room pack needs --frames and --screenshot.
+    #[arg(long)]
     headless: bool,
     /// Frames to draw before closing; without it the window stays open until closed.
     #[arg(long, value_parser = value_parser!(u32).range(1..))]
@@ -120,6 +143,8 @@ struct RunArgs {
     max_background: Option<f32>,
     #[command(flatten)]
     stage: stage::StageArgs,
+    #[command(flatten)]
+    game: simulate::GameRun,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -180,7 +205,7 @@ fn main() -> ExitCode {
             (None, Some(actor)) => {
                 actor::build(project, actor, output, textures.map(Textures::mode))
             }
-            (None, None) => unreachable!("clap requires --room or --actor"),
+            (None, None) => game::build(project, output),
         },
         Command::Inspect { pack } => pack::inspect(pack),
         Command::Run(args) => run::run(args),
@@ -190,6 +215,12 @@ fn main() -> ExitCode {
         Command::Bench(args) => bench::bench(args),
         Command::Audio(args) => audio::run(args),
         Command::Ui(args) => ui::run(args),
+        Command::New {
+            dir,
+            sdk,
+            toolchain,
+        } => scaffold::new(dir, sdk.as_deref(), toolchain.as_deref()),
+        Command::Api => api::api(),
     });
     output::emit(cli.json, outcome)
 }

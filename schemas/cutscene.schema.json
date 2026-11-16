@@ -1,0 +1,993 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sariema cutscene",
+  "description": "A cutscene: its roles, each with the place it starts from, and the steps the sequencer plays. Times are seconds, angles degrees, distances metres. See docs/cutscenes.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "roles",
+    "steps"
+  ],
+  "properties": {
+    "name": {
+      "$ref": "#/$defs/name"
+    },
+    "skippable": {
+      "type": "boolean",
+      "default": true
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/role"
+      },
+      "description": "Role name to the role. The game binds an entity to each before playing."
+    },
+    "steps": {
+      "$ref": "#/$defs/steps"
+    }
+  },
+  "$defs": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "unit": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "vec3": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "place": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "position": {
+          "$ref": "#/$defs/vec3"
+        },
+        "yaw": {
+          "type": "number",
+          "description": "Degrees about +Y; 0 faces -Z.",
+          "default": 0
+        }
+      },
+      "required": [
+        "position"
+      ]
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/place",
+          "description": "Where the role must be when the body starts; the sequencer walks or eases the actor there, never snaps it. Required unless a spawn step creates the role."
+        },
+        "actor": {
+          "$ref": "#/$defs/name",
+          "description": "Actor asset a spawn of this role creates; defaults to the role name."
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    },
+    "ease": {
+      "enum": [
+        "linear",
+        "in_quad",
+        "out_quad",
+        "in_out_quad",
+        "in_cubic",
+        "out_cubic",
+        "in_out_cubic",
+        "in_quart",
+        "out_quart",
+        "in_out_quart",
+        "in_sine",
+        "out_sine",
+        "in_out_sine",
+        "in_expo",
+        "out_expo",
+        "in_out_expo",
+        "in_back",
+        "out_back",
+        "in_out_back",
+        "smoothstep"
+      ]
+    },
+    "step": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sequence": {
+              "$ref": "#/$defs/steps"
+            }
+          },
+          "required": [
+            "sequence"
+          ],
+          "description": "Runs its steps one after the other."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "parallel": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/steps"
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "parallel"
+          ],
+          "description": "Runs its branches together; done when the longest is. Branches never move the same role or set the same flag."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "wait": {
+              "$ref": "#/$defs/seconds"
+            }
+          },
+          "required": [
+            "wait"
+          ],
+          "description": "Waits this many seconds."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "wait_for": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "signal": {
+                  "$ref": "#/$defs/name"
+                },
+                "arrived": {
+                  "$ref": "#/$defs/name"
+                },
+                "clip_finished": {
+                  "$ref": "#/$defs/name"
+                },
+                "timeout": {
+                  "$ref": "#/$defs/seconds",
+                  "description": "Seconds before giving up; none waits for ever."
+                },
+                "clip_marker": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "role": {
+                      "$ref": "#/$defs/name"
+                    },
+                    "clip": {
+                      "$ref": "#/$defs/name"
+                    },
+                    "marker": {
+                      "$ref": "#/$defs/name"
+                    }
+                  },
+                  "required": [
+                    "role",
+                    "clip",
+                    "marker"
+                  ],
+                  "description": "A marker of a role's clip, reported by the animation module: a beat a cut can land on."
+                }
+              },
+              "oneOf": [
+                {
+                  "required": [
+                    "signal"
+                  ]
+                },
+                {
+                  "required": [
+                    "arrived"
+                  ]
+                },
+                {
+                  "required": [
+                    "clip_finished"
+                  ]
+                },
+                {
+                  "required": [
+                    "clip_marker"
+                  ]
+                }
+              ]
+            }
+          },
+          "required": [
+            "wait_for"
+          ],
+          "description": "Waits for a game signal, a role's arrival, a role's clip to finish or to reach a marker."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "branch": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "flag": {
+                  "$ref": "#/$defs/name"
+                },
+                "then": {
+                  "$ref": "#/$defs/steps"
+                },
+                "else": {
+                  "$ref": "#/$defs/steps"
+                }
+              },
+              "required": [
+                "flag",
+                "then"
+              ]
+            }
+          },
+          "required": [
+            "branch"
+          ],
+          "description": "Runs then when the flag is set, else otherwise."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "shot": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "follow": {
+                  "$ref": "#/$defs/name"
+                },
+                "frame": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/name"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "fixed": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "position": {
+                      "$ref": "#/$defs/vec3"
+                    },
+                    "look_at": {
+                      "$ref": "#/$defs/vec3"
+                    }
+                  },
+                  "required": [
+                    "position",
+                    "look_at"
+                  ]
+                },
+                "bone": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/name"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/$defs/name"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    }
+                  ],
+                  "description": "Aims at a bone of the subject instead of its origin: a name for follow, a pair (null for the origin) for frame. The animation module resolves it."
+                },
+                "socket": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/name"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/$defs/name"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    }
+                  ],
+                  "description": "Like bone, for a socket."
+                },
+                "distance": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "default": 5
+                },
+                "pitch": {
+                  "type": "number",
+                  "default": 30
+                },
+                "yaw": {
+                  "type": "number",
+                  "default": 0
+                },
+                "height": {
+                  "type": "number",
+                  "default": 1
+                },
+                "fov": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "exclusiveMaximum": 180,
+                  "default": 45
+                },
+                "margin": {
+                  "type": "number",
+                  "minimum": 0,
+                  "default": 1
+                },
+                "blend": {
+                  "$ref": "#/$defs/seconds",
+                  "description": "Seconds to blend from the shot on screen; 0 is a cut. Required, so every cut is written down."
+                },
+                "ease": {
+                  "$ref": "#/$defs/ease",
+                  "default": "in_out_cubic"
+                }
+              },
+              "required": [
+                "blend"
+              ],
+              "oneOf": [
+                {
+                  "required": [
+                    "follow"
+                  ]
+                },
+                {
+                  "required": [
+                    "frame"
+                  ]
+                },
+                {
+                  "required": [
+                    "fixed"
+                  ]
+                }
+              ],
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "follow"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "bone": {
+                        "type": "string"
+                      },
+                      "socket": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "frame"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "bone": {
+                        "type": "array"
+                      },
+                      "socket": {
+                        "type": "array"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "fixed"
+                    ]
+                  },
+                  "then": {
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": [
+                            "bone"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "socket"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "required": [
+            "shot"
+          ],
+          "description": "Changes the camera: follow one role, frame two, or a fixed place."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "walk": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "role": {
+                  "$ref": "#/$defs/name"
+                },
+                "to": {
+                  "$ref": "#/$defs/vec3"
+                },
+                "speed": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "default": 1.4
+                },
+                "face": {
+                  "type": "number",
+                  "description": "Yaw to turn to on arrival."
+                }
+              },
+              "required": [
+                "role",
+                "to"
+              ]
+            }
+          },
+          "required": [
+            "walk"
+          ],
+          "description": "Walks a role to a point; done when it arrives."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "clip": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "role": {
+                  "$ref": "#/$defs/name"
+                },
+                "clip": {
+                  "$ref": "#/$defs/name"
+                },
+                "mode": {
+                  "enum": [
+                    "loop",
+                    "once",
+                    "hold"
+                  ],
+                  "default": "once"
+                },
+                "blend": {
+                  "$ref": "#/$defs/seconds",
+                  "default": 0.2
+                },
+                "speed": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "default": 1,
+                  "description": "Rate of the clip; its time follows the steps, so slow motion slows it too."
+                }
+              },
+              "required": [
+                "role",
+                "clip"
+              ]
+            }
+          },
+          "required": [
+            "clip"
+          ],
+          "description": "Plays an animation clip on a role."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "face": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "role": {
+                  "$ref": "#/$defs/name"
+                },
+                "toward": {
+                  "$ref": "#/$defs/name"
+                },
+                "yaw": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "role"
+              ],
+              "oneOf": [
+                {
+                  "required": [
+                    "toward"
+                  ]
+                },
+                {
+                  "required": [
+                    "yaw"
+                  ]
+                }
+              ]
+            }
+          },
+          "required": [
+            "face"
+          ],
+          "description": "Turns a role toward another role or to a yaw, at the turn rate; done when facing."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "look_at": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "role": {
+                  "$ref": "#/$defs/name"
+                },
+                "target": {
+                  "$ref": "#/$defs/name",
+                  "description": "None stops looking."
+                }
+              },
+              "required": [
+                "role"
+              ]
+            }
+          },
+          "required": [
+            "look_at"
+          ],
+          "description": "Points a role's head at another role."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "line": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "speaker": {
+                  "$ref": "#/$defs/name"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "voice": {
+                  "$ref": "#/$defs/name"
+                },
+                "advance": {
+                  "enum": [
+                    "auto",
+                    "tap"
+                  ],
+                  "default": "tap"
+                },
+                "duration": {
+                  "$ref": "#/$defs/seconds",
+                  "description": "Seconds an auto line stays."
+                }
+              },
+              "required": [
+                "speaker",
+                "text"
+              ],
+              "if": {
+                "properties": {
+                  "advance": {
+                    "const": "auto"
+                  }
+                },
+                "required": [
+                  "advance"
+                ]
+              },
+              "then": {
+                "required": [
+                  "duration"
+                ]
+              }
+            }
+          },
+          "required": [
+            "line"
+          ],
+          "description": "A dialogue line; done when it ends."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sound": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "sound": {
+                  "$ref": "#/$defs/name"
+                },
+                "bus": {
+                  "enum": [
+                    "music",
+                    "voice",
+                    "effects",
+                    "ambience",
+                    "ui"
+                  ],
+                  "default": "effects"
+                },
+                "at": {
+                  "$ref": "#/$defs/name"
+                },
+                "volume": {
+                  "type": "number",
+                  "minimum": 0,
+                  "default": 1
+                }
+              },
+              "required": [
+                "sound"
+              ]
+            }
+          },
+          "required": [
+            "sound"
+          ],
+          "description": "Plays a sound, at a role when at names one."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "music": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "music": {
+                  "$ref": "#/$defs/name"
+                },
+                "fade": {
+                  "$ref": "#/$defs/seconds",
+                  "default": 1
+                }
+              }
+            }
+          },
+          "required": [
+            "music"
+          ],
+          "description": "Changes the music; without music it stops."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fade": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "to": {
+                  "$ref": "#/$defs/unit"
+                },
+                "duration": {
+                  "$ref": "#/$defs/seconds"
+                },
+                "color": {
+                  "$ref": "#/$defs/vec3"
+                }
+              },
+              "required": [
+                "to",
+                "duration"
+              ]
+            }
+          },
+          "required": [
+            "fade"
+          ],
+          "description": "Fades the screen to a colour (1 fully covered) or back (0)."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "letterbox": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "to": {
+                  "$ref": "#/$defs/unit"
+                },
+                "duration": {
+                  "$ref": "#/$defs/seconds"
+                }
+              },
+              "required": [
+                "to",
+                "duration"
+              ]
+            }
+          },
+          "required": [
+            "letterbox"
+          ],
+          "description": "Shows or hides the cinema bars."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "set_flag": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "required": [
+            "set_flag"
+          ],
+          "description": "Sets a flag."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "clear_flag": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "required": [
+            "clear_flag"
+          ],
+          "description": "Clears a flag."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "spawn": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "role": {
+                  "$ref": "#/$defs/name"
+                },
+                "position": {
+                  "$ref": "#/$defs/vec3"
+                },
+                "yaw": {
+                  "type": "number",
+                  "default": 0
+                }
+              },
+              "required": [
+                "role",
+                "position"
+              ]
+            }
+          },
+          "required": [
+            "spawn"
+          ],
+          "description": "Creates a role that has no start place."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "despawn": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "required": [
+            "despawn"
+          ],
+          "description": "Removes a role from the world."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "show": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "required": [
+            "show"
+          ],
+          "description": "Shows a role."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hide": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "required": [
+            "hide"
+          ],
+          "description": "Hides a role."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "teleport": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "role": {
+                  "$ref": "#/$defs/name"
+                },
+                "position": {
+                  "$ref": "#/$defs/vec3"
+                },
+                "yaw": {
+                  "type": "number",
+                  "default": 0
+                },
+                "cover": {
+                  "enum": [
+                    "cut",
+                    "fade"
+                  ],
+                  "description": "What hides the jump: cut right after a shot with blend 0, fade under a fade to 1. Required for a role that may be on screen."
+                }
+              },
+              "required": [
+                "role",
+                "position"
+              ]
+            }
+          },
+          "required": [
+            "teleport"
+          ],
+          "description": "Moves a role at once. Only hidden, or under a declared cut or full fade."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "call": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "required": [
+            "call"
+          ],
+          "description": "Sends the game a cutscene_call event."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "time_scale": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "World time per real time; below 1 is slow motion."
+                },
+                "blend": {
+                  "$ref": "#/$defs/seconds",
+                  "default": 0,
+                  "description": "Seconds of world time to reach it."
+                }
+              },
+              "required": [
+                "scale"
+              ]
+            }
+          },
+          "required": [
+            "time_scale"
+          ],
+          "description": "Plays the world slower or faster from here; the end of the cutscene gives back the scale it found. Waits count world time. Ends at once."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "camera_shake": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "amplitude": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Metres."
+                },
+                "frequency": {
+                  "type": "number",
+                  "minimum": 0,
+                  "default": 12,
+                  "description": "Hz."
+                },
+                "duration": {
+                  "$ref": "#/$defs/seconds"
+                }
+              },
+              "required": [
+                "amplitude",
+                "duration"
+              ]
+            }
+          },
+          "required": [
+            "camera_shake"
+          ],
+          "description": "Shakes the camera, dying out over its duration: an impact. Ends at once."
+        }
+      ]
+    }
+  }
+}

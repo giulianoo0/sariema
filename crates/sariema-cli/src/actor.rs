@@ -27,7 +27,7 @@ pub fn build(
     output: &Path,
     textures: Option<TextureMode>,
 ) -> Result<Done, Failure> {
-    let project = project::load(dir)?;
+    let project: project::Project = project::load(dir)?;
     let (description, text) = project::description(dir, "actor", &project.actors, actor)?;
     let at = |e: sariema_import::ImportError| {
         Failure::new(e.code(), format!("{}: {e}", description.display()))

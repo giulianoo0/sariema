@@ -1,0 +1,29 @@
+{
+  "name": "meet",
+  "roles": {
+    "hero": { "start": { "position": [0, 0, -2], "yaw": 0 } },
+    "friend": { "start": { "position": [1.5, 0, -3], "yaw": 90 } }
+  },
+  "steps": [
+    { "letterbox": { "to": 1, "duration": 0.3 } },
+    { "shot": { "frame": ["hero", "friend"], "pitch": 25, "blend": 0.8 } },
+    { "parallel": [
+      [ { "walk": { "role": "hero", "to": [0, 0, -2.5] } } ],
+      [ { "face": { "role": "friend", "toward": "hero" } } ]
+    ] },
+    { "line": { "speaker": "friend", "text": "Hello there.", "voice": "friend_hello", "advance": "tap" } },
+    { "shot": { "follow": "friend", "distance": 3, "pitch": 15, "yaw": 180, "blend": 0 } },
+    { "clip": { "role": "hero", "clip": "wave" } },
+    { "look_at": { "role": "hero", "target": "friend" } },
+    { "line": { "speaker": "hero", "text": "Hi.", "advance": "auto", "duration": 1.0 } },
+    { "set_flag": "met" },
+    { "branch": { "flag": "met", "then": [ { "call": "greeted" } ], "else": [ { "call": "never" } ] } },
+    { "wait_for": { "signal": "door", "timeout": 3 } },
+    { "sound": { "sound": "creak", "at": "friend" } },
+    { "music": { "music": "theme", "fade": 0.5 } },
+    { "sequence": [ { "wait": 0.25 }, { "fade": { "to": 1, "duration": 0.3 } } ] },
+    { "teleport": { "role": "friend", "position": [4, 0, -6], "yaw": 180, "cover": "fade" } },
+    { "fade": { "to": 0, "duration": 0.3 } },
+    { "letterbox": { "to": 0, "duration": 0.3 } }
+  ]
+}

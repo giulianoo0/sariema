@@ -26,6 +26,17 @@
       "type": "string",
       "minLength": 1,
       "description": "Path of the game's sound description (schemas/audio.schema.json), relative to the project directory."
+    },
+    "game": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The game: its logic crate built to WebAssembly, its cutscenes and runtime settings. `sariema build` without --room builds them into a game pack.",
+      "properties": {
+        "logic": { "type": "string", "minLength": 1, "default": "game", "description": "Directory of the logic crate (a cdylib using sariema-sdk), relative to the project directory." },
+        "cutscenes": { "type": "string", "minLength": 1, "default": "cutscenes", "description": "Directory whose *.json files are cutscenes (schemas/cutscene.schema.json), relative to the project directory." },
+        "settings": { "type": "object", "description": "Runtime settings overriding the defaults; `sariema api --json` lists every key." },
+        "toolchain": { "type": "string", "minLength": 1, "description": "rustup toolchain that builds the logic, such as 1.100.0; without it, the cargo on PATH, which needs the wasm32-unknown-unknown target." }
+      }
     }
   }
 }

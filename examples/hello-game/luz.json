@@ -1,0 +1,19 @@
+{
+  "exposicao": 1.0,
+  "comodos": {
+    "a": {
+      "estado": "noite",
+      "hemi_ceu": "#2A3550",
+      "hemi_chao": "#14171E",
+      "hemi_int": 0.35,
+      "sol": "#C8D0D8",
+      "sol_int": 0.55,
+      "sol_dir_three": [0.0, 0.71, 0.71],
+      "sol_sombra": false,
+      "luzes": [
+        { "nome": "foco", "tipo": "spot", "cor": "#FFF0C8", "int": 40, "pos": [1.5, 0.2, 2.4], "alvo": [1.5, 1.5, 0.0], "cone": 60, "dist": 8 },
+        { "nome": "abajur", "tipo": "ponto", "cor": "#808080", "int": 7, "pos": [2.25, 2.25, 1.0], "dist": 4, "tremido": "0.85-1.0 at ~8 Hz" }
+      ]
+    }
+  }
+}

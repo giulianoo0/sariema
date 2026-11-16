@@ -9,7 +9,8 @@ clustered forward lighting, shadows and the post-processing chain, driven by
 the `sariema` command-line tool.
 
 - `crates/sariema-format` — the packs: room (`SRMA`), collision (`SRMC`),
-  actor (`SRMK`) and sound bank (`SRMS`); types, encoding, validation.
+  actor (`SRMK`), sound bank (`SRMS`) and game (`SRMG`, with the command and
+  event batch); types, encoding, validation.
 - `crates/sariema-import` — packaging-time import: compressed glTF kits and room
   assembly from placement and lighting files (`schemas/room.schema.json`).
 - `crates/sariema-core` — the room camera.
@@ -23,9 +24,10 @@ the `sariema` command-line tool.
 - `crates/sariema-audio` — the mixer: buses, streamed music, ducking, loudness
   checks and offline rendering of cue lists ([docs/audio.md](docs/audio.md)).
 - `crates/sariema-ui` — in-engine UI: flexbox tree, distance-field text, animation, touch widgets and a batched draw list ([docs/ui.md](docs/ui.md)).
-- `crates/sariema-cli` — the `sariema` tool: `build`, `inspect`, `run`, `test`,
-  `check`, `physics-map`, `bench`, `audio` and `ui`, each with `--json`.
-  `examples/demo` is a project it can build.
+- `crates/sariema-runtime`, `crates/sariema-vm`, `crates/sariema-sdk` — games: the fixed-step simulation with cutscenes, the sandboxed WebAssembly machine, and the SDK the logic is written with ([docs/game-api.md](docs/game-api.md), `examples/hello-game`).
+- `crates/sariema-cli` — the `sariema` tool: `new`, `build`, `inspect`, `run`,
+  `test`, `check`, `physics-map`, `bench`, `audio`, `ui` and `api`, each with
+  `--json`. `examples/demo` is a project it can build.
 
 Docs:
 
@@ -35,9 +37,14 @@ Docs:
 - [docs/audio.md](docs/audio.md) — sound banks, the mixer and `sariema audio`.
 - [docs/ui.md](docs/ui.md) — the in-engine UI and `sariema ui render`.
 - [docs/performance.md](docs/performance.md) — `sariema bench` and what a frame costs.
+- [docs/game-api.md](docs/game-api.md) — the game module, the step, commands and events.
+- [docs/cutscenes.md](docs/cutscenes.md) — cutscenes, their rules and directing.
 
-Agent skills, one per module, for an agent building a game with it:
+Agent skills, for an agent building a game with the engine:
 
+- [skills/sariema](skills/sariema/SKILL.md)
+- [skills/sariema-game-scripting](skills/sariema-game-scripting/SKILL.md)
+- [skills/sariema-cutscenes](skills/sariema-cutscenes/SKILL.md)
 - [skills/sariema-physics](skills/sariema-physics/SKILL.md)
 - [skills/sariema-actors](skills/sariema-actors/SKILL.md)
 - [skills/sariema-audio](skills/sariema-audio/SKILL.md)

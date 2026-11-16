@@ -1,0 +1,16 @@
+{
+  "celula": 1.5,
+  "comodos": {
+    "a": {
+      "sw_celulas": [0, 0],
+      "n_celulas": [2, 2],
+      "camera": null,
+      "pitch": 60,
+      "instancias": [
+        { "peca": "caixa", "x": 0.75, "y": 0.75, "z": 0.5, "rz": 0, "rot": null, "estado": null, "giros": null, "escala": 1.0 },
+        { "peca": "caixa", "x": 2.25, "y": 0.75, "z": 0.5, "rz": 45, "rot": null, "estado": null, "giros": null, "escala": 1.0 },
+        { "peca": "mesa", "x": 1.5, "y": 2.25, "z": 0.0, "rz": 90, "rot": null, "estado": null, "giros": null, "escala": 1.0 }
+      ]
+    }
+  }
+}

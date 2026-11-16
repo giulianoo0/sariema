@@ -1,0 +1,9 @@
+{
+  "name": "jump",
+  "roles": { "hero": { "start": { "position": [0, 0, 0] } } },
+  "steps": [
+    { "shot": { "follow": "hero", "blend": 0 } },
+    { "wait": 0.2 },
+    { "teleport": { "role": "hero", "position": [5, 0, -5], "cover": "cut" } }
+  ]
+}

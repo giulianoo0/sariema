@@ -1,0 +1,9 @@
+{
+  "name": "jump",
+  "roles": { "hero": { "start": { "position": [0, 0, 0] } } },
+  "steps": [
+    { "fade": { "to": 1, "duration": 0.4 } },
+    { "teleport": { "role": "hero", "position": [5, 0, -5], "cover": "fade" } },
+    { "fade": { "to": 0, "duration": 0.4 } }
+  ]
+}
