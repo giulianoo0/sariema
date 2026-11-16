@@ -5,7 +5,9 @@
 
 use glam::{EulerRot, Vec3};
 use sariema_core::STEP_SECONDS;
-use sariema_format::script::{Bus, Command, Entity, Event, Kind, Property, clip_spans};
+use sariema_format::script::{
+    Bus, Command, Entity, Event, Kind, Property, clip_spans, scene_values,
+};
 
 use crate::camera::{CameraPose, CameraSettings, Framing};
 use crate::clips::Next;
@@ -577,6 +579,37 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
                     damping,
                 )
                 .map_err(refuse(entity))?;
+        }
+        C::SceneTween {
+            tween,
+            values,
+            duration,
+            ease,
+        } => {
+            let pairs = scene_values(values).ok_or(scene(SceneReject::Values))?;
+            for (param, to) in pairs.clone() {
+                if !to.is_finite() {
+                    return Err(scene(SceneReject::Values));
+                }
+                s.scenery.param(param).map_err(scene)?;
+            }
+            let targets = pairs.map(|(var, to)| {
+                let target = Target {
+                    entity: Entity::NONE,
+                    property: Property::Scene,
+                    var,
+                };
+                (target, to)
+            });
+            s.tweens
+                .bundle(
+                    (&s.world, &s.store, &s.scenery),
+                    tween,
+                    targets,
+                    duration,
+                    ease,
+                )
+                .map_err(|_| scene(SceneReject::Unknown))?;
         }
         C::CancelTween { tween } => s.tweens.cancel(tween),
         C::SetVar { var, value } => {

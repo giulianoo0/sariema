@@ -58,6 +58,45 @@ fn build_then_inspect_demo() {
     assert_eq!(inspected["lights"], json!(["a.foco", "a.abajur"]));
     assert_eq!(inspected["materials"], json!(["mat0"]));
     assert_eq!(inspected["draws"], json!(["a.mesa"]));
+    let params = inspected["params"].as_array().unwrap();
+    let param = |name: &str| {
+        (params.iter())
+            .find(|p| p["name"] == name)
+            .unwrap_or_else(|| panic!("no {name} in {params:?}"))["value"]
+            .as_f64()
+            .unwrap()
+    };
+    assert_eq!(param("light.a.foco.range"), built_light_range(&pack));
+    assert_eq!(param("fog.density"), 0.0);
+    assert_eq!(param("hemisphere.intensity"), 1.0);
+}
+
+#[test]
+fn inspect_lists_a_rooms_cutaways_and_their_heights() {
+    let tmp = TempDir::new().unwrap();
+    let pack = tmp.path().join("house.srma");
+    let example = demo().join("../cutaway");
+    let (code, out) = sariema(&["build", arg(&example), "--room", "house", "-o", arg(&pack)]);
+    assert_eq!(code, 0, "{out}");
+    let (code, inspected) = sariema(&["inspect", arg(&pack)]);
+    assert_eq!(code, 0, "{inspected}");
+    let walls = &inspected["cutaways"][0];
+    assert_eq!(walls["name"], "walls");
+    assert_eq!(
+        walls["draws"],
+        json!(["a/walls/mat0", "a/walls/below/mat0"]),
+        "the crates merge into one draw, their part under the cut into another"
+    );
+    assert_eq!(walls["areas"], 2);
+    assert_eq!(walls["cut_shadows"], true);
+    let params = inspected["params"].as_array().unwrap();
+    let height = params.iter().find(|p| p["name"] == "cutaway.walls.height");
+    assert_eq!(height.unwrap()["value"].as_f64().unwrap(), 0.4f32 as f64);
+}
+
+fn built_light_range(pack: &Path) -> f64 {
+    let room = sariema_format::decode(&std::fs::read(pack).unwrap()).unwrap();
+    room.lights[0].range as f64
 }
 
 #[test]

@@ -82,11 +82,18 @@ impl Scene {
             }
             let i = i as usize;
             let draw = &room.draws[i];
-            let pipeline = (draw.dithered(), draw.kind);
+            let cut = self.cut.as_ref().filter(|_| draw.cutting);
+            let kind = if cut.is_some() {
+                draw.kind
+            } else {
+                draw.uncut_kind()
+            };
+            let pipeline = (cut.is_some(), draw.dithered(), kind);
             if current != Some(pipeline) {
-                pass.set_pipeline(match pipeline {
-                    (true, kind) => &self.dithered[kind.dither_index()],
-                    (false, kind) => &self.pipelines[kind.index()],
+                pass.set_pipeline(match (cut, pipeline) {
+                    (Some(cut), (_, _, kind)) => &cut.color[kind.index()],
+                    (None, (_, true, kind)) => &self.dithered[kind.dither_index()],
+                    (None, (_, false, kind)) => &self.pipelines[kind.index()],
                 });
                 current = Some(pipeline);
             }
@@ -148,10 +155,17 @@ impl Scene {
                 room.bind_meshes(&mut pass);
                 bound = Some(slot);
             }
-            let double_sided = draw.kind.double_sided;
-            if current != Some(double_sided) {
-                pass.set_pipeline(&self.depth_only[double_sided as usize]);
-                current = Some(double_sided);
+            let cut = self.cut.as_ref().filter(|_| draw.cutting);
+            let kind = if cut.is_some() {
+                draw.kind
+            } else {
+                draw.uncut_kind()
+            };
+            let pipeline = (cut.is_some(), kind.double_sided);
+            if current != Some(pipeline) {
+                let sides = pipeline.1 as usize;
+                pass.set_pipeline(cut.map_or(&self.depth_only[sides], |cut| &cut.depth[sides]));
+                current = Some(pipeline);
             }
             room.draw(&mut pass, i);
             gpu.count_draws(1);

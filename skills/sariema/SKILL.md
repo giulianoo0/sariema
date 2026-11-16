@@ -110,6 +110,10 @@ without assets.
 - Menus, HUD and the touch joystick: `sariema-ui`.
 - Particles (sparkles, dust, motes), trails to a goal and highlights in a
   piece's own colour: `docs/fx.md`.
+- The room's light, fog and look changed while playing (`scene_tween`, a
+  cutscene's `scene` step): `docs/lighting.md`, and `examples/dusk`.
+- Walls cut down between the camera and the hero (`cutaways` in a room,
+  `cutaway.<name>.height`): `docs/lighting.md`, and `examples/cutaway`.
 
 ## Common failures
 

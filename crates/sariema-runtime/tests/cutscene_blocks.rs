@@ -696,3 +696,125 @@ fn a_role_put_back_mid_walk_ends_its_walk_in_both_modes() {
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
+
+/// A room whose exposure starts at 1 and fog density at 0.
+fn lit_room() -> sariema_runtime::scenery::RoomScene {
+    use sariema_format::scenery::{Param, RoomIndex, Target};
+    let param = |name: &str, value, target| Param {
+        name: name.into(),
+        value,
+        target,
+    };
+    let index = RoomIndex {
+        params: vec![
+            param("look.exposure", 1.0, Target::Exposure),
+            param("fog.density", 0.0, Target::FogDensity),
+        ],
+        ..RoomIndex::default()
+    };
+    sariema_runtime::scenery::RoomScene::new("hall", index)
+}
+
+/// Plays `cutscene` in [`lit_room`] with actor 0 as `hero` from step 1,
+/// skipping it at `skip_at`; returns the exposure after each step and the
+/// steps the game heard each call at.
+fn scene_run(cutscene: &str, steps: u64, skip_at: Option<u64>) -> (Vec<f32>, Vec<(u64, String)>) {
+    let compiled = compile_json(cutscene).unwrap().0;
+    let name = compiled.name.clone();
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let log = seen.clone();
+    let logic = native(move |step, events, out| {
+        log.borrow_mut()
+            .extend(events.iter().map(|e| (step, format!("{e:?}"))));
+        match step {
+            0 => send(
+                out,
+                Command::Spawn {
+                    entity: entity(0),
+                    kind: Kind::Actor,
+                    asset: 0,
+                },
+            ),
+            1 => {
+                send(
+                    out,
+                    Command::CutsceneBind {
+                        role: name_id("hero"),
+                        entity: entity(0),
+                    },
+                );
+                send(out, play(&name));
+            }
+            _ if Some(step) == skip_at => send(out, Command::CutsceneSkip {}),
+            _ => {}
+        }
+    });
+    let mut sim = Simulation::new(Settings::default(), vec![compiled], logic, 1);
+    sim.set_rooms(vec![lit_room()]);
+    let actions = Actions::for_settings(&Settings::default().input);
+    let mut exposure = Vec::new();
+    for _ in 0..steps {
+        sim.step(&actions);
+        exposure.push(sim.state().scenery.param(name_id("look.exposure")).unwrap());
+    }
+    let fog = sim.state().scenery.param(name_id("fog.density")).unwrap();
+    assert_eq!(fog, 0.1, "the fog ends where the cutscene set it");
+    let events = seen.take();
+    (exposure, events)
+}
+
+#[test]
+fn a_scene_step_tweens_the_room_without_waiting() {
+    let cutscene = format!(
+        r#"{{ "name": "dusk", {ROLE_AT_ORIGIN}, "steps": [
+            {{ "scene": {{ "set": {{ "look.exposure": 3.0, "fog.density": 0.1 }},
+                           "duration": 1, "ease": "linear" }} }},
+            {{ "call": "after" }},
+            {{ "wait": 2 }} ] }}"#
+    );
+    let (exposure, events) = scene_run(&cutscene, 120, None);
+    let first = exposure
+        .iter()
+        .position(|&e| e != 1.0)
+        .expect("never moved");
+    assert!(
+        (exposure[first] - (1.0 + 2.0 / 60.0)).abs() < 1e-5,
+        "{}",
+        exposure[first]
+    );
+    let half = exposure[first + 29];
+    assert!((half - 2.0).abs() < 1e-5, "half way: {half}");
+    assert_eq!(exposure[first + 59], 3.0);
+    assert!(
+        exposure
+            .windows(2)
+            .all(|w| w[1] - w[0] <= 2.0 / 60.0 + 1e-5)
+    );
+    let after = at(&events, &call("after"));
+    assert_eq!(after.len(), 1, "{events:?}");
+    assert!(
+        after[0] <= first as u64 + 2,
+        "the call came at step {}, the tween started at {first}",
+        after[0]
+    );
+}
+
+#[test]
+fn a_skipped_cutscene_lands_its_scene_steps_under_the_fade() {
+    let cutscene = format!(
+        r#"{{ "name": "night", {ROLE_AT_ORIGIN}, "steps": [
+            {{ "scene": {{ "set": {{ "look.exposure": 3.0 }}, "duration": 4 }} }},
+            {{ "wait": 1 }},
+            {{ "scene": {{ "set": {{ "fog.density": 0.1 }}, "duration": 2 }} }},
+            {{ "wait": 4 }} ] }}"#
+    );
+    let (played, _) = scene_run(&cutscene, 330, None);
+    let (skipped, _) = scene_run(&cutscene, 330, Some(20));
+    assert!(
+        played[150] < 3.0,
+        "still easing when played: {}",
+        played[150]
+    );
+    assert_eq!(skipped[150], 3.0, "landed once skipped");
+    assert_eq!((played[329], skipped[329]), (3.0, 3.0));
+}

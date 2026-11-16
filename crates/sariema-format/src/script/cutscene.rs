@@ -176,6 +176,14 @@ pub enum Block {
         spans: Vec<PathSpan>,
         then: Vec<Then>,
     },
+    /// Tweens scene parameters of the active room, each a name id with the
+    /// value it goes to, as one `scene_tween`; ends at once. A skip lands
+    /// them, and every one still under way, at their values.
+    Scene {
+        values: Vec<(u32, f32)>,
+        duration: f32,
+        ease: u8,
+    },
 }
 
 /// A span of a [`Block::Path`]'s clip, `from` to `until` seconds of it.

@@ -20,7 +20,7 @@ use winit::window::WindowId;
 use crate::RunArgs;
 use crate::output::{Done, Failure};
 use crate::run::frame_stats_json;
-use crate::stage::Stage;
+use crate::stage::{self, Stage};
 use crate::window::{FrameClock, Outcome, Screen, Stop, caught, window_error};
 
 /// Below this pitch the floor is nearly edge-on, and a vertical drag
@@ -251,6 +251,7 @@ impl ApplicationHandler for Player<'_> {
                     args.quality.settings(),
                 )?;
                 screen.renderer.load_room(player.room)?;
+                stage::cut_around(&mut screen.renderer, player.room, &args.stage.actors);
                 player.stage = Some(Stage::load(&mut screen.renderer, &player.args.stage)?);
                 screen.window.request_redraw();
                 player.screen = Some(screen);

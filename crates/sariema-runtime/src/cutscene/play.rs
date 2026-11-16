@@ -23,7 +23,7 @@ use glam::Vec3;
 use sariema_format::script::cutscene::{Await, Block, Cutscene, Place, Point, Shot, Toward};
 use sariema_format::script::{
     Advance, Anchor, Bus, CLIP_SPAN, ClipMode, ClipSpan, Command, Controller, Ease, Entity, Event,
-    Kind, Property, name_id,
+    Kind, Property, name_id, put_scene_value,
 };
 
 use crate::apply::{Source, apply};
@@ -42,6 +42,8 @@ pub const RIG: u32 = u32::MAX;
 pub const LINE: u32 = u32::MAX;
 /// Tween ids from here up belong to the sequencer.
 pub const TWEENS: u32 = 0xFFFF_0000;
+/// The tween every scene block's parameters go under.
+pub const SCENE: u32 = u32::MAX;
 
 /// A `hinge` step turns its node as a `tween` of its scene parameter would,
 /// and is reported under that command's opcode.
@@ -76,6 +78,7 @@ macro_rules! ctx {
             skip: $skip,
             final_fade: &mut $run.final_fade,
             final_color: &mut $run.final_color,
+            scratch: &mut $run.scratch,
         }
     };
 }
@@ -158,6 +161,8 @@ struct Run {
     time_scale_before: f32,
     final_fade: f32,
     final_color: [f32; 3],
+    /// The values of the scene block being issued.
+    scratch: Vec<u8>,
 }
 
 struct Ctx<'a> {
@@ -168,6 +173,7 @@ struct Ctx<'a> {
     skip: bool,
     final_fade: &'a mut f32,
     final_color: &'a mut [f32; 3],
+    scratch: &'a mut Vec<u8>,
 }
 
 impl Ctx<'_> {
@@ -283,6 +289,7 @@ impl Sequencer {
                     }
                 }
                 run.placing.iter_mut().for_each(|p| *p = Placing::Done);
+                s.tweens.land(SCENE);
                 let duration = s.settings.cutscene.skip_fade;
                 let mut ctx = ctx!(s, cutscene, run, true);
                 tick_list(&mut run.body, &cutscene.body, &mut ctx);
@@ -340,6 +347,7 @@ impl Sequencer {
             time_scale_before: s.time_scale.target(),
             final_fade: s.screen.fade.target(),
             final_color: s.screen.fade_color.to_array(),
+            scratch: Vec::new(),
         };
         begin_placing(s, cutscene, &mut run);
         s.events.push(Event::CutsceneStarted { cutscene: id });
@@ -938,6 +946,25 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
                 scale: *scale,
                 blend: if skip { 0.0 } else { *blend },
             });
+            None
+        }
+        Block::Scene {
+            values,
+            duration,
+            ease,
+        } => {
+            ctx.scratch.clear();
+            for &(param, value) in values {
+                put_scene_value(ctx.scratch, param, value);
+            }
+            let values = std::mem::take(ctx.scratch);
+            ctx.issue(Command::SceneTween {
+                tween: SCENE,
+                values: &values,
+                duration: if skip { 0.0 } else { *duration },
+                ease: Ease::from_u8(*ease).unwrap_or(Ease::InOutSine),
+            });
+            *ctx.scratch = values;
             None
         }
         Block::CameraShake {

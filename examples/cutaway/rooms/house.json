@@ -1,0 +1,39 @@
+{
+  "name": "house",
+  "kit": "../../crates/sariema-import/tests/fixtures/kit_min.opt.glb",
+  "montagem": "montagem.json",
+  "luz": "luz.json",
+  "show": ["a"],
+  "loose": [],
+  "drawn_materials": [],
+  "rim_materials": [],
+  "additive_materials": [],
+  "look": {
+    "exposure": 1.2,
+    "bloom_threshold": 1.0,
+    "bloom_strength": 0.2,
+    "tint": [1.0, 1.0, 1.0],
+    "real": 0.0,
+    "night": 0.0,
+    "tilt": 0.0,
+    "focus": 8.0
+  },
+  "camera": { "fov_y_deg": 40.0, "pitch_deg": 38.0, "distance": 8.5, "focus": [2.25, 0.4, -2.4] },
+  "background": { "top": [0.25, 0.4, 0.7], "bottom": [0.6, 0.7, 0.8] },
+  "cutaways": [
+    {
+      "name": "walls",
+      "pieces": ["caixa"],
+      "height": 0.4,
+      "areas": [
+        { "min": [0.0, -4.5], "max": [4.5, -2.5] },
+        { "min": [0.0, -2.0], "max": [4.5, -0.5] }
+      ],
+      "offset": -0.08,
+      "follow": 0.15,
+      "attach": 0.0,
+      "soft": 0.1,
+      "cap": [0.042, 0.047, 0.054]
+    }
+  ]
+}

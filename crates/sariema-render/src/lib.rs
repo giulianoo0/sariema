@@ -32,7 +32,7 @@ use std::time::Duration;
 use glam::Mat4;
 use sariema_core::Camera;
 use sariema_format::actor::ActorPack;
-use sariema_format::{AlphaMode, Background, CharacterLight, Light, Look, RoomPack, Sun};
+use sariema_format::{AlphaMode, Background, CharacterLight, Fog, Light, Look, RoomPack, Sun};
 
 mod actors;
 mod cluster;
@@ -62,6 +62,7 @@ pub use timing::{FrameTimings, PassTime};
 use actors::Actors;
 use cluster::Visible;
 use post::Post;
+pub use resources::CutState;
 use resources::{PendingRoom, Room};
 use scene::Scene;
 use shadow::{Assigned, Shadows};
@@ -284,6 +285,7 @@ pub struct Lighting {
     pub ambient: [[f32; 3]; 9],
     pub background: Background,
     pub character: CharacterLight,
+    pub fog: Fog,
 }
 
 impl Lighting {
@@ -294,6 +296,7 @@ impl Lighting {
             ambient: room.ambient.sh9,
             background: room.background.clone(),
             character: room.character.clone(),
+            fog: room.fog,
         }
     }
 }
@@ -348,6 +351,7 @@ pub struct Renderer {
     /// The drawn set or a light switched since `lights` was made.
     lights_stale: bool,
     lighting: Option<Lighting>,
+    look: Option<Look>,
     ui: UiPass,
     visible: Visible,
     stats: FrameStats,
@@ -415,6 +419,7 @@ impl Renderer {
             light_keys: Vec::new(),
             lights_stale: true,
             lighting: None,
+            look: None,
             ui,
             visible: Visible::default(),
             stats: FrameStats::default(),
@@ -503,7 +508,17 @@ impl Renderer {
         }
     }
 
+    /// Makes the pipelines that draw cutaways, which the first room with
+    /// some makes otherwise: for a game that loads such a room while playing.
+    pub fn prepare_cutaways(&mut self) {
+        self.scene.prepare_cutaways(&self.gpu, &self.quality);
+        self.shadows.prepare_cutaways(&self.gpu);
+    }
+
     fn put(&mut self, slot: u32, room: Room) {
+        if room.has_cutaways() {
+            self.prepare_cutaways();
+        }
         let i = slot as usize;
         if self.stage.rooms.len() <= i {
             self.stage.rooms.resize_with(i + 1, || None);
@@ -574,6 +589,20 @@ impl Renderer {
         self.stage
             .get_mut(slot)
             .is_some_and(|r| r.set_node_visible(node, visible))
+    }
+
+    /// Sets where cutaway `cutaway` of the room in `slot` cuts; false if
+    /// there is none. Until set, it cuts nothing.
+    pub fn set_cutaway(&mut self, slot: u32, cutaway: usize, state: CutState) -> bool {
+        self.stage
+            .get_mut(slot)
+            .is_some_and(|r| r.set_cut(cutaway, state))
+    }
+
+    /// Where cutaway `cutaway` of the room in `slot` cuts, once set.
+    pub fn cutaway(&self, slot: u32, cutaway: usize) -> Option<CutState> {
+        let room = self.stage.rooms.get(slot as usize)?.as_ref()?;
+        room.cut_state(cutaway)
     }
 
     /// Moves node `node`'s draws by `offset`, column-major, from where the
@@ -792,6 +821,17 @@ impl Renderer {
 
     pub fn set_look(&mut self, look: &Look) {
         self.post.set_look(&self.gpu, look);
+        self.look = Some(look.clone());
+    }
+
+    /// The look set last.
+    pub fn look(&self) -> Option<&Look> {
+        self.look.as_ref()
+    }
+
+    /// The lighting set last; `None` draws with the first drawn room's own.
+    pub fn lighting(&self) -> Option<&Lighting> {
+        self.lighting.as_ref()
     }
 
     /// Keeps the frame drawn last, as it was composited, before the HUD:
@@ -862,8 +902,11 @@ impl Renderer {
                 ambient: r.ambient,
                 background: r.background.clone(),
                 character: r.character.clone(),
+                fog: r.fog,
             }),
         };
+        let fog = lighting.as_ref().map_or(Fog::default(), |l| l.fog);
+        self.post.set_fog(&self.gpu, scene::fog_params(&fog));
         let sun = lighting.as_ref().and_then(|l| l.sun.as_ref());
         self.shadows.assign(
             &self.gpu,

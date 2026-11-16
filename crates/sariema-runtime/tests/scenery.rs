@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use sariema_format::scenery::{LightIndex, NodeIndex, Param, PieceIndex, RoomIndex, Target};
 use sariema_format::script::{
-    Command, Ease, Entity, Event, Kind, Property, RoomTransition, name_id,
+    Command, Ease, Entity, Event, Kind, Property, RoomTransition, name_id, put_scene_value,
 };
 use sariema_runtime::scenery::{Binding, RoomRequest, RoomScene};
 use sariema_runtime::settings::Settings;
@@ -53,6 +53,7 @@ fn house() -> RoomIndex {
                 target: Target::Hinge(0),
             },
         ],
+        cutaways: Vec::new(),
     }
 }
 
@@ -229,6 +230,146 @@ fn an_unknown_scene_parameter_is_refused() {
     }
     let (seen, _) = run(vec![(0, tween)], 2);
     assert!(rejected(&seen, "E_SCENE_UNKNOWN"));
+}
+
+/// `scene_tween` driving each named parameter to its value under `tween`.
+fn bundle(tween: u32, values: &[(&str, f32)], duration: f32, ease: Ease) -> Command<'static> {
+    let mut bytes = Vec::new();
+    for (name, value) in values {
+        put_scene_value(&mut bytes, name_id(name), *value);
+    }
+    Command::SceneTween {
+        tween,
+        values: Box::leak(bytes.into_boxed_slice()),
+        duration,
+        ease,
+    }
+}
+
+fn done(seen: &[(u64, String)], tween: u32) -> Vec<u64> {
+    let mark = format!("TweenDone {{ tween: {tween} }}");
+    (seen.iter())
+        .filter(|(_, e)| e.contains(&mark))
+        .map(|(step, _)| *step)
+        .collect()
+}
+
+#[test]
+fn a_bundle_tweens_its_parameters_together_and_reports_done_once() {
+    let door = [("look.exposure", 3.0), ("hinge.kitchen.door", 90.0)];
+    let (_, sim) = run(vec![(0, bundle(5, &door, 1.0, Ease::Linear))], 30);
+    let scenery = &sim.state().scenery;
+    assert_eq!(scenery.param(name_id("look.exposure")), Ok(2.0));
+    assert_eq!(scenery.param(name_id("hinge.kitchen.door")), Ok(45.0));
+    let (_, sim) = run(vec![(0, bundle(5, &door, 1.0, Ease::InOutSine))], 30);
+    let middle = sim.state().scenery.param(name_id("look.exposure")).unwrap();
+    assert!((middle - 2.0).abs() < 1e-5, "{middle}");
+    let (seen, sim) = run(vec![(0, bundle(5, &door, 1.0, Ease::Linear))], 90);
+    let scenery = &sim.state().scenery;
+    assert_eq!(scenery.param(name_id("look.exposure")), Ok(3.0));
+    assert_eq!(scenery.param(name_id("hinge.kitchen.door")), Ok(90.0));
+    assert_eq!(done(&seen, 5).len(), 1, "{seen:?}");
+}
+
+#[test]
+fn a_bundle_takes_over_a_parameter_without_a_jump_and_leaves_the_others() {
+    // The exposure tween is halfway (2.0) when the bundle takes it to 1.0
+    // over the next second; the hinge, in no bundle, keeps its own tween.
+    let hinge = Command::Tween {
+        tween: 9,
+        entity: Entity::NONE,
+        property: Property::Scene,
+        var: name_id("hinge.kitchen.door"),
+        to: 60.0,
+        duration: 1.0,
+        ease: Ease::Linear,
+    };
+    let script = Rc::new(RefCell::new(vec![
+        (0, exposure_tween(3.0, 1.0)),
+        (0, hinge),
+        (30, bundle(5, &[("look.exposure", 1.0)], 1.0, Ease::Linear)),
+    ]));
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let mut sim = simulation(&script, &seen);
+    let mut last = 1.0;
+    for _ in 0..100 {
+        sim.step(&Default::default());
+        let now = sim.state().scenery.param(name_id("look.exposure")).unwrap();
+        assert!((now - last).abs() <= 2.0 / 60.0 + 1e-5, "{last} to {now}");
+        last = now;
+    }
+    let scenery = &sim.state().scenery;
+    assert_eq!(scenery.param(name_id("look.exposure")), Ok(1.0));
+    assert_eq!(scenery.param(name_id("hinge.kitchen.door")), Ok(60.0));
+    let seen = seen.borrow();
+    assert_eq!(
+        done(&seen, 1),
+        Vec::<u64>::new(),
+        "the exposure tween was replaced"
+    );
+    assert_eq!(done(&seen, 9).len(), 1);
+    assert_eq!(done(&seen, 5).len(), 1);
+}
+
+#[test]
+fn a_bundle_with_an_unknown_parameter_or_a_broken_value_changes_nothing() {
+    let unknown = bundle(
+        5,
+        &[("look.exposure", 3.0), ("look.sparkle", 1.0)],
+        1.0,
+        Ease::Linear,
+    );
+    let (seen, sim) = run(vec![(0, unknown)], 30);
+    assert!(rejected(&seen, "E_SCENE_UNKNOWN"));
+    assert_eq!(sim.state().scenery.param(name_id("look.exposure")), Ok(1.0));
+    let mut bytes = Vec::new();
+    put_scene_value(&mut bytes, name_id("look.exposure"), 3.0);
+    bytes.pop();
+    let torn = Command::SceneTween {
+        tween: 5,
+        values: Box::leak(bytes.into_boxed_slice()),
+        duration: 1.0,
+        ease: Ease::Linear,
+    };
+    let not_a_number = bundle(6, &[("look.exposure", f32::NAN)], 1.0, Ease::Linear);
+    let (seen, sim) = run(vec![(0, torn), (1, not_a_number)], 30);
+    let refused = (seen.iter())
+        .filter(|(_, e)| e.contains("Rejected") && e.contains("E_SCENE_VALUES"))
+        .count();
+    assert_eq!(refused, 2, "{seen:?}");
+    assert_eq!(sim.state().scenery.param(name_id("look.exposure")), Ok(1.0));
+}
+
+#[test]
+fn the_values_of_the_step_before_stay_for_the_frames_between_steps() {
+    let (_, mut sim) = run(vec![(0, exposure_tween(3.0, 1.0))], 30);
+    let room = &sim.state().scenery.rooms()[0];
+    let at = room.param(name_id("look.exposure")).unwrap();
+    assert!((room.previous[at] - (1.0 + 2.0 * 29.0 / 60.0)).abs() < 1e-6);
+    assert_eq!(room.params[at], 2.0);
+    sim.step(&Default::default());
+    let room = &sim.state().scenery.rooms()[0];
+    assert_eq!(room.previous[at], 2.0);
+}
+
+#[test]
+fn a_bundle_changes_the_world_hash_only_once_sent() {
+    let quiet = run(Vec::new(), 40).1.state().world_hash();
+    let still = run(
+        vec![(50, bundle(5, &[("look.exposure", 3.0)], 1.0, Ease::Linear))],
+        40,
+    );
+    assert_eq!(still.1.state().world_hash(), quiet);
+    let sent = run(
+        vec![(10, bundle(5, &[("look.exposure", 3.0)], 1.0, Ease::Linear))],
+        40,
+    );
+    assert_ne!(sent.1.state().world_hash(), quiet);
+    let again = run(
+        vec![(10, bundle(5, &[("look.exposure", 3.0)], 1.0, Ease::Linear))],
+        40,
+    );
+    assert_eq!(again.1.state().world_hash(), sent.1.state().world_hash());
 }
 
 fn switch(room: &str, transition: RoomTransition, duration: f32) -> Command<'static> {

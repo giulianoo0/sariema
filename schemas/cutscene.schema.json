@@ -1165,6 +1165,40 @@
             "path"
           ],
           "description": "A traversal bound to a clip: the role's root moves only within the clip's spans, collider off, still while the clip anticipates and settles; a span can slow the clip; the clips of `then` follow without a still frame. Ends when the last clip has played through and the root has landed, on free floor with its collider on."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scene": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "set": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "number"
+                  },
+                  "description": "Each scene parameter of the active room (look.exposure, sun.intensity, hemisphere.sky.r, fog.density, light.<name>.intensity, ...) with the value it goes to."
+                },
+                "duration": {
+                  "$ref": "#/$defs/seconds"
+                },
+                "ease": {
+                  "$ref": "#/$defs/ease",
+                  "default": "in_out_sine"
+                }
+              },
+              "required": [
+                "set",
+                "duration"
+              ]
+            }
+          },
+          "required": [
+            "scene"
+          ],
+          "description": "Tweens scene parameters of the active room together, each from its value, without a jump. Ends at once; a skip lands them."
         }
       ]
     }

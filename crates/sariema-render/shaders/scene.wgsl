@@ -73,6 +73,8 @@ override DITHER: bool = false;
 // Actors take the character light, and the colour of the room's light only
 // as far as its room tint says.
 override ACTOR: bool = false;
+// Additive: fog fades what it adds instead of turning it the fog's colour.
+override GLOW: bool = false;
 
 struct VertexOut {
     @builtin(position) clip: vec4<f32>,
@@ -106,23 +108,65 @@ fn vs_depth(v: VertexIn) -> @builtin(position) vec4<f32> {
     return frame.view_proj * draw.model * vec4(v.position, 1.0);
 }
 
+struct DepthOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) world: vec3<f32>,
+}
+
+@vertex
+fn vs_depth_cut(v: VertexIn) -> DepthOut {
+    // The product in the order vs_depth takes it, for the same depth.
+    let clip = frame.view_proj * draw.model * vec4(v.position, 1.0);
+    return DepthOut(clip, (draw.model * vec4(v.position, 1.0)).xyz);
+}
+
+// The depth of a draw in a cutaway, without what is cut.
+@fragment
+fn fs_depth_cut(in: DepthOut, @builtin(front_facing) front: bool) {
+    if cut_drops(in.world, front, dither(in.clip.xy)) {
+        discard;
+    }
+}
+
 // Jimenez's interleaved gradient noise: a threshold in [0, 1) per pixel
 // with no visible pattern at a glance.
 fn dither(pixel: vec2<f32>) -> f32 {
     return fract(52.9829189 * fract(dot(floor(pixel), vec2(0.06711056, 0.00583715))));
 }
 
+// Whether a dissolving draw leaves this pixel out.
+fn dithered_out(in: VertexOut) -> bool {
+    let d = dither(in.clip.xy);
+    return abs(in.presence) <= select(d, 1.0 - d, in.presence < 0.0);
+}
+
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
-    let presence = abs(in.presence);
-    if DITHER {
-        let d = dither(in.clip.xy);
-        if presence <= select(d, 1.0 - d, in.presence < 0.0) {
-            discard;
-        }
+    if DITHER && dithered_out(in) {
+        discard;
     }
     let base = material.base_color * textureSample(base_texture, material_sampler, in.uv) * in.color;
     let emissive = material.emissive * textureSample(emissive_texture, material_sampler, in.uv).rgb;
+    return shade(in, front, base, emissive);
+}
+
+// A draw in a cutaway: without what is cut, its inside in the cap's colour.
+@fragment
+fn fs_cut(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    if (DITHER && dithered_out(in)) || cut_drops(in.world, front, dither(in.clip.xy)) {
+        discard;
+    }
+    let base = material.base_color * textureSample(base_texture, material_sampler, in.uv) * in.color;
+    let emissive = material.emissive * textureSample(emissive_texture, material_sampler, in.uv).rgb;
+    // Selected, not branched on: shading takes derivatives, which a browser's
+    // WGSL allows only in uniform control flow.
+    let capped = cut_capped(in.world, front);
+    let shown = select(base, vec4(cut.cap.rgb, base.a), capped);
+    return shade(in, front, shown, select(emissive, vec3(0.0), capped));
+}
+
+fn shade(in: VertexOut, front: bool, base: vec4<f32>, emissive: vec3<f32>) -> vec4<f32> {
+    let presence = abs(in.presence);
     // A back face, drawn only for double-sided materials, is shaded from its own side.
     let n = normalize(in.normal) * select(-1.0, 1.0, front);
     let v = normalize(frame.camera_pos.xyz - in.world);
@@ -139,6 +183,10 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     }
     if any(in.glow > vec2(0.0)) {
         color += glow(base.rgb, in.glow, n, v);
+    }
+    if frame.fog.w > 0.0 {
+        let f = fog_share(distance(frame.camera_pos.xyz, in.world), frame.fog);
+        color = select(mix(color, frame.fog_color.rgb, f), color * (1.0 - f), GLOW);
     }
     if BLEND {
         return vec4(color * base.a, base.a) * presence;

@@ -7,4 +7,4 @@ pub mod author;
 pub mod check;
 mod play;
 
-pub use play::{CODES as PLAY_CODES, LINE, RIG, Sequencer, TWEENS};
+pub use play::{CODES as PLAY_CODES, LINE, RIG, SCENE, Sequencer, TWEENS};

@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use crate::Rng;
 use crate::host::Host;
 use crate::table::{Command, Event};
-use crate::wire::{Entity, Kind, Sink};
+use crate::wire::{Ease, Entity, Kind, Sink, put_scene_value};
 
 impl Sink for Vec<u8> {
     fn put(&mut self, bytes: &[u8]) {
@@ -70,6 +70,8 @@ impl Entities {
 /// The SDK's own state between ticks.
 pub(crate) struct Shared {
     pub(crate) commands: Vec<u8>,
+    /// The values of the `scene_tween` being sent.
+    scene_values: Vec<u8>,
     pub(crate) entities: Entities,
     pub(crate) rng: Rng,
     pub(crate) step: u64,
@@ -89,6 +91,7 @@ impl Shared {
     pub(crate) const fn new() -> Shared {
         Shared {
             commands: Vec::new(),
+            scene_values: Vec::new(),
             entities: Entities::new(),
             rng: Rng::new(0, GAME_STREAM),
             step: 0,
@@ -132,6 +135,23 @@ impl Ctx<'_> {
     /// Sends a command; commands apply in the order sent, after the tick.
     pub fn send(&mut self, command: Command<'_>) {
         command.write(&mut self.shared.commands);
+    }
+
+    /// Tweens scene parameters of the active room together under `tween`:
+    /// each pair is a parameter's [`crate::id`] and the value it goes to.
+    pub fn scene_tween(&mut self, tween: u32, values: &[(u32, f32)], duration: f32, ease: Ease) {
+        let bytes = &mut self.shared.scene_values;
+        bytes.clear();
+        for &(param, value) in values {
+            put_scene_value(bytes, param, value);
+        }
+        Command::SceneTween {
+            tween,
+            values: bytes,
+            duration,
+            ease,
+        }
+        .write(&mut self.shared.commands);
     }
 
     /// Spawns an entity in a free slot and returns its handle.

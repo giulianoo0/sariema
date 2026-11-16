@@ -162,3 +162,16 @@ fn a_hinge_step_must_name_a_hinged_node_of_some_room() {
     let (cutscene, names) = compile_json(&fixed).unwrap();
     assert_eq!(check_hinges(&cutscene, &rooms, &names), Vec::new());
 }
+
+#[test]
+fn parallel_branches_must_not_tween_the_same_scene_parameter() {
+    let text = r#"{ "name": "dusk", "roles": {}, "steps": [ { "parallel": [
+        [ { "scene": { "set": { "look.exposure": 2, "fog.density": 0.1 }, "duration": 2 } } ],
+        [ { "wait": 1 }, { "scene": { "set": { "look.exposure": 3 }, "duration": 1 } } ],
+        [ { "scene": { "set": { "look.tint.r": 0.9 }, "duration": 1 } } ] ] } ] }"#;
+    let (cutscene, _) = compile_json(text).unwrap();
+    let e = check(&cutscene, &Settings::default());
+    assert_eq!(e.len(), 1, "{e:?}");
+    assert_eq!(e[0].code, "E_CUTSCENE_RACE");
+    assert!(e[0].message.contains("branches 0 and 1"), "{}", e[0]);
+}

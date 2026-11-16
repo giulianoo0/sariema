@@ -12,15 +12,17 @@
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
+use crate::previous::{Cutaway9, missing_fields, upgrade};
 use crate::{
-    Ambient, Background, CharacterLight, Draw, FormatError, Group, HEADER_LEN, Light, Look, MAGIC,
-    Material, Mesh, Node, Piece, RoomCamera, RoomPack, Stats, Sun, Texture, VERSION, validate_mesh,
-    validate_rest,
+    Ambient, Background, CharacterLight, Cutaway, Draw, Fog, FormatError, Group, HEADER_LEN, Light,
+    Look, Material, Mesh, Node, Piece, RoomCamera, RoomPack, Stats, Sun, Texture, VERSION,
+    header_version, validate_mesh, validate_rest,
 };
 
-/// The fields of [`RoomPack`] after its textures, in its order.
+/// The fields of [`RoomPack`] after its textures, in its order, with the
+/// cutaways of the version read.
 #[derive(Deserialize)]
-struct Tail {
+struct Tail<C> {
     draws: Vec<Draw>,
     lights: Vec<Light>,
     ambient: Ambient,
@@ -33,6 +35,29 @@ struct Tail {
     nodes: Vec<Node>,
     pieces: Vec<Piece>,
     character: CharacterLight,
+    fog: Fog,
+    cutaways: Vec<C>,
+}
+
+impl Tail<Cutaway9> {
+    fn upgraded(self) -> Tail<Cutaway> {
+        Tail {
+            draws: self.draws,
+            lights: self.lights,
+            ambient: self.ambient,
+            sun: self.sun,
+            background: self.background,
+            look: self.look,
+            camera: self.camera,
+            stats: self.stats,
+            groups: self.groups,
+            nodes: self.nodes,
+            pieces: self.pieces,
+            character: self.character,
+            fog: self.fog,
+            cutaways: self.cutaways.into_iter().map(Cutaway::from).collect(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,6 +75,7 @@ enum Part {
 
 pub struct RoomDecoder<B> {
     bytes: B,
+    version: u32,
     at: usize,
     part: Part,
     name: String,
@@ -62,6 +88,7 @@ impl<B: AsRef<[u8]>> RoomDecoder<B> {
     pub fn new(bytes: B) -> RoomDecoder<B> {
         RoomDecoder {
             bytes,
+            version: VERSION,
             at: 0,
             part: Part::Header,
             name: String::new(),
@@ -108,18 +135,7 @@ impl<B: AsRef<[u8]>> RoomDecoder<B> {
     fn read_part(&mut self) -> Result<(), FormatError> {
         self.part = match self.part {
             Part::Header => {
-                let bytes = self.bytes.as_ref();
-                let seen = bytes.len().min(MAGIC.len());
-                if bytes[..seen] != MAGIC[..seen] {
-                    return Err(FormatError::BadMagic);
-                }
-                let Some((header, _)) = bytes.split_first_chunk::<HEADER_LEN>() else {
-                    return Err(FormatError::Truncated);
-                };
-                let found = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
-                if found != VERSION {
-                    return Err(FormatError::Version { found });
-                }
+                self.version = header_version(self.bytes.as_ref())?;
                 self.at = HEADER_LEN;
                 Part::Name
             }
@@ -160,14 +176,23 @@ impl<B: AsRef<[u8]>> RoomDecoder<B> {
     }
 
     fn finish(&mut self) -> Result<RoomPack, FormatError> {
-        let tail: Tail = self.take()?;
+        let tail: Tail<Cutaway> = match self.version {
+            VERSION => self.take()?,
+            _ => {
+                let missing = missing_fields(self.version);
+                let padded = [&self.bytes.as_ref()[self.at..], &missing].concat();
+                let (tail, rest) = read::<Tail<Cutaway9>>(&padded)?;
+                self.at = self.bytes.as_ref().len() - rest.len().min(self.left());
+                tail.upgraded()
+            }
+        };
         let rest = self.left();
         if rest > 0 {
             return Err(FormatError::Invalid(format!(
                 "{rest} unexpected bytes after the room"
             )));
         }
-        let room = RoomPack {
+        let mut room = RoomPack {
             name: std::mem::take(&mut self.name),
             meshes: std::mem::take(&mut self.meshes),
             materials: std::mem::take(&mut self.materials),
@@ -184,7 +209,10 @@ impl<B: AsRef<[u8]>> RoomDecoder<B> {
             nodes: tail.nodes,
             pieces: tail.pieces,
             character: tail.character,
+            fog: tail.fog,
+            cutaways: tail.cutaways,
         };
+        upgrade(self.version, &mut room);
         validate_rest(&room)?;
         Ok(room)
     }
@@ -195,11 +223,15 @@ impl<B: AsRef<[u8]>> RoomDecoder<B> {
 
     fn take<T: DeserializeOwned>(&mut self) -> Result<T, FormatError> {
         let bytes = &self.bytes.as_ref()[self.at..];
-        let (value, rest) = postcard::take_from_bytes::<T>(bytes).map_err(|e| match e {
-            postcard::Error::DeserializeUnexpectedEnd => FormatError::Truncated,
-            other => FormatError::Invalid(other.to_string()),
-        })?;
+        let (value, rest) = read(bytes)?;
         self.at += bytes.len() - rest.len();
         Ok(value)
     }
+}
+
+fn read<T: DeserializeOwned>(bytes: &[u8]) -> Result<(T, &[u8]), FormatError> {
+    postcard::take_from_bytes::<T>(bytes).map_err(|e| match e {
+        postcard::Error::DeserializeUnexpectedEnd => FormatError::Truncated,
+        other => FormatError::Invalid(other.to_string()),
+    })
 }

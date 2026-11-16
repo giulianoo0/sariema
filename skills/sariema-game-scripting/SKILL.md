@@ -1,6 +1,6 @@
 ---
 name: sariema-game-scripting
-description: Use when writing or fixing the Rust logic of a Sariema game with sariema-sdk — spawning entities, reacting to events, moving the hero, timers, saves, input presses, opening doors — or when a run reports E_GAME_TRAP, E_GAME_BUDGET, E_GAME_MEMORY, a rejected event such as E_ENTITY_STALE or E_TELEPORT_VISIBLE, or hashes that differ between runs.
+description: Use when writing or fixing the Rust logic of a Sariema game with sariema-sdk — spawning entities, reacting to events, moving the hero, timers, saves, input presses, opening doors, changing a room's light, sun, hemisphere, fog or look while playing — or when a run reports E_GAME_TRAP, E_GAME_BUDGET, E_GAME_MEMORY, a rejected event such as E_ENTITY_STALE, E_TELEPORT_VISIBLE, E_SCENE_UNKNOWN or E_SCENE_VALUES, or hashes that differ between runs.
 ---
 
 # Sariema game scripting
@@ -63,6 +63,7 @@ game!(Hello);
 | one actor to turn slower than the rest | `SetTurnRate { entity, rate }` in degrees per second, at most `motion.turn_rate` (set that to the fastest actor's rate); `rate: 0.0` goes back to the setting |
 | later | `Timer { timer, duration, repeat }`, then `Event::TimerFired` |
 | a smooth value | `Tween { … ease }` or `Spring { … }`, then `Event::TweenDone` |
+| the room's light or look to change | `ctx.scene_tween(tween, &[(id("look.exposure"), 0.6), (id("fog.density"), 0.05)], 2.0, Ease::InOutSine)`, one `TweenDone` when all arrive; names in `docs/lighting.md` |
 | a button's index | `ctx.button(id("action"))` in `Game::new`; never copy its place in `input.buttons` |
 | a button press | `Event::Button { action, down }`, or `Event::Buffered { action, .. }` until you send `Consume { action }` |
 | randomness | `ctx.rng()`, seeded by the engine; never another source |
@@ -96,6 +97,8 @@ with `sariema run --headless … --json`.
 | `rejected` with `E_TURN_RATE` | `SetTurnRate` faster than `motion.turn_rate` or below 0 | raise `motion.turn_rate` to the fastest actor's rate in `game.settings` |
 | `rejected` with `E_ENTITY_STALE` | a handle kept after `despawn` or a `despawned` event | drop handles when they die |
 | `rejected` with `E_HOST_QUEUE_FULL` | more `save`, `host_send` or other host messages than the host takes between its frames (256, or 4 MiB) | send fewer or smaller ones; save when something changes, not every tick |
+| `rejected` with `E_SCENE_UNKNOWN` from `scene_tween` | a parameter the active room lacks (`sun.*` in a room without a sun, a light's name misspelt); nothing was tweened | list the room's parameters with `sariema inspect <room>.srma --json` (`params`) |
+| `rejected` with `E_SCENE_VALUES` | `values` not a whole number of 8-byte pairs, or a value not finite | build them with `ctx.scene_tween` (or `put_scene_value`) |
 | `E_GAME_TRAP` at step 0 with "time not implemented" | `std::time` | count steps (`ctx.step()`) |
 | `E_GAME_BUDGET` | heavy work in one tick | spread it over steps; bulk regions for many placements |
 | `state_hash` changed after a rebuild, same log | it covers the module's memory, which a rebuild moves | compare `world_hash` across builds, `state_hash` within one |

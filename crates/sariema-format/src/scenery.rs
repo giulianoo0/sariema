@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Hinge, RoomPack};
+use crate::{CutLine, Hinge, RoomPack, sh9_hemisphere};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RoomIndex {
@@ -18,6 +18,15 @@ pub struct RoomIndex {
     pub lights: Vec<LightIndex>,
     /// Every scene parameter of the room with its value when it loads.
     pub params: Vec<Param>,
+    pub cutaways: Vec<CutawayIndex>,
+}
+
+/// What the step needs of a [`crate::Cutaway`] to move its line; its height
+/// is the parameter `cutaway.<name>.height`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CutawayIndex {
+    pub name: String,
+    pub line: CutLine,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -103,6 +112,17 @@ pub enum Target {
     /// Degrees a hinged node is turned from its rest pose; index into
     /// [`RoomIndex::nodes`].
     Hinge(u32),
+    /// Metres from the camera where the fog's ramp from `FogStart` covers
+    /// everything.
+    FogEnd,
+    /// Multiplies the hemisphere's sky and ground.
+    Hemisphere,
+    /// The ambient light straight up, without its terms that vary sideways.
+    HemisphereSky(Channel),
+    /// The ambient light straight down, without its terms that vary sideways.
+    HemisphereGround(Channel),
+    /// Metres above which a cutaway cuts; index into [`RoomIndex::cutaways`].
+    CutawayHeight(u32),
 }
 
 const CHANNELS: [(Channel, &str); 3] = [(Channel::R, "r"), (Channel::G, "g"), (Channel::B, "b")];
@@ -183,12 +203,20 @@ impl RoomIndex {
                 Target::BackgroundBottom(*c),
             );
         }
-        push("fog.density".into(), 0.0, Target::FogDensity);
+        let (sky, ground) = sh9_hemisphere(&room.ambient.sh9);
+        push("hemisphere.intensity".into(), 1.0, Target::Hemisphere);
         for (k, (c, n)) in CHANNELS.iter().enumerate() {
-            let color = room.background.bottom[k];
-            push(format!("fog.color.{n}"), color, Target::FogColor(*c));
+            let (above, below) = (Target::HemisphereSky(*c), Target::HemisphereGround(*c));
+            push(format!("hemisphere.sky.{n}"), sky[k], above);
+            push(format!("hemisphere.ground.{n}"), ground[k], below);
         }
-        push("fog.start".into(), 0.0, Target::FogStart);
+        let fog = &room.fog;
+        push("fog.density".into(), fog.density, Target::FogDensity);
+        for (k, (c, n)) in CHANNELS.iter().enumerate() {
+            push(format!("fog.color.{n}"), fog.color[k], Target::FogColor(*c));
+        }
+        push("fog.start".into(), fog.start, Target::FogStart);
+        push("fog.end".into(), fog.end, Target::FogEnd);
         for (i, light) in room.lights.iter().enumerate() {
             let i = i as u32;
             let name = &light.name;
@@ -209,6 +237,10 @@ impl RoomIndex {
                 light.range,
                 Target::Light(i, LightField::Range),
             );
+        }
+        for (i, c) in room.cutaways.iter().enumerate() {
+            let name = format!("cutaway.{}.height", c.name);
+            push(name, c.height, Target::CutawayHeight(i as u32));
         }
         for (i, node) in room.nodes.iter().enumerate() {
             if let Some(hinge) = &node.hinge {
@@ -243,6 +275,12 @@ impl RoomIndex {
                 })
                 .collect(),
             params,
+            cutaways: (room.cutaways.iter())
+                .map(|c| CutawayIndex {
+                    name: c.name.clone(),
+                    line: c.line.clone(),
+                })
+                .collect(),
         }
     }
 }

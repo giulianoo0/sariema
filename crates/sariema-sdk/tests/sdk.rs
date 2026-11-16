@@ -244,3 +244,43 @@ fn an_input_button_is_looked_up_by_its_name() {
     let game = runner.game().unwrap();
     assert_eq!((game.action, game.jump), (Some(3), None));
 }
+
+#[test]
+fn a_scene_tween_carries_every_parameter_with_its_value() {
+    struct Dusk;
+    impl Game for Dusk {
+        fn new(ctx: &mut Ctx<'_>) -> Dusk {
+            let values = [
+                (sariema_sdk::id("look.exposure"), 0.6),
+                (sariema_sdk::id("fog.density"), 0.05),
+            ];
+            ctx.scene_tween(7, &values, 2.0, sariema_sdk::Ease::InOutSine);
+            Dusk
+        }
+        fn tick(&mut self, _: &mut Ctx<'_>, _: Events<'_>) {}
+    }
+    let mut host = started(1);
+    Runner::<Dusk>::new().run(&mut host);
+    let bytes = host.take_commands();
+    let sent: Vec<_> = engine::records::<engine::Command>(&bytes).collect();
+    let [
+        Ok(engine::Command::SceneTween {
+            tween,
+            values,
+            duration,
+            ease,
+        }),
+    ] = sent[..]
+    else {
+        panic!("{sent:?}");
+    };
+    assert_eq!((tween, duration, ease), (7, 2.0, engine::Ease::InOutSine));
+    let read: Vec<(u32, f32)> = engine::scene_values(values).unwrap().collect();
+    assert_eq!(
+        read,
+        [
+            (engine::name_id("look.exposure"), 0.6),
+            (engine::name_id("fog.density"), 0.05)
+        ]
+    );
+}

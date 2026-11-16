@@ -407,6 +407,11 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         Kind::Rejected,
         "cutscene_play before every role without a spawn was bound to a live entity",
     ),
+    (
+        "E_SCENE_VALUES",
+        Kind::Rejected,
+        "scene_tween values torn short of a whole parameter or not finite",
+    ),
 ];
 
 fn message(spec: &MessageSpec) -> Value {

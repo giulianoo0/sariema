@@ -17,7 +17,7 @@ pub use actor::{ActorSource, FaceSource, KeySettings, MaterialLook, SocketSource
 pub use collision::{BakeSettings, CollisionSource, build_collision};
 pub use kit::{Kit, KitHinge, KitImage, KitPiece, KitPrimitive, load_kit};
 pub use ktx2::{Ktx2Settings, decode_ktx2, decode_ktx2_with};
-pub use room::{Hemisphere, RoomSource, build_room};
+pub use room::{CutawaySource, FogSource, Hemisphere, RoomSource, StyleSource, build_room};
 pub use texture::{TextureMode, encode_texture, mip_chain_rgba8};
 
 #[derive(Debug)]

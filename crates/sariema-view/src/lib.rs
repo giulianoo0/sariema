@@ -122,6 +122,9 @@ impl GameView {
             settings.camera_slide_damping,
         );
         let mut rooms = rooms::Rooms::new(engine, settings);
+        if engine.rooms().iter().any(|r| !r.index.cutaways.is_empty()) {
+            renderer.prepare_cutaways();
+        }
         let active = engine.state().scenery.active();
         let camera = rooms.load_now(renderer, active)?.unwrap_or(RoomCamera {
             fov_y_deg: 40.0,

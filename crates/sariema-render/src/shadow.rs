@@ -22,7 +22,9 @@ use crate::{Gpu, Quality, RenderPath, Stage};
 
 const SOURCE: &str = concat!(
     include_str!("../shaders/common.wgsl"),
-    include_str!("../shaders/shadow.wgsl")
+    include_str!("../shaders/shadow.wgsl"),
+    include_str!("../shaders/cut.wgsl"),
+    include_str!("../shaders/shadow_cut.wgsl")
 );
 const VIEW_SIZE: u64 = size_of::<[[f32; 4]; 4]>() as u64;
 /// Depth offset of every caster drawn into the atlas.
@@ -32,6 +34,42 @@ pub(crate) const CASTER_BIAS: wgpu::DepthBiasState = wgpu::DepthBiasState {
     clamp: 0.0,
 };
 pub(crate) const GPU_SHADOW_SIZE: u64 = size_of::<GpuShadow>() as u64;
+
+/// Draws casters into the atlas from vertex entry `entries.0`, with
+/// fragment entry `entries.1` if given.
+fn caster_pipeline(
+    gpu: &Gpu,
+    module: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    (vertex, fragment): (&str, Option<&str>),
+) -> wgpu::RenderPipeline {
+    gpu.pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(vertex),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module,
+            entry_point: Some(vertex),
+            compilation_options: Default::default(),
+            buffers: &[Some(vertex_layout())],
+        },
+        // Both faces: single-sided casters still cast, and a mirroring
+        // transform needs no other winding.
+        primitive: Default::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            bias: CASTER_BIAS,
+            ..depth_state(true, wgpu::CompareFunction::Less)
+        }),
+        multisample: Default::default(),
+        fragment: fragment.map(|entry| wgpu::FragmentState {
+            module,
+            entry_point: Some(entry),
+            compilation_options: Default::default(),
+            targets: &[],
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
 
 /// Bytes per slot in the shadow pass's uniform of view-projections.
 pub(crate) fn view_stride(limits: &wgpu::Limits) -> u64 {
@@ -191,6 +229,10 @@ pub(crate) struct Assigned {
 
 pub(crate) struct Shadows {
     shadow: wgpu::RenderPipeline,
+    /// For casters cut as they are drawn, made with the first room that has some.
+    shadow_cut: Option<wgpu::RenderPipeline>,
+    module: wgpu::ShaderModule,
+    caster_layout: wgpu::PipelineLayout,
     clear: wgpu::RenderPipeline,
     atlas: wgpu::TextureView,
     sampler: wgpu::Sampler,
@@ -302,47 +344,30 @@ impl Shadows {
                 immediate_size: 0,
             })
         };
-        let pipeline = |layout: &wgpu::PipelineLayout,
-                        entry_point,
-                        buffers: &[Option<wgpu::VertexBufferLayout>],
-                        depth_stencil| {
-            gpu.pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(entry_point),
-                layout: Some(layout),
-                vertex: wgpu::VertexState {
-                    module: &module,
-                    entry_point: Some(entry_point),
-                    compilation_options: Default::default(),
-                    buffers,
-                },
-                // Both faces: single-sided casters still cast, and a mirroring
-                // transform needs no other winding.
-                primitive: Default::default(),
-                depth_stencil: Some(depth_stencil),
-                multisample: Default::default(),
-                fragment: None,
-                multiview_mask: None,
-                cache: None,
-            })
-        };
         // Group 0 is the scene's frame, which samples the atlas this pass writes.
-        let shadow = pipeline(
-            &layout(&[None, Some(draw_layout), Some(&view_layout)]),
-            "vs_shadow",
-            &[Some(vertex_layout())],
-            wgpu::DepthStencilState {
-                bias: CASTER_BIAS,
-                ..depth_state(true, wgpu::CompareFunction::Less)
+        let caster_layout = layout(&[None, Some(draw_layout), Some(&view_layout)]);
+        let shadow = caster_pipeline(gpu, &module, &caster_layout, ("vs_shadow", None));
+        let clear = gpu.pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("vs_clear"),
+            layout: Some(&layout(&[])),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vs_clear"),
+                compilation_options: Default::default(),
+                buffers: &[],
             },
-        );
-        let clear = pipeline(
-            &layout(&[]),
-            "vs_clear",
-            &[],
-            depth_state(true, wgpu::CompareFunction::Always),
-        );
+            primitive: Default::default(),
+            depth_stencil: Some(depth_state(true, wgpu::CompareFunction::Always)),
+            multisample: Default::default(),
+            fragment: None,
+            multiview_mask: None,
+            cache: None,
+        });
         Shadows {
             shadow,
+            shadow_cut: None,
+            module,
+            caster_layout,
             clear,
             atlas,
             sampler,
@@ -368,6 +393,19 @@ impl Shadows {
             placing: Placing::default(),
             placed: Vec::new(),
             next: Vec::new(),
+        }
+    }
+
+    /// Makes the pipeline that draws casters cut as they are drawn, once.
+    pub fn prepare_cutaways(&mut self, gpu: &Gpu) {
+        if self.shadow_cut.is_none() {
+            let entries = ("vs_shadow_cut", Some("fs_shadow_cut"));
+            self.shadow_cut = Some(caster_pipeline(
+                gpu,
+                &self.module,
+                &self.caster_layout,
+                entries,
+            ));
         }
     }
 
@@ -566,7 +604,7 @@ impl Shadows {
             pass.set_pipeline(&self.clear);
             pass.draw(0..3, 0..1);
             gpu.count_draws(1);
-            pass.set_pipeline(&self.shadow);
+            let mut cutting = None;
             pass.set_bind_group(2, &self.views_group, &[i as u32 * self.view_stride]);
             for (room_slot, room) in stage.drawn().filter(|(_, r)| r.presence >= SHADOWING) {
                 let casters = room.draws.iter().enumerate().filter(|(_, d)| {
@@ -575,10 +613,16 @@ impl Shadows {
                         && d.index_count > 0
                         && slot.reaches(lights, (d.min, d.max))
                 });
-                for (d, _) in casters {
+                for (d, item) in casters {
                     if bound != Some(room_slot) {
                         room.bind_meshes(&mut pass);
                         bound = Some(room_slot);
+                    }
+                    let cut_now = item.cut_shadow && item.cutting_shadow;
+                    let cut = self.shadow_cut.as_ref().filter(|_| cut_now);
+                    if cutting != Some(cut.is_some()) {
+                        pass.set_pipeline(cut.unwrap_or(&self.shadow));
+                        cutting = Some(cut.is_some());
                     }
                     room.draw(&mut pass, d);
                     gpu.count_draws(1);

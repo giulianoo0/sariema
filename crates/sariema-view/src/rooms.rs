@@ -26,11 +26,14 @@ use sariema_engine::{Engine, WorldJob};
 use sariema_format::scenery::{Channel, LightField, NodeIndex, RoomIndex, Target, sun_direction};
 use sariema_format::script::{Ease, RoomTransition};
 use sariema_format::stream::RoomDecoder;
-use sariema_format::{Background, CharacterLight, Look, RoomCamera, RoomPack, Sun};
-use sariema_render::{Lighting, Renderer};
+use sariema_format::{
+    Background, CharacterLight, Fog, Look, RoomCamera, RoomPack, Sun, hemisphere_sh9,
+    sh9_hemisphere,
+};
+use sariema_render::{CutState, Lighting, Renderer};
 use sariema_runtime::ease::ease;
 use sariema_runtime::fx::{Fx, GlowTarget};
-use sariema_runtime::scenery::{Binding, RoomScene};
+use sariema_runtime::scenery::{self, Binding, RoomScene, UNPLACED};
 use sariema_runtime::sim::Logic;
 
 use crate::ViewError;
@@ -155,6 +158,11 @@ struct RoomView {
     applied: Option<Applied>,
     /// By light, where its colour, intensity and range parameters are.
     light_params: Vec<[usize; 5]>,
+    /// By cutaway, where its height parameter is.
+    height_params: Vec<usize>,
+    /// By parameter, its value at the frame's point between the last two
+    /// steps.
+    shown: Vec<f32>,
     /// Rooms drawn with this one.
     beside: Vec<u32>,
 }
@@ -236,6 +244,15 @@ impl Rooms {
                 base: None,
                 applied: None,
                 light_params: light_params(&r.index),
+                height_params: (r.index.params.iter().enumerate())
+                    .filter_map(|(at, p)| match p.target {
+                        Target::CutawayHeight(c) => Some((c, at)),
+                        _ => None,
+                    })
+                    .collect::<std::collections::BTreeMap<_, _>>()
+                    .into_values()
+                    .collect(),
+                shown: r.index.params.iter().map(|p| p.value).collect(),
                 beside: r.beside.clone(),
             })
             .collect();
@@ -517,10 +534,44 @@ impl Rooms {
         let state = engine.state();
         let scenery = &state.scenery;
         let active = scenery.active();
+        let camera = state.camera.interpolated(alpha);
+        let toward = scenery::toward(camera.map_or(0.0, |p| p.yaw()));
+        let hero = (state.world.interpolated(state.control.hero, alpha))
+            .map_or([0.0; 2], |p| [p.position.x, p.position.z]);
         for (r, view) in self.views.iter_mut().enumerate() {
-            if let (Load::Resident, Some(scene)) = (&view.load, scenery.room(r)) {
+            let Some(scene) = scenery.room(r) else {
+                continue;
+            };
+            let between = scene.previous.iter().zip(&scene.params);
+            for (shown, (&before, &now)) in view.shown.iter_mut().zip(between) {
+                *shown = if before.to_bits() == now.to_bits() {
+                    now
+                } else {
+                    before + (now - before) * alpha
+                };
+            }
+            if let Load::Resident = view.load {
                 sync(renderer, r, view, scene, state, alpha);
                 glow(renderer, r, view, &state.fx, alpha);
+                for (c, &height) in view.height_params.iter().enumerate() {
+                    let (before, now) = (scene.lines_before[c], scene.lines[c]);
+                    if now == UNPLACED {
+                        continue;
+                    }
+                    let snapped = before == UNPLACED || state.camera.cut();
+                    let line = match snapped || before.to_bits() == now.to_bits() {
+                        true => now,
+                        false => before + (now - before) * alpha,
+                    };
+                    let height = view.shown[height];
+                    let cut = CutState {
+                        toward,
+                        line,
+                        height,
+                        hero,
+                    };
+                    renderer.set_cutaway(r as u32, c, cut);
+                }
             }
         }
         let resident = |r: usize| {
@@ -536,9 +587,10 @@ impl Rooms {
             self.drawn.push(active as u32);
         }
         let lit = |r: usize| {
-            (self.views[r].base.as_ref())
+            let view = &self.views[r];
+            (view.base.as_ref())
                 .zip(scenery.room(r))
-                .map(|(b, s)| lit(b, s))
+                .map(|(b, s)| lit(b, &s.index, &view.shown))
         };
         let beside = &self.views.get(active).map_or(&[][..], |v| &v.beside[..]);
         let (lighting, look) = match (switch, lit(active)) {
@@ -640,17 +692,22 @@ fn room_bytes(room: &RoomPack) -> u64 {
     meshes + textures
 }
 
-/// The room's lighting and look with the game's parameters applied.
-fn lit(base: &Base, scene: &RoomScene) -> (Lighting, Look) {
+/// The room's lighting and look with the game's parameters, `shown`, applied.
+fn lit(base: &Base, index: &RoomIndex, shown: &[f32]) -> (Lighting, Look) {
     let mut look = base.look.clone();
     let mut sun = base.sun.clone();
-    let (mut angles, mut ambient, mut tint) = (None::<(f32, f32)>, 1.0, [1.0f32; 3]);
+    let (mut azimuth, mut elevation, mut aimed) = (0.0, 0.0, false);
+    let (mut ambient, mut tint) = (1.0, [1.0f32; 3]);
     let mut background = Background {
         top: [0.0; 3],
         bottom: [0.0; 3],
     };
-    for (param, &value) in scene.index.params.iter().zip(&scene.params) {
+    let mut fog = Fog::default();
+    let (mut sky, mut ground) = sh9_hemisphere(&base.sh9);
+    let (mut hemisphere, mut turned) = (1.0, false);
+    for (param, &value) in index.params.iter().zip(shown) {
         let c = |c: Channel| c as usize;
+        let moved = value.to_bits() != param.value.to_bits();
         match param.target {
             Target::Exposure => look.exposure = value,
             Target::BloomThreshold => look.bloom_threshold = value,
@@ -663,28 +720,38 @@ fn lit(base: &Base, scene: &RoomScene) -> (Lighting, Look) {
             Target::AoStrength => look.ao_strength = value.clamp(0.0, 1.0),
             Target::SunIntensity => sun.iter_mut().for_each(|s| s.intensity = value),
             Target::SunColor(ch) => sun.iter_mut().for_each(|s| s.color[c(ch)] = value),
-            Target::SunAzimuth => angles = Some((value, angles.map_or(0.0, |a| a.1))),
-            Target::SunElevation => angles = Some((angles.map_or(0.0, |a| a.0), value)),
+            Target::SunAzimuth => (azimuth, aimed) = (value, aimed || moved),
+            Target::SunElevation => (elevation, aimed) = (value, aimed || moved),
             Target::Ambient => ambient = value,
             Target::AmbientColor(ch) => tint[c(ch)] = value,
             Target::BackgroundTop(ch) => background.top[c(ch)] = value,
             Target::BackgroundBottom(ch) => background.bottom[c(ch)] = value,
-            Target::FogDensity | Target::FogColor(_) | Target::FogStart => {}
-            Target::Light(..) | Target::Hinge(_) => {}
+            Target::FogDensity => fog.density = value.max(0.0),
+            Target::FogColor(ch) => fog.color[c(ch)] = value.max(0.0),
+            Target::FogStart => fog.start = value.max(0.0),
+            Target::FogEnd => fog.end = value.max(0.0),
+            Target::Hemisphere => (hemisphere, turned) = (value, turned || moved),
+            Target::HemisphereSky(ch) => (sky[c(ch)], turned) = (value, turned || moved),
+            Target::HemisphereGround(ch) => (ground[c(ch)], turned) = (value, turned || moved),
+            Target::Light(..) | Target::Hinge(_) | Target::CutawayHeight(_) => {}
         }
     }
-    if let (Some(sun), Some((azimuth, elevation))) = (&mut sun, angles) {
+    if let (Some(sun), true) = (&mut sun, aimed) {
         sun.direction = sun_direction(azimuth, elevation);
     }
-    let sh9 = base
-        .sh9
-        .map(|c| [0, 1, 2].map(|k| c[k] * ambient * tint[k]));
+    let mut sh9 = base.sh9;
+    if turned {
+        let bands = hemisphere_sh9(sky, ground, hemisphere);
+        sh9[..2].copy_from_slice(&bands[..2]);
+    }
+    let sh9 = sh9.map(|c| [0, 1, 2].map(|k| c[k] * ambient * tint[k]));
     (
         Lighting {
             sun,
             ambient: sh9,
             background,
             character: base.character.clone(),
+            fog,
         },
         look,
     )
@@ -729,6 +796,12 @@ fn blend((a, la): &(Lighting, Look), (b, lb): &(Lighting, Look), p: f32) -> (Lig
             rim_power: mix(a.character.rim_power, b.character.rim_power),
             min_brightness: mix(a.character.min_brightness, b.character.min_brightness),
             room_tint: mix(a.character.room_tint, b.character.room_tint),
+        },
+        fog: Fog {
+            color: mix3(a.fog.color, b.fog.color),
+            density: mix(a.fog.density, b.fog.density),
+            start: mix(a.fog.start, b.fog.start),
+            end: mix(a.fog.end, b.fog.end),
         },
     };
     let look = Look {
@@ -819,7 +892,8 @@ fn sync(
         }
     }
     let mut hinges_moved = false;
-    for (k, (&value, was)) in scene.params.iter().zip(&mut applied.params).enumerate() {
+    let shown = &view.shown;
+    for (k, (&value, was)) in shown.iter().zip(&mut applied.params).enumerate() {
         if value.to_bits() == was.to_bits() {
             continue;
         }
@@ -827,7 +901,7 @@ fn sync(
         match index.params[k].target {
             Target::Light(l, _) => {
                 let at = view.light_params[l as usize];
-                let v = |i: usize| scene.params[at[i]];
+                let v = |i: usize| shown[at[i]];
                 renderer.set_light_values(slot, l as usize, [v(0), v(1), v(2)], v(3), v(4));
             }
             Target::Hinge(_) => hinges_moved = true,
@@ -871,8 +945,12 @@ fn sync(
         if !hinges_moved && binding.is_none() && applied.offsets[n] == Mat4::IDENTITY {
             continue;
         }
-        let degrees =
-            (node.hinge.as_ref()).map(|_| scene.value(Target::Hinge(n as u32)).unwrap_or(0.0));
+        let hinge = Target::Hinge(n as u32);
+        let degrees = (node.hinge.as_ref()).map(|_| {
+            (index.params.iter())
+                .position(|p| p.target == hinge)
+                .map_or(0.0, |at| shown[at])
+        });
         let offset = node_offset(node, degrees, binding);
         if offset != applied.offsets[n] {
             renderer.set_node_offset(slot, n, offset);

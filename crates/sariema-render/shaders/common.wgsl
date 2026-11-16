@@ -22,6 +22,10 @@ struct Frame {
     character_dir: vec4<f32>,
     character_color: vec4<f32>,
     character: vec4<f32>,
+    // The fog's colour; then where it begins, the inverse of its ramp's
+    // length, its density, and in w 1 while there is fog.
+    fog_color: vec4<f32>,
+    fog: vec4<f32>,
 }
 
 struct Draw {
@@ -33,6 +37,12 @@ struct Draw {
     normal_x: vec4<f32>,
     normal_y: vec4<f32>,
     normal_z: vec4<f32>,
+    // The wall it belongs to across the floor: a point of it in xy, the
+    // direction along it in zw.
+    cut: vec4<f32>,
+    // x is 1 when its cutaway judges it by the wall in `cut`; y is 1 when it
+    // is single-sided but drawn with both sides for the cap.
+    cut_flags: vec4<f32>,
 }
 
 fn draw_normal() -> mat3x3<f32> {

@@ -87,6 +87,7 @@ fn headless(
     let mut headless = Headless::new(args.width, args.height, args.quality.settings())?;
     let loading = Instant::now();
     headless.renderer().load_room(room)?;
+    stage::cut_around(headless.renderer(), room, &args.stage.actors);
     let load_room_ms = loading.elapsed().as_secs_f64() * 1000.0;
     let loading = Instant::now();
     let mut stage = Stage::load(headless.renderer(), &args.stage)?;

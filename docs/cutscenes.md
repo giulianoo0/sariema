@@ -109,6 +109,7 @@ world afterwards is the one playing it through would have left.
 | `time_scale: { scale, blend }` | plays the world at `scale` times real time (below 1 is slow motion), reached over `blend` seconds; the end of the cutscene gives back the scale it found | at once |
 | `camera_shake: { amplitude, frequency, duration }` | shakes the camera, dying out: an impact | at once |
 | `path: { role, clip, from, hold, mode, blend, spans, then }` | plays a clip from `from` seconds into it (still for `hold` seconds first) and moves the role's root only within its `spans` (`{ at: [t0, t1], to, yaw, rate, ease, arc }`), collider off, each span at its own `rate`; the clips of `then` follow in a row | when the last clip has played through and the root has landed |
+| `scene: { set, duration, ease }` | tweens scene parameters of the active room together (`set` maps each name, like `look.exposure` or `fog.density`, to its value; `ease` is `in_out_sine` when left out); see [lighting](lighting.md#changing-the-light-and-the-look-while-playing). A skip lands it, and every scene step still under way, under the fade | at once |
 
 Every step is also a command a game can send itself: `shot` is a rig command
 then `camera_use`, `walk` is `move_to`, `face`, `look_at`, `clip`
@@ -117,8 +118,8 @@ then `camera_use`, `walk` is `move_to`, `face`, `look_at`, `clip`
 `teleport`, `time_scale` and `camera_shake` are their commands of the same
 name, a shot's `bone` or `socket` is `rig_anchor`, `hinge` is a `tween`
 of the scene parameter `hinge.<node>` that the clip's time drives instead of
-the clock, and `path` is `clip_path` followed by a `clip_next` for each clip
-of `then`. The sequencer uses rig
+the clock, `path` is `clip_path` followed by a `clip_next` for each clip
+of `then`, and `scene` is `scene_tween`. The sequencer uses rig
 id and line id `u32::MAX` and tween ids from `0xFFFF0000` up; a game leaves
 those to it.
 
@@ -178,8 +179,9 @@ jump, wherever the game left it.
 ### Parallel branches do not race
 
 Two branches of one `parallel` never move the same role (walk, face,
-teleport, spawn, despawn) or set the same flag (`E_CUTSCENE_RACE`). With
-that, skipping lands every role and flag where playing would have.
+teleport, spawn, despawn), set the same flag or tween the same scene
+parameter (`E_CUTSCENE_RACE`). With that, skipping lands every role, flag
+and scene parameter where playing would have.
 
 ## Directing
 

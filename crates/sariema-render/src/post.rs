@@ -57,6 +57,8 @@ struct CompositeUniform {
     ao_strength: f32,
     bloom_levels: u32,
     _pad: [u32; 3],
+    /// As fog.wgsl's `fog_share` takes it, with 1 in w while there is fog.
+    fog: [f32; 4],
 }
 
 struct Layouts {
@@ -212,9 +214,18 @@ impl Post {
             ao_strength: if self.ao { look.ao_strength } else { 0.0 },
             bloom_levels: self.frame.bloom_levels,
             _pad: [0; 3],
+            fog: self.params.fog,
         };
         gpu.write(&self.stages.bright, bytemuck::bytes_of(&bright));
         gpu.write(&self.stages.params, bytemuck::bytes_of(&self.params));
+    }
+
+    /// The fog the occlusion fades with, as fog.wgsl's `fog_share` takes it.
+    pub fn set_fog(&mut self, gpu: &Gpu, fog: [f32; 4]) {
+        if self.params.fog != fog {
+            self.params.fog = fog;
+            gpu.write(&self.stages.params, bytemuck::bytes_of(&self.params));
+        }
     }
 
     /// Whether the next frame reads the scene's depth.
@@ -377,6 +388,7 @@ impl Stages {
             &[
                 include_str!("../shaders/composite.wgsl"),
                 include_str!("../shaders/ao_surface.wgsl"),
+                include_str!("../shaders/fog.wgsl"),
             ]
             .concat(),
         );

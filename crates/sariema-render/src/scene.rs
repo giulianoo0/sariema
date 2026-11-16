@@ -6,11 +6,11 @@
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use sariema_core::Camera;
-use sariema_format::{AlphaMode, CharacterLight, Light, Shading};
+use sariema_format::{AlphaMode, CharacterLight, Fog, Light, Shading};
 
 use crate::cluster::{self, Bins, Grid, Visible};
 use crate::lights::{GPU_LIGHT_SIZE, GpuLight, gpu_light};
-use crate::resources::DrawUniform;
+use crate::resources::{CutUniform, DrawUniform};
 use crate::shadow::{self, Assigned, Shadows};
 use crate::table::{self, Table, Texel};
 use crate::{FrameStats, Gpu, Lighting, Quality, RenderPath, Stage};
@@ -35,6 +35,8 @@ pub(crate) fn source(quality: &Quality) -> String {
     [
         include_str!("../shaders/common.wgsl"),
         include_str!("../shaders/scene.wgsl"),
+        include_str!("../shaders/fog.wgsl"),
+        include_str!("../shaders/cut.wgsl"),
         &tables,
     ]
     .concat()
@@ -57,6 +59,8 @@ struct FrameUniform {
     character_dir: [f32; 4],
     character_color: [f32; 4],
     character: [f32; 4],
+    fog_color: [f32; 4],
+    fog: [f32; 4],
 }
 
 /// What picks a draw's pipeline. There is one pipeline per kind; nothing
@@ -162,6 +166,13 @@ struct Targets {
     single_depth: Option<wgpu::TextureView>,
 }
 
+/// The pipelines of draws in cutaways: by [`Kind::index`], and their
+/// depth alone by `double_sided as usize`.
+pub(crate) struct CutPipelines {
+    pub color: [wgpu::RenderPipeline; Kind::COUNT],
+    pub depth: [wgpu::RenderPipeline; 2],
+}
+
 pub(crate) struct Scene {
     layouts: Layouts,
     /// Indexed by [`Kind::index`].
@@ -171,6 +182,11 @@ pub(crate) struct Scene {
     background: wgpu::RenderPipeline,
     /// Indexed by `double_sided as usize`.
     depth_only: [wgpu::RenderPipeline; 2],
+    /// Made when the first room with cutaways is uploaded.
+    cut: Option<CutPipelines>,
+    module: wgpu::ShaderModule,
+    mesh_layout: wgpu::PipelineLayout,
+    depth_layout: wgpu::PipelineLayout,
     frame: wgpu::Buffer,
     lights: Table,
     cells: Table,
@@ -343,6 +359,10 @@ impl Scene {
             dithered,
             background,
             depth_only,
+            cut: None,
+            module,
+            mesh_layout,
+            depth_layout,
             frame,
             lights,
             cells,
@@ -370,6 +390,44 @@ impl Scene {
     /// Passes of their own that draw [`Scene::depth`] when the post-processing reads it.
     pub fn depth_passes(&self) -> u32 {
         self.targets.single_depth.is_some() as u32
+    }
+
+    /// Makes the pipelines of draws in cutaways, once.
+    pub fn prepare_cutaways(&mut self, gpu: &Gpu, quality: &Quality) {
+        if self.cut.is_some() {
+            return;
+        }
+        let color = std::array::from_fn(|i| {
+            let kind = Kind::from_index(i);
+            let shading = (kind.is_opaque(), false, "fs_cut");
+            let vertex = ("vs_main", vertex_layout());
+            let layout = &self.mesh_layout;
+            shaded_pipeline(gpu, layout, &self.module, kind, shading, quality, vertex)
+        });
+        let depth = [false, true].map(|double_sided| {
+            gpu.pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("depth only, cut"),
+                layout: Some(&self.depth_layout),
+                vertex: wgpu::VertexState {
+                    module: &self.module,
+                    entry_point: Some("vs_depth_cut"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(vertex_layout())],
+                },
+                primitive: primitive(double_sided),
+                depth_stencil: Some(depth_state(true, wgpu::CompareFunction::Less)),
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &self.module,
+                    entry_point: Some("fs_depth_cut"),
+                    compilation_options: Default::default(),
+                    targets: &[],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        });
+        self.cut = Some(CutPipelines { color, depth });
     }
 
     pub fn resize(&mut self, gpu: &Gpu, width: u32, height: u32, quality: &Quality) {
@@ -501,6 +559,7 @@ fn frame_uniform(
         bottom = rgb_w(lighting.background.bottom, 0.0);
         top = rgb_w(lighting.background.top, 0.0);
     }
+    let fog = lighting.map_or(Fog::default(), |l| l.fog);
     let (scale, bias) = grid.slicing();
     FrameUniform {
         view_proj: (camera.proj * camera.view).to_cols_array_2d(),
@@ -521,7 +580,20 @@ fn frame_uniform(
             character.min_brightness,
             character.room_tint,
         ],
+        fog_color: rgb_w(fog.color, 0.0),
+        fog: fog_params(&fog),
     }
+}
+
+/// `fog` as fog.wgsl's `fog_share` takes it, with 1 in w while there is fog.
+pub(crate) fn fog_params(fog: &Fog) -> [f32; 4] {
+    let ramp = if fog.end > fog.start {
+        (1.0 / (fog.end - fog.start)).min(f32::MAX)
+    } else {
+        0.0
+    };
+    let on = fog.density > 0.0 || ramp > 0.0;
+    [fog.start, ramp, fog.density, on as u8 as f32]
 }
 
 fn rgb_w(rgb: [f32; 3], w: f32) -> [f32; 4] {
@@ -581,11 +653,14 @@ pub(crate) fn layouts(gpu: &Gpu, path: RenderPath) -> Layouts {
         ),
         draw: layout(
             "draw",
-            &[uniform(
-                0,
-                wgpu::ShaderStages::VERTEX,
-                Some(size_of::<DrawUniform>() as u64),
-            )],
+            &[
+                uniform(0, both, Some(size_of::<DrawUniform>() as u64)),
+                uniform(
+                    2,
+                    wgpu::ShaderStages::FRAGMENT,
+                    Some(size_of::<CutUniform>() as u64),
+                ),
+            ],
         ),
         material: layout(
             "material",
@@ -662,6 +737,19 @@ pub(crate) fn mesh_pipeline(
     kind: Kind,
     (dither, actor): (bool, bool),
     quality: &Quality,
+    vertex: (&str, wgpu::VertexBufferLayout<'_>),
+) -> wgpu::RenderPipeline {
+    let shading = (dither, actor, "fs_main");
+    shaded_pipeline(gpu, layout, module, kind, shading, quality, vertex)
+}
+
+fn shaded_pipeline(
+    gpu: &Gpu,
+    layout: &wgpu::PipelineLayout,
+    module: &wgpu::ShaderModule,
+    kind: Kind,
+    (dither, actor, fragment): (bool, bool, &str),
+    quality: &Quality,
     (entry_point, buffer): (&str, wgpu::VertexBufferLayout<'_>),
 ) -> wgpu::RenderPipeline {
     // The largest square grid within the tap count.
@@ -672,6 +760,7 @@ pub(crate) fn mesh_pipeline(
         ("PCF_SIDE", pcf_side as f64),
         ("DITHER", dither as u8 as f64),
         ("ACTOR", actor as u8 as f64),
+        ("GLOW", (kind.alpha == AlphaMode::Additive) as u8 as f64),
     ];
     let options = wgpu::PipelineCompilationOptions {
         constants: &constants,
@@ -694,7 +783,7 @@ pub(crate) fn mesh_pipeline(
         },
         fragment: Some(wgpu::FragmentState {
             module,
-            entry_point: Some("fs_main"),
+            entry_point: Some(fragment),
             compilation_options: options,
             targets: &[Some(kind.target())],
         }),

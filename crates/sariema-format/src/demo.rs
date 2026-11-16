@@ -3,8 +3,8 @@
 //! A small test room built entirely in code, with no asset files.
 
 use crate::{
-    Aabb, AlphaMode, Ambient, Background, CharacterLight, Draw, Light, LightKind, Look, Material,
-    Mesh, Mobility, RoomCamera, RoomPack, Shading, Stats, Texture, TextureFormat, Vertex,
+    Aabb, AlphaMode, Ambient, Background, CharacterLight, Draw, Fog, Light, LightKind, Look,
+    Material, Mesh, Mobility, RoomCamera, RoomPack, Shading, Stats, Texture, TextureFormat, Vertex,
     hemisphere_sh9,
 };
 
@@ -153,6 +153,8 @@ pub fn demo_room() -> RoomPack {
         nodes: Vec::new(),
         pieces: Vec::new(),
         character: CharacterLight::default(),
+        fog: Fog::default(),
+        cutaways: Vec::new(),
     }
 }
 

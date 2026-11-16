@@ -17,13 +17,19 @@ pub mod actor;
 pub mod collision;
 #[cfg(feature = "demo")]
 pub mod demo;
+mod previous;
 pub mod scenery;
 pub mod script;
 pub mod sound;
 pub mod stream;
 
 pub const MAGIC: [u8; 4] = *b"SRMA";
-pub const VERSION: u32 = 7;
+pub const VERSION: u32 = 10;
+
+/// The oldest room pack version [`decode`] reads. A pack of an earlier
+/// version than [`VERSION`] ends before the fields added since, and reads
+/// them as what a room without them drew.
+pub const OLDEST_VERSION: u32 = 6;
 
 pub(crate) const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
@@ -42,7 +48,7 @@ pub struct Vertex {
 const _: () = assert!(size_of::<Vertex>() == 36);
 
 /// Indexed triangle list.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
@@ -287,6 +293,144 @@ impl Default for CharacterLight {
     }
 }
 
+/// Haze between the camera and what is drawn, which takes a share of its
+/// colour towards the fog's: `1 − e^(−density × beyond)`, where `beyond` is
+/// how far past `start` it is, or the ramp from `start` to `end`, whichever
+/// is thicker. Off while `density` is 0 and `end` is not past `start`. The
+/// background stays as it is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Fog {
+    /// Linear RGB.
+    pub color: [f32; 3],
+    /// The share of light lost per metre past `start`.
+    pub density: f32,
+    /// Metres from the camera where the fog begins.
+    pub start: f32,
+    /// Metres from the camera where the ramp from `start` covers everything.
+    pub end: f32,
+}
+
+/// Scenery that steps aside so the camera sees the hero: on the camera's
+/// side of a line that follows the hero, its draws are cut away above
+/// `height`, and what is cut shows its inside in `cap`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Cutaway {
+    pub name: String,
+    /// Indices into [`RoomPack::draws`]; a draw is in at most one cutaway.
+    pub draws: Vec<u32>,
+    /// Metres above which its draws are cut; below the floor cuts them whole.
+    pub height: f32,
+    pub line: CutLine,
+    /// Metres from the hero, across the floor, within which it cuts; 0 cuts
+    /// the camera's whole side of the line.
+    pub radius: f32,
+    /// Metres over which a cut fades in, past the line and inside the
+    /// radius: its height rises steeply towards where it ends.
+    pub soft: f32,
+    /// Linear RGB of the inside of what is cut, lit as a surface facing
+    /// the camera; `None` leaves the inside as the material draws it.
+    pub cap: Option<[f32; 3]>,
+    /// Whether its draws cast their shadows cut as they are drawn, or whole.
+    pub cut_shadows: bool,
+    /// By draw, the wall it belongs to. `None` judges each part of the draw
+    /// where it lies, as a wall itself.
+    pub anchors: Vec<Option<CutAnchor>>,
+    pub style: CutStyle,
+}
+
+/// The wall a draw of a cutaway belongs to, across the floor (x, z): each
+/// part of the draw is judged at the point of the wall behind it, so the
+/// draw is cut exactly where its wall is and none of it is left standing
+/// over a wall cut away.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CutAnchor {
+    /// A point of the wall.
+    pub at: [f32; 2],
+    /// Unit direction along the wall; zero judges the whole draw at `at`.
+    pub along: [f32; 2],
+}
+
+/// How a cutaway steps aside.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CutStyle {
+    /// Cut above the height, the inside capped.
+    #[default]
+    Cut,
+    /// Dissolved whole in a stable dither, over the softness, wherever the
+    /// cut would reach; the height is not used and the shadow stays.
+    Fade,
+}
+
+/// Where the line bounding a cut sits, as a distance along the floor
+/// towards the camera: what lies beyond it, on the camera's side, is cut.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CutLine {
+    /// Floors the hero walks; the line takes the near edge, as the camera
+    /// sees it, of the smallest one the hero stands in, and stays where it
+    /// was while the hero is in none. Without areas it goes with the hero.
+    pub areas: Vec<Area>,
+    /// Metres the line sits towards the camera from that edge or from the
+    /// hero; negative moves it away from the camera.
+    pub offset: f32,
+    /// Seconds the line takes to go 63% of the way to a new place; 0 moves
+    /// it there in the step.
+    pub follow: f32,
+}
+
+/// A rectangle of floor: `[x, z]` corners.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Area {
+    pub min: [f32; 2],
+    pub max: [f32; 2],
+}
+
+impl Area {
+    fn contains(&self, p: [f32; 2]) -> bool {
+        (0..2).all(|k| self.min[k] <= p[k] && p[k] <= self.max[k])
+    }
+
+    fn size(&self) -> f32 {
+        (self.max[0] - self.min[0]) * (self.max[1] - self.min[1])
+    }
+}
+
+impl CutLine {
+    /// Numbers finite, the follow not negative and areas ordered; the error
+    /// says what is wrong.
+    pub fn check(&self) -> Result<(), String> {
+        let corners = self.areas.iter().flat_map(|a| a.min.iter().chain(&a.max));
+        let mut numbers = [&self.offset, &self.follow].into_iter().chain(corners);
+        if !numbers.all(|v| v.is_finite()) || self.follow < 0.0 {
+            return Err("has a line with a number not finite or a negative follow".into());
+        }
+        match (self.areas.iter()).find(|a| (0..2).any(|k| a.min[k] > a.max[k])) {
+            Some(a) => Err(format!("has area {a:?} turned inside out")),
+            None => Ok(()),
+        }
+    }
+
+    /// Where the line goes for a hero at `hero` (x, z), `toward` being the
+    /// unit direction across the floor towards the camera; `None` while
+    /// the hero stands in none of its areas.
+    pub fn at(&self, hero: [f32; 2], toward: [f32; 2]) -> Option<f32> {
+        let along = |p: [f32; 2]| p[0] * toward[0] + p[1] * toward[1];
+        if self.areas.is_empty() {
+            return Some(along(hero) + self.offset);
+        }
+        let area = (self.areas.iter())
+            .filter(|a| a.contains(hero))
+            .reduce(|a, b| if b.size() < a.size() { b } else { a })?;
+        let [x0, z0] = area.min;
+        let [x1, z1] = area.max;
+        let near = [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]
+            .map(along)
+            .into_iter()
+            .fold(f32::NEG_INFINITY, f32::max);
+        Some(near + self.offset)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RoomCamera {
     pub fov_y_deg: f32,
@@ -444,6 +588,8 @@ pub struct RoomPack {
     pub nodes: Vec<Node>,
     pub pieces: Vec<Piece>,
     pub character: CharacterLight,
+    pub fog: Fog,
+    pub cutaways: Vec<Cutaway>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -474,7 +620,7 @@ impl fmt::Display for FormatError {
             FormatError::Version { found } => {
                 write!(
                     f,
-                    "room pack version {found} is not supported (expected {VERSION})"
+                    "room pack version {found} is not supported (reads {OLDEST_VERSION} to {VERSION})"
                 )
             }
             FormatError::Truncated => write!(f, "room pack is truncated"),
@@ -498,43 +644,31 @@ pub fn encode(room: &RoomPack) -> Vec<u8> {
 /// Decodes a pack and validates it: every mesh, material, texture and vertex
 /// index must exist, every draw's bounds must be finite with `min <= max`,
 /// every light's importance finite and at least 0, the look's `ao_strength`
-/// in [0, 1] and its `ao_radius_m` finite and positive, and the character
-/// light finite, not negative, its `room_tint` in [0, 1].
+/// in [0, 1] and its `ao_radius_m` finite and positive, the character
+/// light finite, not negative, its `room_tint` in [0, 1], and the fog
+/// finite and not negative.
 ///
 /// Never panics. A length read from the input cannot cause a large
 /// allocation: postcard only reports a sequence length as a size hint when
 /// that many bytes remain, and serde caps preallocation at 1 MiB.
 pub fn decode(bytes: &[u8]) -> Result<RoomPack, FormatError> {
+    stream::RoomDecoder::decode(bytes)
+}
+
+/// The version in the header of a room pack this engine reads.
+pub(crate) fn header_version(bytes: &[u8]) -> Result<u32, FormatError> {
     let seen = bytes.len().min(MAGIC.len());
     if bytes[..seen] != MAGIC[..seen] {
         return Err(FormatError::BadMagic);
     }
-    let Some((header, body)) = bytes.split_first_chunk::<HEADER_LEN>() else {
+    let Some(header) = bytes.first_chunk::<HEADER_LEN>() else {
         return Err(FormatError::Truncated);
     };
     let found = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
-    if found != VERSION {
-        return Err(FormatError::Version { found });
+    match found {
+        OLDEST_VERSION..=VERSION => Ok(found),
+        _ => Err(FormatError::Version { found }),
     }
-    let (room, rest) = postcard::take_from_bytes::<RoomPack>(body).map_err(|e| match e {
-        postcard::Error::DeserializeUnexpectedEnd => FormatError::Truncated,
-        other => FormatError::Invalid(other.to_string()),
-    })?;
-    if !rest.is_empty() {
-        return Err(FormatError::Invalid(format!(
-            "{} unexpected bytes after the room",
-            rest.len()
-        )));
-    }
-    validate(&room)?;
-    Ok(room)
-}
-
-fn validate(room: &RoomPack) -> Result<(), FormatError> {
-    for (i, mesh) in room.meshes.iter().enumerate() {
-        validate_mesh(i, mesh)?;
-    }
-    validate_rest(room)
 }
 
 pub(crate) fn validate_mesh(i: usize, mesh: &Mesh) -> Result<(), FormatError> {
@@ -585,6 +719,12 @@ pub(crate) fn validate_rest(room: &RoomPack) -> Result<(), FormatError> {
         ));
     }
     validate_character(&room.character).map_err(FormatError::Invalid)?;
+    let fog = &room.fog;
+    let mut numbers = fog.color.iter().chain([&fog.density, &fog.start, &fog.end]);
+    if !numbers.all(|v| v.is_finite() && *v >= 0.0) {
+        return invalid(format!("fog {fog:?} is not finite or has a negative value"));
+    }
+    validate_cutaways(room).map_err(FormatError::Invalid)?;
     for (i, draw) in room.draws.iter().enumerate() {
         if draw.mesh as usize >= room.meshes.len() {
             return invalid(format!(
@@ -638,6 +778,50 @@ fn validate_character(c: &CharacterLight) -> Result<(), String> {
         return Err(format!(
             "character light {c:?} has a negative value or a room_tint outside [0, 1]"
         ));
+    }
+    Ok(())
+}
+
+/// Names distinct, draws in range and in at most one cutaway, numbers
+/// finite, the radius, softness and follow not negative and areas ordered.
+fn validate_cutaways(room: &RoomPack) -> Result<(), String> {
+    distinct("cutaway", room.cutaways.iter().map(|c| c.name.as_str()))?;
+    let draws = (room.cutaways.iter()).map(|c| (format!("cutaway {}", c.name), &c.draws[..]));
+    once_each("draw", room.draws.len(), draws)?;
+    for c in &room.cutaways {
+        c.line
+            .check()
+            .map_err(|why| format!("cutaway {} {why}", c.name))?;
+        let cap = c.cap.iter().flatten();
+        let numbers = [&c.height, &c.radius, &c.soft]
+            .into_iter()
+            .chain(cap.clone());
+        let unsigned = [&c.radius, &c.soft].into_iter().chain(cap);
+        if !numbers.clone().all(|v| v.is_finite()) || unsigned.clone().any(|&v| v < 0.0) {
+            return Err(format!(
+                "cutaway {} has a number not finite, or a negative radius, soft or cap",
+                c.name
+            ));
+        }
+        if c.anchors.len() != c.draws.len() {
+            return Err(format!(
+                "cutaway {} has {} anchors for {} draws",
+                c.name,
+                c.anchors.len(),
+                c.draws.len()
+            ));
+        }
+        let unit = |[x, z]: [f32; 2]| (x * x + z * z == 0.0) || (x.hypot(z) - 1.0).abs() < 1e-3;
+        let bad = |a: &CutAnchor| {
+            let finite = a.at.iter().chain(&a.along).all(|v| v.is_finite());
+            !finite || !unit(a.along)
+        };
+        if let Some(a) = c.anchors.iter().flatten().find(|a| bad(a)) {
+            return Err(format!(
+                "cutaway {} has anchor {a:?}, not finite or not along a unit or zero direction",
+                c.name
+            ));
+        }
     }
     Ok(())
 }
@@ -747,6 +931,15 @@ pub fn hemisphere_sh9(sky: [f32; 3], ground: [f32; 3], intensity: f32) -> [[f32;
     sh9[0] = std::array::from_fn(|c| 0.5 * (sky[c] + ground[c]) * intensity / SH_Y00);
     sh9[1] = std::array::from_fn(|c| 0.5 * (sky[c] - ground[c]) * intensity / SH_Y1);
     sh9
+}
+
+/// The sky and ground colours, intensity included, that [`hemisphere_sh9`]
+/// turns into `sh9`'s first band and the vertical term of its second: what
+/// the ambient gives straight up and straight down without its other terms.
+pub fn sh9_hemisphere(sh9: &[[f32; 3]; 9]) -> ([f32; 3], [f32; 3]) {
+    let sky = std::array::from_fn(|c| sh9[0][c] * SH_Y00 + sh9[1][c] * SH_Y1);
+    let ground = std::array::from_fn(|c| sh9[0][c] * SH_Y00 - sh9[1][c] * SH_Y1);
+    (sky, ground)
 }
 
 /// Ambient light reaching a surface with unit `normal`.

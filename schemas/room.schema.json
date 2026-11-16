@@ -124,9 +124,25 @@
         "room_tint": { "type": "number", "minimum": 0, "maximum": 1, "description": "How much of the room's light colour tints actors: 0 keeps the albedo's hue. 1 when absent." }
       }
     },
+    "fog": {
+      "type": "object",
+      "description": "Haze that takes a share of what is drawn towards its colour with the distance from the camera: 1 - e^(-density x metres past start), or the ramp from start to end, whichever is thicker. The background stays as it is. Off when absent; a game tweens fog.density, fog.color.r/g/b, fog.start and fog.end.",
+      "additionalProperties": false,
+      "properties": {
+        "color": { "$ref": "#/$defs/rgb", "description": "Linear RGB. The background's bottom when absent." },
+        "density": { "type": "number", "minimum": 0, "description": "The share of light lost per metre past start. 0 when absent." },
+        "start": { "type": "number", "minimum": 0, "description": "Metres from the camera where the fog begins. 0 when absent." },
+        "end": { "type": "number", "minimum": 0, "description": "Metres from the camera where the ramp from start covers everything; at or before start, no ramp. 0 when absent." }
+      }
+    },
     "textures": {
       "enum": ["rgba8", "astc"],
       "description": "How colour textures are stored. ASTC 4x4 (the default) needs a GPU that samples ASTC; RGBA8 is four times larger."
+    },
+    "cutaways": {
+      "type": "array",
+      "description": "Pieces that step aside for the camera: above a height, on the camera's side of a line that follows the hero, they are cut away, and their inside shows a flat cap. Each cutaway draws its merged pieces apart from the rest, a draw per material; a loose piece brings every draw of its copy.",
+      "items": { "$ref": "#/$defs/cutaway" }
     },
     "collision": {
       "type": "object",
@@ -209,6 +225,43 @@
     "path": { "type": "string", "minLength": 1 },
     "names": { "type": "array", "items": { "type": "string" } },
     "vec3": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+    "floor_point": {
+      "type": "array",
+      "description": "x and z on the engine's axes, metres.",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "cutaway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "pieces", "height"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "description": "Unique in the room; the game tweens its height as the scene parameter cutaway.<name>.height." },
+        "pieces": { "$ref": "#/$defs/names", "minItems": 1, "description": "Pieces it cuts, by kit name; * matches any run of characters. A pattern no placed piece matches, or a piece two cutaways match, is an error." },
+        "height": { "type": "number", "description": "Metres above which it cuts; below the floor, it takes the pieces away whole." },
+        "areas": {
+          "type": "array",
+          "description": "Rectangles of floor, such as each room of a house. The line sits at the near edge, seen from the camera, of the smallest one the hero stands in, and stays put while the hero is in none. Without areas it sits at the hero.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["min", "max"],
+            "properties": { "min": { "$ref": "#/$defs/floor_point" }, "max": { "$ref": "#/$defs/floor_point" } }
+          }
+        },
+        "offset": { "type": "number", "description": "Metres the line moves towards the camera; negative moves it away, so a wall standing on the edge is cut whole. 0 when absent." },
+        "follow": { "type": "number", "minimum": 0, "description": "Seconds the line takes to cover about two thirds of the way to where it goes next; 0 jumps. A camera cut moves it at once. 0.1 when absent." },
+        "radius": { "type": "number", "minimum": 0, "description": "Metres around the hero within which it cuts; 0, the default, for no limit." },
+        "soft": { "type": "number", "minimum": 0, "description": "Metres over which the cut fades in past the line and inside the radius, its height rising steeply towards the edge. 0 when absent: a hard edge." },
+        "cap": { "$ref": "#/$defs/rgb", "description": "Linear RGB of the inside of what is cut, lit like the room. Hollow when absent." },
+        "cut_shadows": { "type": "boolean", "description": "Whether its pieces cast the shadow they are drawn with. true when absent; false keeps the shadow of the whole piece." },
+        "style": { "enum": ["cut", "fade"], "description": "cut (the default) cuts above the height and shows the cap; fade dissolves whole, in a stable dither and over the softness, every piece the cut would reach, leaving its shadow, so a door frame that hides the hero goes and comes back as the hero passes." },
+        "attach": { "type": "number", "minimum": 0, "description": "Metres from an edge of its room (the placement's n_celulas) within which the point a piece is placed at makes it belong to that edge's wall: each part of it is cut or dissolved where the wall behind it is, so none of it is left standing over the wall cut away. A piece listed in no cutaway, placed that near an edge of a room with pieces of this one, wholly above the part kept whole and held up by nothing left standing, hangs on that wall and goes in this cutaway. A piece further from every edge, such as a room's shell, is cut where each part of it lies. 0.5 when absent." },
+        "rest": { "type": "number", "minimum": 0, "description": "Metres between the top of a piece and the bottom of one above it within which the first holds up the second: a piece on a table left standing stays, one on a shelf of the cutaway goes with it. 0.02 when absent." },
+        "whole_below": { "type": "number", "description": "Metres below which the triangles of its merged pieces are drawn apart from the rest of it, uncut until the height comes down to them, so floors and the foot of walls keep the GPU's early depth test while it stays above them. The height when absent; below the floor, every triangle is drawn with the rest." }
+      }
+    },
     "collision_box": {
       "type": "object",
       "additionalProperties": false,

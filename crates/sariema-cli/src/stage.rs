@@ -10,8 +10,8 @@ use clap::Args;
 use glam::{Mat4, Quat, Vec3};
 use sariema_anim::{AnimSettings, Animator, ClipId, FaceId, Play, Rig, SocketId};
 use sariema_core::Camera;
-use sariema_format::RoomCamera;
-use sariema_render::{ActorId, ActorModel, ActorState, Renderer};
+use sariema_format::{RoomCamera, RoomPack};
+use sariema_render::{ActorId, ActorModel, ActorState, CutState, Renderer};
 use serde_json::{Value, json};
 
 use crate::actor;
@@ -409,6 +409,13 @@ impl Stage {
         Ok(())
     }
 
+    /// Moves the first actor to `position`, facing as it was placed.
+    pub fn move_first(&mut self, position: Vec3) {
+        if let Some(actor) = self.actors.first_mut() {
+            actor.model.w_axis = position.extend(1.0);
+        }
+    }
+
     /// The duration of the first actor's first clip.
     pub fn first_clip_s(&self) -> Option<f32> {
         let actor = self.actors.first()?;
@@ -483,4 +490,29 @@ fn face(rig: &Rig, pack: &Path, change: &FaceChange) -> Result<(f32, FaceId, u32
 /// The camera of the room's `camera` overridden by `args`.
 pub fn camera(args: &StageArgs, room: &RoomCamera, aspect: f32) -> Camera {
     sariema_core::room_camera(&args.camera(room), aspect)
+}
+
+/// Cuts the room's cutaways around the first actor, as a game whose hero it
+/// is would once the line settles, seen by the room's camera.
+pub fn cut_around(renderer: &mut Renderer, room: &RoomPack, actors: &[Placement]) {
+    if let Some(hero) = actors.first() {
+        cut_at(renderer, room, [hero.position.x, hero.position.z]);
+    }
+}
+
+/// Cuts the room's cutaways around a hero standing at `hero` (x, z).
+pub fn cut_at(renderer: &mut Renderer, room: &RoomPack, hero: [f32; 2]) {
+    let toward = sariema_runtime::scenery::toward(0.0);
+    for (c, cutaway) in room.cutaways.iter().enumerate() {
+        if let Some(line) = cutaway.line.at(hero, toward) {
+            let height = cutaway.height;
+            let state = CutState {
+                toward,
+                line,
+                height,
+                hero,
+            };
+            renderer.set_cutaway(0, c, state);
+        }
+    }
 }

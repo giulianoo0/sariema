@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Reading a room pack, and the `inspect` command.
+//! Reading a room pack, and the `inspect` command, which lists a room's
+//! scene parameters with the values they load with.
 
 use std::fs;
 use std::path::Path;
 
+use sariema_format::scenery::RoomIndex;
 use sariema_format::{RoomPack, decode};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::output::{Done, Failure, list};
 
@@ -38,6 +40,30 @@ pub fn inspect(path: &Path) -> Result<Done, Failure> {
         .filter(|name| !name.contains('/'))
         .collect();
     loose.dedup();
+    let params: Vec<Value> = (RoomIndex::of(&room).params.iter())
+        .map(|p| json!({ "name": p.name, "value": p.value }))
+        .collect();
+    let cutaways: Vec<Value> = (room.cutaways.iter())
+        .map(|c| {
+            json!({
+                "name": c.name,
+                "draws": (c.draws.iter())
+                    .map(|&d| room.draws[d as usize].name.as_deref().unwrap_or_default())
+                    .collect::<Vec<_>>(),
+                "height": c.height,
+                "areas": c.line.areas.len(),
+                "offset": c.line.offset,
+                "follow": c.line.follow,
+                "radius": c.radius,
+                "soft": c.soft,
+                "cap": c.cap,
+                "cut_shadows": c.cut_shadows,
+            })
+        })
+        .collect();
+    let cut: Vec<String> = (room.cutaways.iter())
+        .map(|c| format!("{} ({} draws above {} m)", c.name, c.draws.len(), c.height))
+        .collect();
     let stats = &room.stats;
     Ok(Done {
         json: json!({
@@ -46,16 +72,19 @@ pub fn inspect(path: &Path) -> Result<Done, Failure> {
             "lights": lights,
             "materials": materials,
             "draws": loose,
+            "params": params,
+            "cutaways": cutaways,
         }),
         text: format!(
-            "{}: {} triangles in {} draws, {} texture bytes\nlights: {}\nmaterials: {}\nloose draws: {}",
+            "{}: {} triangles in {} draws, {} texture bytes\nlights: {}\nmaterials: {}\nloose draws: {}\ncutaways: {}",
             room.name,
             stats.triangles,
             stats.draws,
             stats.texture_bytes,
             list(&lights),
             list(&materials),
-            list(&loose)
+            list(&loose),
+            list(&cut)
         ),
     })
 }

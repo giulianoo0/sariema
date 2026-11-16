@@ -1,0 +1,14 @@
+{
+  "exposicao": 1.0,
+  "comodos": {
+    "a": {
+      "hemi_ceu": "#CFE0F0",
+      "hemi_chao": "#8A7F70",
+      "hemi_int": 0.8,
+      "sol": "#FFF4E0",
+      "sol_int": 1.6,
+      "sol_dir_three": [0.35, 0.8, -0.5],
+      "luzes": []
+    }
+  }
+}
