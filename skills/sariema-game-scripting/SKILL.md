@@ -60,14 +60,17 @@ game!(Hello);
 | walk somewhere | `MoveTo { entity, target, speed }`, then `Event::Arrived` |
 | later | `Timer { timer, duration, repeat }`, then `Event::TimerFired` |
 | a smooth value | `Tween { … ease }` or `Spring { … }`, then `Event::TweenDone` |
-| a button press | `Event::Buffered { action, .. }` until you send `Consume { action }` |
+| a button's index | `ctx.button(id("action"))` in `Game::new`; never copy its place in `input.buttons` |
+| a button press | `Event::Button { action, down }`, or `Event::Buffered { action, .. }` until you send `Consume { action }` |
 | randomness | `ctx.rng()`, seeded by the engine; never another source |
 | persistence | `Save { key, value }`; `SaveLoad {}` → `SaveLoaded`…, `SaveLoadDone` |
 | many objects | `Transforms` bulk region: register once, `push` each tick |
 | a name as id | `id("meet")`, a `const fn` |
 
 Test the logic natively with `sariema_sdk::testing::TestHost` (queue
-events, `Runner::run`, decode with `testing::commands`), and the whole game
+events, `Runner::run`, decode with `testing::commands`;
+`TestHost::with_buttons(&["confirm", "action"])` for the input buttons),
+and the whole game
 with `sariema run --headless … --json`.
 
 ## Common mistakes

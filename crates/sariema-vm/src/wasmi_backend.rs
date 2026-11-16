@@ -84,6 +84,11 @@ fn linker(engine: &Engine) -> Result<Linker<State>, Error> {
             state.host.log(data, level, ptr, len).map_err(host_error)
         },
     )?;
+    linker.func_wrap(
+        "sariema",
+        "button",
+        |caller: Caller<'_, State>, name: u32| -> i32 { caller.data().host.button(name) },
+    )?;
     Ok(linker)
 }
 

@@ -10,13 +10,12 @@ use sariema_sdk::{Bus, ClipMode, Command, Ctx, Ease, Entity, Event, Events, Game
 const HERO_SPEED: f32 = 1.5;
 const HERO_AT: [f32; 3] = [4.5, 0.0, -1.0];
 const FOLLOW_HERO: u32 = 1;
-/// Index of `action` in the project's input buttons.
-const ACTION: u16 = 3;
 const INTRO: u32 = id("intro");
 const WAVE: u32 = id("wave");
 
 pub struct MyGame {
     hero: Entity,
+    action: Option<u16>,
 }
 
 impl Game for MyGame {
@@ -50,7 +49,10 @@ impl Game for MyGame {
         ctx.bind(id("hero"), hero);
         ctx.play_cutscene(INTRO);
         ctx.send(Command::HostReady {});
-        MyGame { hero }
+        MyGame {
+            hero,
+            action: ctx.button(id("action")),
+        }
     }
 
     fn tick(&mut self, ctx: &mut Ctx<'_>, events: Events<'_>) {
@@ -67,17 +69,18 @@ impl Game for MyGame {
                         animation: id("enter"),
                     });
                 }
-                Event::Button {
-                    action: ACTION,
-                    down: true,
-                } => ctx.send(Command::PlayClip {
-                    entity: self.hero,
-                    clip: WAVE,
-                    mode: ClipMode::Once,
-                    blend: 0.15,
-                    speed: 1.0,
-                }),
-                Event::ClipMarker { entity, clip: WAVE, .. } if entity == self.hero => {
+                Event::Button { action, down: true } if Some(action) == self.action => {
+                    ctx.send(Command::PlayClip {
+                        entity: self.hero,
+                        clip: WAVE,
+                        mode: ClipMode::Once,
+                        blend: 0.15,
+                        speed: 1.0,
+                    })
+                }
+                Event::ClipMarker {
+                    entity, clip: WAVE, ..
+                } if entity == self.hero => {
                     ctx.send(Command::PlaySound {
                         sound: id("chime"),
                         bus: Bus::Effects,
@@ -107,7 +110,13 @@ mod tests {
         let mut runner = Runner::<MyGame>::new();
         runner.run(&mut host);
         let sent: Vec<Command> = commands(&host.commands).collect();
-        assert!(matches!(sent[0], Command::Spawn { kind: Kind::Actor, .. }));
+        assert!(matches!(
+            sent[0],
+            Command::Spawn {
+                kind: Kind::Actor,
+                ..
+            }
+        ));
         assert!(sent.contains(&Command::CutscenePlay { cutscene: INTRO }));
     }
 
@@ -125,5 +134,21 @@ mod tests {
         runner.run(&mut host);
         let names: Vec<&str> = commands(&host.take_commands()).map(|c| c.name()).collect();
         assert_eq!(names, ["set_hero", "ui_play"]);
+    }
+
+    #[test]
+    fn the_action_button_waves_wherever_the_project_puts_it() {
+        let mut host = TestHost::with_buttons(&["confirm", "action"]);
+        host.event(Event::Started { seed: 1 });
+        let mut runner = Runner::<MyGame>::new();
+        runner.run(&mut host);
+        host.take_commands();
+        host.event(Event::Button {
+            action: 1,
+            down: true,
+        });
+        runner.run(&mut host);
+        let names: Vec<&str> = commands(&host.take_commands()).map(|c| c.name()).collect();
+        assert_eq!(names, ["play_clip"]);
     }
 }

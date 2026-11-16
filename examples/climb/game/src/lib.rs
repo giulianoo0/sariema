@@ -14,14 +14,13 @@ const HERO_AT: [f32; 3] = [1.5, 0.0, -0.6];
 const SILL_SPOT: [f32; 3] = [4.5, 0.0, -1.0];
 const SILL_ZONE: u32 = 1;
 const FOLLOW_HERO: u32 = 1;
-/// Index of `action` in the project's input buttons.
-const ACTION: u16 = 3;
 const CLIMB: u32 = id("climb");
 const WAVE: u32 = id("wave");
 const TRAVERSAL_S: f32 = 1.6;
 
 pub struct Climb {
     hero: Entity,
+    action: Option<u16>,
     shown: bool,
     climbed: bool,
 }
@@ -66,6 +65,7 @@ impl Game for Climb {
         ctx.send(Command::HostReady {});
         Climb {
             hero,
+            action: ctx.button(id("action")),
             shown: false,
             climbed: false,
         }
@@ -80,17 +80,18 @@ impl Game for Climb {
                         animation: id("enter"),
                     });
                 }
-                Event::Button {
-                    action: ACTION,
-                    down: true,
-                } => ctx.send(Command::PlayClip {
-                    entity: self.hero,
-                    clip: WAVE,
-                    mode: ClipMode::Once,
-                    blend: 0.15,
-                    speed: 1.0,
-                }),
-                Event::ClipMarker { entity, clip: WAVE, .. } if entity == self.hero => {
+                Event::Button { action, down: true } if Some(action) == self.action => {
+                    ctx.send(Command::PlayClip {
+                        entity: self.hero,
+                        clip: WAVE,
+                        mode: ClipMode::Once,
+                        blend: 0.15,
+                        speed: 1.0,
+                    })
+                }
+                Event::ClipMarker {
+                    entity, clip: WAVE, ..
+                } if entity == self.hero => {
                     ctx.send(Command::PlaySound {
                         sound: id("chime"),
                         bus: Bus::Effects,
@@ -113,7 +114,9 @@ impl Game for Climb {
                     traversal: id("window"),
                     duration: TRAVERSAL_S,
                 }),
-                Event::CutsceneEnded { cutscene: CLIMB, .. } => {
+                Event::CutsceneEnded {
+                    cutscene: CLIMB, ..
+                } => {
                     self.climbed = true;
                     ctx.send(Command::UiPlay {
                         animation: id("done"),
@@ -135,7 +138,7 @@ mod tests {
     use super::*;
 
     fn started() -> (Runner<Climb>, TestHost) {
-        let mut host = TestHost::new();
+        let mut host = TestHost::with_buttons(&["confirm", "action"]);
         host.event(Event::Started { seed: 1 });
         let mut runner = Runner::new();
         runner.run(&mut host);
@@ -159,6 +162,18 @@ mod tests {
                 traversal: id("window"),
                 duration: TRAVERSAL_S,
             }));
+    }
+
+    #[test]
+    fn the_action_button_waves_wherever_the_project_puts_it() {
+        let (mut runner, mut host) = started();
+        host.event(Event::Button {
+            action: 1,
+            down: true,
+        });
+        runner.run(&mut host);
+        let names: Vec<&str> = commands(&host.take_commands()).map(|c| c.name()).collect();
+        assert_eq!(names, ["play_clip"]);
     }
 
     #[test]

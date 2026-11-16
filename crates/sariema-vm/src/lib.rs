@@ -144,6 +144,13 @@ impl Vm {
         })
     }
 
+    /// The input buttons' name ids, in their order, for the game's
+    /// `button` import.
+    pub fn set_buttons(&mut self, names: impl IntoIterator<Item = u32>) {
+        self.host.buttons.clear();
+        self.host.buttons.extend(names);
+    }
+
     pub fn interpreter(&self) -> &'static str {
         self.interpreter
     }

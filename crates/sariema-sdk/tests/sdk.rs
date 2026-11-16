@@ -221,3 +221,26 @@ fn a_machine_reports_each_entry_once() {
     assert!(m.is(S::Walk) && m.entered());
     assert_eq!(m.steps_in(9), 4);
 }
+
+#[test]
+fn an_input_button_is_looked_up_by_its_name() {
+    struct Buttons {
+        action: Option<u16>,
+        jump: Option<u16>,
+    }
+    impl Game for Buttons {
+        fn new(ctx: &mut Ctx<'_>) -> Buttons {
+            Buttons {
+                action: ctx.button(sariema_sdk::id("action")),
+                jump: ctx.button(sariema_sdk::id("jump")),
+            }
+        }
+        fn tick(&mut self, _: &mut Ctx<'_>, _: Events<'_>) {}
+    }
+    let mut host = TestHost::with_buttons(&["confirm", "back", "skip", "action"]);
+    host.event(Event::Started { seed: 1 });
+    let mut runner = Runner::<Buttons>::new();
+    runner.run(&mut host);
+    let game = runner.game().unwrap();
+    assert_eq!((game.action, game.jump), (Some(3), None));
+}

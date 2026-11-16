@@ -3,7 +3,7 @@
 //! A game pack in the simulation: its WebAssembly logic in the sandboxed
 //! machine, its cutscenes and its settings.
 
-use sariema_format::script::{BATCH_VERSION, GamePack, decode_game};
+use sariema_format::script::{BATCH_VERSION, GamePack, decode_game, name_id};
 use sariema_vm::{LogLine, Vm, VmError};
 
 use crate::settings::Settings;
@@ -131,6 +131,7 @@ pub fn start_with_settings(
         }
         _ => {}
     }
+    vm.set_buttons(settings.input.buttons.iter().map(|b| name_id(&b.name)));
     Ok(Simulation::new(
         settings,
         pack.cutscenes,

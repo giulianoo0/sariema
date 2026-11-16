@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The four imports a game sees, written once over a plain memory slice so
-//! every interpreter backend shares them. Module `sariema`:
+//! The imports a game sees, written once over a plain memory slice so every
+//! interpreter backend shares them. Module `sariema`:
 //!
 //! - `submit(ptr, len)`: appends `len` bytes of commands.
 //! - `events(dst, cap) -> n`: copies the next whole events of this step into
@@ -10,6 +10,8 @@
 //! - `register(kind, ptr, len) -> id`: a bulk data region the engine reads
 //!   in place after every tick; −1 if refused.
 //! - `log(level, ptr, len)`: a line of UTF-8 text.
+//! - `button(name) -> index`: the input button whose name has the id
+//!   `name`, or −1.
 //!
 //! An access outside memory traps the call. Submitting more than
 //! `commands_bytes_per_step` in one tick stops the game as over budget; log
@@ -40,6 +42,8 @@ pub struct HostState {
     pub(crate) regions: Vec<Region>,
     pub(crate) log: Vec<LogLine>,
     log_left: usize,
+    /// The input buttons' name ids, in their order.
+    pub(crate) buttons: Vec<u32>,
     /// Why a host call stopped the game, when the reason is not a trap.
     pub(crate) stop: Option<VmError>,
     settings: VmSettings,
@@ -73,9 +77,17 @@ impl HostState {
             regions: Vec::new(),
             log: Vec::new(),
             log_left: settings.log_bytes_per_step as usize,
+            buttons: Vec::new(),
             stop: None,
             settings,
         }
+    }
+
+    pub(crate) fn button(&self, name: u32) -> i32 {
+        self.buttons
+            .iter()
+            .position(|&b| b == name)
+            .map_or(-1, |i| i as i32)
     }
 
     pub(crate) fn begin(&mut self, events: &[u8], ends: &[u32]) {

@@ -21,11 +21,21 @@ pub struct TestHost {
     pub logs: Vec<(u32, String)>,
     /// Registered regions: kind, address and length.
     pub regions: Vec<(u32, usize, usize)>,
+    /// The input buttons' name ids, in their order.
+    pub buttons: Vec<u32>,
 }
 
 impl TestHost {
     pub fn new() -> TestHost {
         TestHost::default()
+    }
+
+    /// A host whose input has buttons named `names`, in that order.
+    pub fn with_buttons(names: &[&str]) -> TestHost {
+        TestHost {
+            buttons: names.iter().map(|n| crate::id(n)).collect(),
+            ..TestHost::default()
+        }
     }
 
     /// Queues an event for the next tick.
@@ -74,6 +84,13 @@ impl Host for TestHost {
 
     fn log(&mut self, level: u32, text: &str) {
         self.logs.push((level, text.into()));
+    }
+
+    fn button(&self, name: u32) -> i32 {
+        self.buttons
+            .iter()
+            .position(|&b| b == name)
+            .map_or(-1, |i| i as i32)
     }
 }
 

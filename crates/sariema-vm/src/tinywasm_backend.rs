@@ -122,6 +122,12 @@ fn imports(host: &Rc<RefCell<HostState>>) -> Imports {
             },
         ),
     );
+    let h = host.clone();
+    imports.define(
+        "sariema",
+        "button",
+        HostFunction::from(move |_: FuncContext<'_>, name: i32| Ok(h.borrow().button(name as u32))),
+    );
     imports
 }
 

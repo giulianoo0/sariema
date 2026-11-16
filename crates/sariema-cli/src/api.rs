@@ -349,6 +349,7 @@ fn module() -> Value {
             { "module": "sariema", "name": "events", "signature": "(dst: i32, cap: i32) -> i32", "doc": "Copies the next whole events of this step: bytes copied, 0 when all were read, minus the size of an event larger than cap." },
             { "module": "sariema", "name": "register", "signature": "(kind: i32, ptr: i32, len: i32) -> i32", "doc": "A bulk region the engine reads after every tick; its id or -1. Kind 1 is transforms." },
             { "module": "sariema", "name": "log", "signature": "(level: i32, ptr: i32, len: i32) -> ()", "doc": "A line of UTF-8 text; level 0 debug to 3 error." },
+            { "module": "sariema", "name": "button", "signature": "(name: i32) -> i32", "doc": "The index button events carry for the input button whose name has the id name, or -1." },
         ],
     })
 }

@@ -72,9 +72,10 @@ actor, the sound bank and the HUD, so one `.srmg` runs everywhere.
 `examples/climb` is the complete game: the hero walks with collision, a
 wave whose marker rings a chime, a cutscene that walks to a mark, climbs
 through a window with a contact, cuts close and back, says a line over
-ducked music and fades the hero back into the room; an objective animates
-in on the first move and checks itself off. `examples/hello-game` is the
-smallest game, without assets.
+ducked music past the window and dips to black to a wide shot of the hero
+where the climb left it; an objective animates in on the first move and
+checks itself off. `examples/hello-game` is the smallest game, without
+assets.
 
 ## Where to go next
 

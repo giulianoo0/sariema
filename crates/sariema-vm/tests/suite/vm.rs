@@ -189,6 +189,26 @@ fn events_are_read_in_whole_records_that_fit() {
 }
 
 #[test]
+fn an_input_button_is_found_by_its_name() {
+    let wasm = wat::parse_str(
+        r#"(module
+             (import "sariema" "submit" (func $submit (param i32 i32)))
+             (import "sariema" "button" (func $button (param i32) (result i32)))
+             (memory (export "memory") 1)
+             (func (export "sariema_tick")
+               (i32.store (i32.const 0) (call $button (i32.const 0x0B0B)))
+               (i32.store (i32.const 4) (call $button (i32.const 0x0C0C)))
+               (call $submit (i32.const 0) (i32.const 8))))"#,
+    )
+    .unwrap();
+    let mut vm = load(&wasm, settings()).unwrap();
+    vm.set_buttons([0x0A0A, 0x0B0B]);
+    let out = tick(&mut vm).unwrap();
+    assert_eq!(&out[0..4], &1i32.to_le_bytes());
+    assert_eq!(&out[4..8], &(-1i32).to_le_bytes(), "no button has that name");
+}
+
+#[test]
 fn regions_and_logs_reach_the_host() {
     let wasm = module(
         r#"(data (i32.const 100) "boot\01\00\00\00")

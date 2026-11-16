@@ -177,6 +177,13 @@ impl Ctx<'_> {
         self.send(Command::Signal { signal });
     }
 
+    /// The index `button` events carry for the input button named `name`
+    /// (an [`crate::id`]), so a game finds its buttons whatever their
+    /// order in the project's settings; `None` when there is none.
+    pub fn button(&self, name: u32) -> Option<u16> {
+        u16::try_from(self.host.button(name)).ok()
+    }
+
     /// `level` 0 debug, 1 info, 2 warning, 3 error.
     pub fn log(&mut self, level: u32, text: &str) {
         self.host.log(level, text);

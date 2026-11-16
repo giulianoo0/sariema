@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The four functions the engine gives a game, behind a trait so a game's
-//! logic can run in host tests too ([`crate::testing`]).
+//! The functions the engine gives a game, behind a trait so a game's logic
+//! can run in host tests too ([`crate::testing`]).
 
 pub trait Host {
     fn submit(&mut self, bytes: &[u8]);
@@ -13,6 +13,8 @@ pub trait Host {
     fn register(&mut self, kind: u32, bytes: &[u8]) -> i32;
     /// `level` 0 debug, 1 info, 2 warning, 3 error.
     fn log(&mut self, level: u32, text: &str);
+    /// The index of the input button whose name has the id `name`, or −1.
+    fn button(&self, name: u32) -> i32;
 }
 
 /// The engine, through the module's imports.
@@ -26,6 +28,7 @@ mod imports {
         pub fn events(dst: *mut u8, cap: usize) -> i32;
         pub fn register(kind: u32, ptr: *const u8, len: usize) -> i32;
         pub fn log(level: u32, ptr: *const u8, len: usize);
+        pub fn button(name: u32) -> i32;
     }
 }
 
@@ -50,6 +53,11 @@ impl Host for Wasm {
         // SAFETY: the pointer and length describe a live string.
         unsafe { imports::log(level, text.as_ptr(), text.len()) }
     }
+
+    fn button(&self, name: u32) -> i32 {
+        // SAFETY: the import takes a plain integer and touches no memory.
+        unsafe { imports::button(name) }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -67,6 +75,10 @@ impl Host for Wasm {
     }
 
     fn log(&mut self, _: u32, _: &str) {
+        unreachable!("the engine's imports exist only on wasm32")
+    }
+
+    fn button(&self, _: u32) -> i32 {
         unreachable!("the engine's imports exist only on wasm32")
     }
 }

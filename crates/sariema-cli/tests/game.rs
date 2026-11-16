@@ -476,7 +476,7 @@ fn the_climb_example_replays_through_the_whole_engine_to_pinned_events_and_state
         "walls, the wave's marker, the sill zone, the walk to the mark, the climb through the window and its doorway trigger, the line"
     );
     // The same on wasm32 under Node's WebAssembly (tools/wasm-replay).
-    assert_eq!(played["engine_hash"], "367aeca659949a46");
+    assert_eq!(played["engine_hash"], "60d39185bf71cd37");
     let again = run("900");
     for hash in ["engine_hash", "physics_hash", "audio_hash"] {
         assert_eq!(again[hash], played[hash], "{hash} differs between two runs");

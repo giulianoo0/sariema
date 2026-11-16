@@ -22,7 +22,7 @@ A game module exports:
 | `sariema_batch_version` | `() -> i32` | Optional. The batch version it was built against; any other is refused at load with `E_BATCH_VERSION`. |
 | `memory` | memory | Its linear memory. |
 
-and imports only these four functions from module `sariema`:
+and imports only these functions from module `sariema`:
 
 | Import | Signature | |
 |---|---|---|
@@ -30,6 +30,7 @@ and imports only these four functions from module `sariema`:
 | `events` | `(dst, cap) -> i32` | Copies the next whole events of this step into `dst`: the bytes copied, 0 once all were read, or minus the size of an event larger than `cap`. |
 | `register` | `(kind, ptr, len) -> i32` | A bulk region the engine reads in place after every tick; its id, or −1. Kind 1 is transforms. |
 | `log` | `(level, ptr, len)` | A line of UTF-8 text, level 0 (debug) to 3 (error). |
+| `button` | `(name) -> i32` | The index `button` events carry for the input button whose name has the id `name`, or −1. |
 
 Nothing else exists: no files, no network, no clock, no system calls. A
 module that imports anything else does not load (`E_GAME_MODULE`).
@@ -197,13 +198,17 @@ game!(Hello);
 - Cutscene control: `ctx.bind(role, entity)`, `ctx.play_cutscene`,
   `ctx.skip_cutscene`, `ctx.signal`.
 - `ctx.rng()` is a PCG32 seeded from the engine's `started` event.
+- `ctx.button(id("action"))` is the index `button` events carry for the
+  input button named `action`, whatever its place in `input.buttons`;
+  `None` when the project has none.
 - `Machine<S>` holds a state, the step it was entered and an `entered()`
   flag, for logic written as states.
 - `Transforms` is a bulk region of kind 1: entity placements applied after
   every tick without one command each. Its buffer is sized once; register it
   once with `ctx.register(Transforms::KIND, region.as_bytes())`. Actors are
   skipped; they move by commands.
-- `testing::TestHost` runs a game natively in `cargo test`: queue events,
+- `testing::TestHost` runs a game natively in `cargo test` (with
+  `TestHost::with_buttons` for its input buttons): queue events,
   `Runner::run` a tick, decode the commands with `testing::commands`.
 - `report_panic` sends a panic's message to the engine's log; call it from a
   std game's panic hook. A `no_std` game enables the `panic-handler` feature.
