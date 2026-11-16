@@ -19,6 +19,7 @@ use crate::scene::{HDR_FORMAT, Scene};
 use crate::{Gpu, Quality, RenderPath};
 
 pub(crate) mod ao;
+mod held;
 
 pub(crate) const VIEW_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 /// Past 9 taps the kernel's outer pairs weigh under 0.02% each; a wider blur
@@ -85,6 +86,10 @@ pub(crate) struct Post {
     /// The projection the depth passes' uniforms were last written for.
     uploaded_for: Cell<Option<Mat4>>,
     params: CompositeUniform,
+    /// The composite's uniform and bloom of the frame drawn last, to
+    /// composite it again into the frame held.
+    drawn: Option<(CompositeUniform, bool)>,
+    held: held::Held,
 }
 
 /// What does not depend on the target's size.
@@ -113,6 +118,8 @@ struct Stages {
     projection: wgpu::Buffer,
     bright: wgpu::Buffer,
     params: wgpu::Buffer,
+    /// The uniform of the frame drawn last, while it is composited again.
+    held_params: wgpu::Buffer,
     srgb_target: bool,
     bloom_levels: u32,
 }
@@ -144,6 +151,9 @@ struct Frame {
     tilt: Vec<Pass>,
     composite: wgpu::BindGroup,
     composite_without_bloom: wgpu::BindGroup,
+    /// The composite's groups with the uniform of the frame drawn last.
+    held: wgpu::BindGroup,
+    held_without_bloom: wgpu::BindGroup,
     /// The bloom's mip count, which GLSL ES 3.0 cannot query.
     bloom_levels: u32,
 }
@@ -161,12 +171,16 @@ impl Post {
             ao_radius_m: 0.0,
             uploaded_for: Cell::new(None),
             params: CompositeUniform::zeroed(),
+            drawn: None,
+            held: held::Held::new(gpu, format),
         }
     }
 
     /// Rebuilds the chain's textures at the size of the scene's.
     pub fn resize(&mut self, gpu: &Gpu, scene: &Scene) {
         self.frame = self.stages.frame(gpu, scene);
+        self.drawn = None;
+        self.held.resize();
         if self.params.bloom_levels != self.frame.bloom_levels {
             self.params.bloom_levels = self.frame.bloom_levels;
             gpu.write(&self.stages.params, bytemuck::bytes_of(&self.params));
@@ -219,7 +233,7 @@ impl Post {
     /// Records the passes the look needs, then the composite into `target`,
     /// for a frame seen by `camera`; returns how many passes that is.
     pub fn draw(
-        &self,
+        &mut self,
         gpu: &Gpu,
         encoder: &mut wgpu::CommandEncoder,
         camera: &Camera,
@@ -267,7 +281,35 @@ impl Post {
         };
         let composite = &self.stages.composite;
         fullscreen(gpu, encoder, "composite", composite, group, target);
-        drawn
+        self.drawn = Some((self.params, self.bloom));
+        drawn + self.held.draw(gpu, encoder, target) as u32
+    }
+
+    /// Composites the frame drawn last again, with its own look, into the
+    /// frame held; to record before anything of the next frame is drawn.
+    /// Nothing when no frame was drawn at the current size.
+    pub fn hold(
+        &mut self,
+        gpu: &Gpu,
+        encoder: &mut wgpu::CommandEncoder,
+        size: (u32, u32),
+    ) -> bool {
+        let Some((params, bloom)) = self.drawn else {
+            return false;
+        };
+        gpu.write(&self.stages.held_params, bytemuck::bytes_of(&params));
+        let group = match bloom {
+            true => &self.frame.held,
+            false => &self.frame.held_without_bloom,
+        };
+        let target = self.held.target(gpu, size);
+        fullscreen(gpu, encoder, "hold", &self.stages.composite, group, target);
+        true
+    }
+
+    /// How much of the frame held each frame shows over itself, 0 to 1.
+    pub fn set_held_opacity(&mut self, gpu: &Gpu, opacity: f32) {
+        self.held.set_opacity(gpu, opacity.clamp(0.0, 1.0));
     }
 }
 
@@ -470,6 +512,7 @@ impl Stages {
             projection: uniform_buffer("depth projection", size_of::<ProjectionUniform>()),
             bright: uniform_buffer("bright", size_of::<BrightUniform>()),
             params: uniform_buffer("composite", size_of::<CompositeUniform>()),
+            held_params: uniform_buffer("held composite", size_of::<CompositeUniform>()),
             srgb_target: format.is_srgb(),
             bloom_levels: quality.bloom_levels,
         }
@@ -518,7 +561,15 @@ impl Stages {
             ],
             bloom: self.bloom_passes(gpu, &t),
             tilt,
-            composite: self.composite_group(gpu, scene, &t.depth, &blurred, &bloom, &ambient),
+            composite: self.composite_group(
+                gpu,
+                scene,
+                &t.depth,
+                &blurred,
+                &bloom,
+                &ambient,
+                &self.params,
+            ),
             composite_without_bloom: self.composite_group(
                 gpu,
                 scene,
@@ -526,6 +577,25 @@ impl Stages {
                 &blurred,
                 &self.black,
                 &ambient,
+                &self.params,
+            ),
+            held: self.composite_group(
+                gpu,
+                scene,
+                &t.depth,
+                &blurred,
+                &bloom,
+                &ambient,
+                &self.held_params,
+            ),
+            held_without_bloom: self.composite_group(
+                gpu,
+                scene,
+                &t.depth,
+                &blurred,
+                &self.black,
+                &ambient,
+                &self.held_params,
             ),
             bloom_levels: t.bloom.mip_level_count(),
         }
@@ -609,6 +679,7 @@ impl Stages {
     }
 
     /// `blurred` holds the blurred 1/2 and 1/4 levels.
+    #[allow(clippy::too_many_arguments)]
     fn composite_group(
         &self,
         gpu: &Gpu,
@@ -617,6 +688,7 @@ impl Stages {
         blurred: &[wgpu::TextureView],
         bloom: &wgpu::TextureView,
         ambient: &wgpu::TextureView,
+        params: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         group(
             gpu,
@@ -628,7 +700,7 @@ impl Stages {
                 BindingResource::TextureView(&blurred[1]),
                 BindingResource::TextureView(bloom),
                 BindingResource::Sampler(&self.sampler),
-                self.params.as_entire_binding(),
+                params.as_entire_binding(),
                 BindingResource::TextureView(ambient),
             ],
         )

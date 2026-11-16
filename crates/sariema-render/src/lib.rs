@@ -344,6 +344,8 @@ pub struct Renderer {
     timings: FrameTimings,
     cpu_clock: Option<fn() -> Duration>,
     warned: bool,
+    /// The next frame keeps the one drawn before it.
+    hold: bool,
 }
 
 impl Renderer {
@@ -407,6 +409,7 @@ impl Renderer {
             timings: FrameTimings::default(),
             cpu_clock: None,
             warned: false,
+            hold: false,
         })
     }
 
@@ -748,6 +751,20 @@ impl Renderer {
         self.post.set_look(&self.gpu, look);
     }
 
+    /// Keeps the frame drawn last, as it was composited, before the HUD:
+    /// the next [`Renderer::render`] composites it again into a texture
+    /// before drawing anything, at the cost of one full-screen pass. Shown
+    /// over the frames after it by [`Renderer::set_held_frame`].
+    pub fn hold_frame(&mut self) {
+        self.hold = true;
+    }
+
+    /// How much of the frame held shows over every frame drawn: 1 only it,
+    /// 0 none, which skips its pass.
+    pub fn set_held_frame(&mut self, opacity: f32) {
+        self.post.set_held_opacity(&self.gpu, opacity);
+    }
+
     /// Shows or hides every draw called `name` in the drawn rooms; false if
     /// there is none.
     pub fn set_draw_visible(&mut self, name: &str, visible: bool) -> bool {
@@ -841,6 +858,8 @@ impl Renderer {
         }
         self.stats = stats;
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
+        let size = (self.width, self.height);
+        let held = std::mem::take(&mut self.hold) && self.post.hold(&self.gpu, &mut encoder, size);
         if !self.stage.is_empty() {
             (self.shadows).draw(
                 &self.gpu,
@@ -859,7 +878,8 @@ impl Renderer {
             keep_depth,
         );
         let record = watch.lap();
-        self.stats.post_passes = self.post.draw(&self.gpu, &mut encoder, camera, target);
+        self.stats.post_passes =
+            held as u32 + self.post.draw(&self.gpu, &mut encoder, camera, target);
         if let Some(timer) = &self.gpu.timer {
             timer.end_frame(&mut encoder);
         }

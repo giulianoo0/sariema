@@ -392,3 +392,40 @@ fn two_rooms_dissolving_share_no_pixel() {
         assert!(d.max_channel_delta <= 2, "the new room whole: {d:?}");
     }
 }
+
+#[test]
+fn a_held_frame_shows_over_the_next_frames_by_its_opacity() {
+    for quality in [Quality::high(), downlevel()] {
+        let (a, mut b) = (demo_room(), neighbour());
+        b.look.exposure = a.look.exposure * 0.4;
+        let mut h = headless(quality.clone(), &a);
+        let seen = camera(&a);
+        let old = h.render(&seen, 0.0);
+        h.renderer().hold_frame();
+        h.renderer().load_room_into(1, &b).unwrap();
+        h.renderer().set_drawn(&[1]);
+        h.renderer().set_look(&b.look);
+        h.renderer().set_held_frame(1.0);
+        let held = h.render(&seen, 0.0);
+        assert!(
+            max_delta(&old, &held) <= 1,
+            "the frame held is the one drawn last, with its own look"
+        );
+        h.renderer().set_held_frame(0.0);
+        let new = h.render(&seen, 0.0);
+        assert!(max_delta(&old, &new) > 40, "the new room differs");
+        h.renderer().set_held_frame(0.5);
+        let half = h.render(&seen, 0.0);
+        // The target stores encoded colour, which the blend mixes as stored.
+        let worst = (old.pixels().zip(new.pixels()).zip(half.pixels()))
+            .flat_map(|((o, n), m)| (0..3).map(move |k| (o[k], n[k], m[k])))
+            .map(|(o, n, m)| (m as f32 - 0.5 * (o as f32 + n as f32)).abs())
+            .fold(0.0, f32::max);
+        assert!(worst <= 1.5, "half held is the mean of the two: {worst}");
+        h.renderer().set_held_frame(1.0);
+        assert!(
+            max_delta(&old, &h.render(&seen, 0.0)) <= 1,
+            "held until let go, whatever was drawn since"
+        );
+    }
+}
