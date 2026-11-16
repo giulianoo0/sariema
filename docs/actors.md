@@ -332,7 +332,7 @@ interleaved pairs on `origem-base-s11` high gave a minimum of 2.06 ms before
 against 2.16 ms after, and a median of 3.30 against 2.92 ms, with "after"
 faster in 11 of the 15 pairs. At this load the runs cannot tell a gain from
 a small loss. The absolute before and after waits for a rerun on a quiet
-machine with `sariema bench`, which the perf lane is adding.
+machine with `sariema bench` ([performance.md](performance.md)).
 
 What the sampled profiles do show is less work in the parts this change
 touched. They compare parts of the same frame, so they hold up better under

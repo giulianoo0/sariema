@@ -12,7 +12,7 @@ the `sariema` command-line tool.
 - `crates/sariema-import` — packaging-time import: compressed glTF kits and room
   assembly from placement and lighting files (`schemas/room.schema.json`).
 - `crates/sariema-core` — the room camera.
-- `crates/sariema-physics` — deterministic character movement and collision, collision packs (`SRMC`) and `sariema check` (`docs/physics.md`).
+- `crates/sariema-physics` — deterministic character movement and collision, collision packs (`SRMC`) and `sariema check` ([docs/physics.md](docs/physics.md)).
 - `crates/sariema-render` — the wgpu renderer: clustered forward scene pass,
   shadow atlas, post-processing chain, quality tiers, headless rendering and
   image comparison.
@@ -22,9 +22,25 @@ the `sariema` command-line tool.
 - `crates/sariema-audio` — the mixer: buses, streamed music, ducking, loudness
   checks and offline rendering of cue lists ([docs/audio.md](docs/audio.md)).
 - `crates/sariema-ui` — in-engine UI: flexbox tree, distance-field text, animation, touch widgets and a batched draw list ([docs/ui.md](docs/ui.md)).
-- `crates/sariema-cli` — the `sariema` tool: `build`, `inspect`, `run --headless`
-  and `test`, each with `--json`. `examples/demo` is a project it can build.
+- `crates/sariema-cli` — the `sariema` tool: `build`, `inspect`, `run`, `test`,
+  `check`, `physics-map`, `bench`, `audio` and `ui`, each with `--json`.
+  `examples/demo` is a project it can build.
+
+Docs:
+
+- [docs/design.md](docs/design.md) — the public design.
+- [docs/physics.md](docs/physics.md) — character movement, collision packs and `sariema check`.
+- [docs/actors.md](docs/actors.md) — actor packs, skeletal animation and skinned drawing.
+- [docs/audio.md](docs/audio.md) — sound banks, the mixer and `sariema audio`.
+- [docs/ui.md](docs/ui.md) — the in-engine UI and `sariema ui render`.
 - [docs/performance.md](docs/performance.md) — `sariema bench` and what a frame costs.
+
+Agent skills, one per module, for an agent building a game with it:
+
+- [skills/sariema-physics](skills/sariema-physics/SKILL.md)
+- [skills/sariema-actors](skills/sariema-actors/SKILL.md)
+- [skills/sariema-audio](skills/sariema-audio/SKILL.md)
+- [skills/sariema-ui](skills/sariema-ui/SKILL.md)
 
 ```sh
 cargo test --workspace
