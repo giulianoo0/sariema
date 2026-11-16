@@ -1,5 +1,6 @@
 {
   "name": "demo",
   "assets_root": ".",
-  "rooms": { "demo": "rooms/demo.json" }
+  "rooms": { "demo": "rooms/demo.json" },
+  "actors": { "arm": "actors/arm.json" }
 }

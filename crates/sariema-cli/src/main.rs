@@ -9,8 +9,11 @@ use clap::{Args, Parser, Subcommand, ValueEnum, value_parser};
 use sariema_import::TextureMode;
 use sariema_render::Quality;
 
+mod actor;
+mod bench;
 mod check;
 mod collision;
+mod filmstrip;
 mod golden;
 mod output;
 mod pack;
@@ -19,6 +22,7 @@ mod player;
 mod project;
 mod run;
 mod spot_check;
+mod stage;
 
 #[derive(Parser)]
 #[command(
@@ -36,21 +40,25 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Build one room of a project into a pack.
+    /// Build one room or one actor of a project into a pack.
     Build {
         /// Directory holding sariema.json.
         project: PathBuf,
         /// Room id from the project's `rooms`.
+        #[arg(long, required_unless_present = "actor", conflicts_with = "actor")]
+        room: Option<String>,
+        /// Actor id from the project's `actors`.
         #[arg(long)]
-        room: String,
-        /// Pack to write, conventionally `.srma`.
+        actor: Option<String>,
+        /// Pack to write, conventionally `.srma` for a room and `.srmk` for an actor.
         #[arg(short, long)]
         output: PathBuf,
         /// How to store colour textures, overriding the room file's `textures`.
         #[arg(long, value_enum)]
         textures: Option<Textures>,
     },
-    /// Show a pack's stats, lights, materials and loose draws.
+    /// Show a room pack's stats, lights, materials and loose draws, or an
+    /// actor pack's joints, clips, parts, sockets and faces.
     Inspect { pack: PathBuf },
     /// Draw a pack's room in a window, or offscreen with --headless.
     ///
@@ -75,6 +83,10 @@ enum Command {
     Check(check::CheckArgs),
     /// Draw a collision pack from above into a PNG: colliders, walkable cells, triggers, spots, a path.
     PhysicsMap(physics_map::MapArgs),
+    /// Draw a pack's room offscreen many times and report the cost of each
+    /// load stage, frame stage and GPU pass, with draws, passes, uploads and
+    /// allocations per frame.
+    Bench(bench::BenchArgs),
 }
 
 #[derive(Args)]
@@ -99,6 +111,8 @@ struct RunArgs {
     /// Fail with E_ROOM_VOID when a larger fraction of the frame shows no geometry.
     #[arg(long, value_parser = fraction, requires = "headless")]
     max_background: Option<f32>,
+    #[command(flatten)]
+    stage: stage::StageArgs,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -151,14 +165,22 @@ fn main() -> ExitCode {
         Command::Build {
             project,
             room,
+            actor,
             output,
             textures,
-        } => project::build(project, room, output, textures.map(Textures::mode)),
+        } => match (room, actor) {
+            (Some(room), _) => project::build(project, room, output, textures.map(Textures::mode)),
+            (None, Some(actor)) => {
+                actor::build(project, actor, output, textures.map(Textures::mode))
+            }
+            (None, None) => unreachable!("clap requires --room or --actor"),
+        },
         Command::Inspect { pack } => pack::inspect(pack),
         Command::Run(args) => run::run(args),
         Command::Test { dir, update } => golden::test(dir, *update),
         Command::Check(args) => check::run(args),
         Command::PhysicsMap(args) => physics_map::run(args),
+        Command::Bench(args) => bench::bench(args),
     });
     output::emit(cli.json, outcome)
 }

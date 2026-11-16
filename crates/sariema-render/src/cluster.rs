@@ -6,10 +6,10 @@
 
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 
-use glam::{Mat4, Vec2, Vec3, Vec4, vec3};
+use glam::{Mat4, Vec2, Vec3, vec3};
 use sariema_format::{Light, LightKind};
 
-use crate::Quality;
+use crate::{Quality, cull};
 
 /// Low bits of a cluster cell that hold its light count; the high bits hold
 /// the offset of its first entry in the index list.
@@ -240,109 +240,97 @@ pub(crate) struct Visible {
     pub spheres: Vec<Sphere>,
     pub in_frustum: u32,
     pub dropped: u32,
+    found: Vec<(f32, usize, Sphere)>,
 }
 
-/// The lights whose reach meets the view frustum, keeping at most `max` by
-/// [`priority`] at the eye.
-pub(crate) fn visible_lights(
-    lights: &[Light],
-    view: Mat4,
-    proj: Mat4,
-    eye: Vec3,
-    max: u32,
-) -> Visible {
-    let planes = frustum_planes(proj);
-    let mut found: Vec<(f32, usize, Sphere)> = lights
-        .iter()
-        .enumerate()
-        .filter_map(|(i, light)| {
-            let world = reach(light);
-            let sphere = Sphere {
-                center: view.transform_point3(world.center),
-                radius: world.radius,
-            };
-            let inside = planes
-                .iter()
-                .all(|p| p.dot(sphere.center.extend(1.0)) >= -sphere.radius);
-            inside.then_some((priority(light, eye), i, sphere))
-        })
-        .collect();
-    let in_frustum = found.len() as u32;
-    // Stable, so equal priorities keep the room's order.
-    found.sort_by(|a, b| b.0.total_cmp(&a.0));
-    found.truncate(max as usize);
-    Visible {
-        lights: found.iter().map(|f| f.1).collect(),
-        spheres: found.iter().map(|f| f.2).collect(),
-        in_frustum,
-        dropped: in_frustum - found.len() as u32,
+impl Visible {
+    /// Fills these with the lights whose reach meets the view frustum,
+    /// keeping at most `max` by [`priority`] at the eye.
+    pub fn find(&mut self, lights: &[Light], view: Mat4, proj: Mat4, eye: Vec3, max: u32) {
+        let planes = cull::planes(proj);
+        self.found.clear();
+        self.found
+            .extend(lights.iter().enumerate().filter_map(|(i, light)| {
+                let world = reach(light);
+                let center = view.transform_point3(world.center);
+                let sphere = Sphere {
+                    center,
+                    radius: world.radius,
+                };
+                cull::sphere_visible(&planes, center, world.radius).then_some((
+                    priority(light, eye),
+                    i,
+                    sphere,
+                ))
+            }));
+        self.in_frustum = self.found.len() as u32;
+        // Equal priorities keep the room's order.
+        self.found
+            .sort_unstable_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+        self.found.truncate(max as usize);
+        self.dropped = self.in_frustum - self.found.len() as u32;
+        self.lights.clear();
+        self.lights.extend(self.found.iter().map(|f| f.1));
+        self.spheres.clear();
+        self.spheres.extend(self.found.iter().map(|f| f.2));
     }
 }
 
-/// View-space planes (normal xyz, offset w) with the inside where `p · (x, 1) >= 0`.
-fn frustum_planes(proj: Mat4) -> [Vec4; 6] {
-    let row = |i| proj.row(i);
-    // NDC depth runs 0..1, so the near plane is the third row alone.
-    [
-        row(3) + row(0),
-        row(3) - row(0),
-        row(3) + row(1),
-        row(3) - row(1),
-        row(2),
-        row(3) - row(2),
-    ]
-    .map(|p| p / p.truncate().length())
-}
-
-/// The per-frame cluster lists.
+/// The per-frame cluster lists, and the space to build them in.
 #[derive(Debug, Default)]
 pub(crate) struct Bins {
     /// One per cluster: offset into `indices` << [`COUNT_BITS`] | count.
     pub cells: Vec<u32>,
-    /// Positions in the sphere list given to [`bin`].
+    /// Positions in the sphere list given to [`Bins::fill`].
     pub indices: Vec<u32>,
     /// Most lights overlapping one cluster, counting those past the cap.
     pub max_overlapping: u32,
     /// Clusters that had more lights than the cap.
     pub overflows: u32,
+    spans: Vec<Option<Span>>,
+    counts: Vec<u32>,
+    filled: Vec<u32>,
 }
 
-/// Lists, for each cluster, the view-space spheres whose bounding box
-/// overlaps it. A cluster keeps the first `max_per_cluster` it meets, so
-/// `spheres` must come in priority order.
-pub(crate) fn bin(grid: &Grid, proj: Mat4, spheres: &[Sphere], max_per_cluster: u32) -> Bins {
-    let spans: Vec<Option<Span>> = spheres.iter().map(|s| grid.span(proj, s)).collect();
-    let mut counts = vec![0u32; grid.len() as usize];
-    for span in spans.iter().flatten() {
-        for c in grid.clusters(span) {
-            counts[c] += 1;
+impl Bins {
+    /// Lists, for each cluster, the view-space spheres whose bounding box
+    /// overlaps it. A cluster keeps the first `max_per_cluster` it meets, so
+    /// `spheres` must come in priority order.
+    pub fn fill(&mut self, grid: &Grid, proj: Mat4, spheres: &[Sphere], max_per_cluster: u32) {
+        let clusters = grid.len() as usize;
+        self.spans.clear();
+        self.spans
+            .extend(spheres.iter().map(|s| grid.span(proj, s)));
+        self.counts.clear();
+        self.counts.resize(clusters, 0);
+        for span in self.spans.iter().flatten() {
+            for c in grid.clusters(span) {
+                self.counts[c] += 1;
+            }
         }
-    }
-    let mut offset = 0;
-    let cells: Vec<u32> = counts
-        .iter()
-        .map(|&n| {
+        let mut offset = 0;
+        self.cells.clear();
+        self.cells.extend(self.counts.iter().map(|&n| {
             let kept = n.min(max_per_cluster);
             let cell = offset << COUNT_BITS | kept;
             offset += kept;
             cell
-        })
-        .collect();
-    let mut indices = vec![0; offset as usize];
-    let mut filled = vec![0u32; counts.len()];
-    for (light, span) in spans.iter().enumerate() {
-        for c in span.iter().flat_map(|span| grid.clusters(span)) {
-            if filled[c] < max_per_cluster {
-                indices[((cells[c] >> COUNT_BITS) + filled[c]) as usize] = light as u32;
-                filled[c] += 1;
+        }));
+        self.indices.clear();
+        self.indices.resize(offset as usize, 0);
+        self.filled.clear();
+        self.filled.resize(clusters, 0);
+        for (light, span) in self.spans.iter().enumerate() {
+            for c in span.iter().flat_map(|span| grid.clusters(span)) {
+                if self.filled[c] < max_per_cluster {
+                    self.indices[((self.cells[c] >> COUNT_BITS) + self.filled[c]) as usize] =
+                        light as u32;
+                    self.filled[c] += 1;
+                }
             }
         }
-    }
-    Bins {
-        max_overlapping: counts.iter().copied().max().unwrap_or(0),
-        overflows: counts.iter().filter(|&&n| n > max_per_cluster).count() as u32,
-        cells,
-        indices,
+        self.max_overlapping = self.counts.iter().copied().max().unwrap_or(0);
+        self.overflows = self.counts.iter().filter(|&&n| n > max_per_cluster).count() as u32;
     }
 }
 
@@ -392,6 +380,12 @@ mod tests {
             center: vec3(x, y, z),
             radius,
         }
+    }
+
+    fn bin(grid: &Grid, proj: Mat4, spheres: &[Sphere], max: u32) -> Bins {
+        let mut bins = Bins::default();
+        bins.fill(grid, proj, spheres, max);
+        bins
     }
 
     #[test]
@@ -501,7 +495,8 @@ mod tests {
             point(0.0, 10.0, 9.0),
             point(1.0, -10.0, 4.0),
         ];
-        let v = visible_lights(&lights, Mat4::IDENTITY, proj(), Vec3::ZERO, 1);
+        let mut v = Visible::default();
+        v.find(&lights, Mat4::IDENTITY, proj(), Vec3::ZERO, 1);
         assert_eq!((v.in_frustum, v.dropped), (2, 1));
         assert_eq!(v.lights, [2]);
     }

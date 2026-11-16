@@ -5,12 +5,14 @@
 use std::path::Path;
 use std::{fmt, io};
 
+mod actor;
 mod collision;
 mod gltf;
 mod kit;
 mod room;
 mod texture;
 
+pub use actor::{ActorSource, FaceSource, KeySettings, MaterialLook, SocketSource, build_actor};
 pub use collision::{BakeSettings, CollisionSource, build_collision};
 pub use kit::{Kit, KitImage, KitPiece, KitPrimitive, load_kit};
 pub use room::{Hemisphere, RoomSource, build_room};
@@ -38,6 +40,9 @@ pub enum ImportError {
         texture: String,
         why: String,
     },
+    /// An actor description names a joint, clip, material, face or frame
+    /// the actor does not have.
+    ActorName(String),
 }
 
 impl ImportError {
@@ -50,6 +55,7 @@ impl ImportError {
                 "E_ROOM_PIECE_MISSING"
             }
             ImportError::Encode { .. } => "E_TEXTURE_ENCODE",
+            ImportError::ActorName(_) => "E_ACTOR_NAME",
         }
     }
 }
@@ -75,6 +81,7 @@ impl fmt::Display for ImportError {
             ImportError::Encode { texture, why } => {
                 write!(f, "texture {texture} could not be compressed: {why}")
             }
+            ImportError::ActorName(why) => write!(f, "{why}"),
         }
     }
 }

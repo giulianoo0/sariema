@@ -30,7 +30,7 @@ struct MaterialUniform {
     metallic: f32,
     rim: f32,
     drawn: f32,
-    _pad: f32,
+    face: f32,
 }
 
 pub(crate) struct DrawItem {
@@ -130,48 +130,9 @@ pub(crate) fn upload(gpu: &Gpu, layouts: &Layouts, room: &RoomPack) -> Result<Ro
         .iter()
         .map(|t| upload_texture(gpu, t))
         .collect();
-    let align = limits.min_uniform_buffer_offset_alignment as usize;
-    let material_stride = size_of::<MaterialUniform>().next_multiple_of(align);
-    let material_buffer = gpu.buffer_with(
-        "materials",
-        &strided(room.materials.iter().map(material_uniform), material_stride),
-        wgpu::BufferUsages::UNIFORM,
-    );
-    let materials = room
-        .materials
-        .iter()
-        .enumerate()
-        .map(|(i, m)| {
-            let texture = |t: Option<u32>| t.map_or(&layouts.white, |t| &textures[t as usize]);
-            let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some(&m.name),
-                layout: &layouts.material,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &material_buffer,
-                            offset: (i * material_stride) as u64,
-                            size: wgpu::BufferSize::new(size_of::<MaterialUniform>() as u64),
-                        }),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(texture(m.base_color_texture)),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(texture(m.emissive_texture)),
-                    },
-                ],
-            });
-            MaterialGpu {
-                group,
-                drawn: m.drawn,
-            }
-        })
-        .collect();
+    let materials = material_groups(gpu, layouts, &room.materials, &[], &textures);
 
+    let align = limits.min_uniform_buffer_offset_alignment as usize;
     let draw_stride = size_of::<DrawUniform>().next_multiple_of(align);
     let mut draw_bytes = strided(
         room.draws.iter().map(|d| draw_uniform(&d.transform)),
@@ -230,6 +191,60 @@ pub(crate) fn upload(gpu: &Gpu, layouts: &Layouts, room: &RoomPack) -> Result<Ro
         draw_group,
         draw_stride: draw_stride as u32,
     })
+}
+
+/// A bind group per material over one uniform buffer of them; `faces[i]`,
+/// where given, is the actor face material `i` shows.
+pub(crate) fn material_groups(
+    gpu: &Gpu,
+    layouts: &Layouts,
+    materials: &[Material],
+    faces: &[Option<u32>],
+    textures: &[wgpu::TextureView],
+) -> Vec<MaterialGpu> {
+    let align = gpu.device.limits().min_uniform_buffer_offset_alignment as usize;
+    let stride = size_of::<MaterialUniform>().next_multiple_of(align);
+    let uniforms = materials
+        .iter()
+        .enumerate()
+        .map(|(i, m)| material_uniform(m, faces.get(i).copied().flatten()));
+    let mut bytes = strided(uniforms, stride);
+    // A bind group cannot point into an empty buffer.
+    bytes.resize(bytes.len().max(stride), 0);
+    let buffer = gpu.buffer_with("materials", &bytes, wgpu::BufferUsages::UNIFORM);
+    materials
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let texture = |t: Option<u32>| t.map_or(&layouts.white, |t| &textures[t as usize]);
+            let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&m.name),
+                layout: &layouts.material,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &buffer,
+                            offset: (i * stride) as u64,
+                            size: wgpu::BufferSize::new(size_of::<MaterialUniform>() as u64),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(texture(m.base_color_texture)),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(texture(m.emissive_texture)),
+                    },
+                ],
+            });
+            MaterialGpu {
+                group,
+                drawn: m.drawn,
+            }
+        })
+        .collect()
 }
 
 fn validate(
@@ -318,7 +333,11 @@ impl Block {
     }
 }
 
-fn texture_problem(t: &Texture, max_side: u32, features: wgpu::Features) -> Option<String> {
+pub(crate) fn texture_problem(
+    t: &Texture,
+    max_side: u32,
+    features: wgpu::Features,
+) -> Option<String> {
     let format = gpu_format(t.format);
     if !features.contains(format.required_features()) {
         return Some(format!(
@@ -359,7 +378,7 @@ fn texture_problem(t: &Texture, max_side: u32, features: wgpu::Features) -> Opti
 }
 
 /// `t` must have passed [`texture_problem`].
-fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
+pub(crate) fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
     let format = gpu_format(t.format);
     let block = Block::of(format);
     let size = |level: u32| wgpu::Extent3d {
@@ -409,7 +428,7 @@ pub(crate) fn strided<T: Pod>(items: impl Iterator<Item = T>, stride: usize) -> 
     bytes
 }
 
-fn material_uniform(m: &Material) -> MaterialUniform {
+fn material_uniform(m: &Material, face: Option<u32>) -> MaterialUniform {
     MaterialUniform {
         base_color: m.base_color,
         emissive: m.emissive,
@@ -419,7 +438,7 @@ fn material_uniform(m: &Material) -> MaterialUniform {
         metallic: m.metallic,
         rim: m.rim,
         drawn: m.drawn as u8 as f32,
-        _pad: 0.0,
+        face: face.map_or(-1.0, |f| f as f32),
     }
 }
 

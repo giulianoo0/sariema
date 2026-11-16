@@ -8,7 +8,7 @@ use glam::Vec3;
 use sariema_core::Camera;
 use sariema_format::{AlphaMode, Shading};
 
-use crate::cluster::{self, Grid, Visible};
+use crate::cluster::{self, Bins, Grid, Visible};
 use crate::lights::{GPU_LIGHT_SIZE, GpuLight, gpu_light};
 use crate::resources::{DrawUniform, Room};
 use crate::shadow::{self, Assigned, Shadows};
@@ -52,7 +52,7 @@ pub(crate) struct Kind {
 }
 
 impl Kind {
-    const COUNT: usize = 12;
+    pub const COUNT: usize = 12;
     const ALPHAS: [AlphaMode; 3] = [AlphaMode::Opaque, AlphaMode::Blend, AlphaMode::Additive];
 
     pub fn of(material: &sariema_format::Material) -> Kind {
@@ -64,7 +64,7 @@ impl Kind {
     }
 
     /// Where its pipeline is in `Scene::pipelines`; [`Kind::from_index`] inverts it.
-    fn index(self) -> usize {
+    pub fn index(self) -> usize {
         let alpha = Kind::ALPHAS.iter().position(|&a| a == self.alpha).unwrap();
         (self.lit as usize * Kind::ALPHAS.len() + alpha) * 2 + self.double_sided as usize
     }
@@ -151,6 +151,12 @@ pub(crate) struct Scene {
     targets: Targets,
     grid: Grid,
     max_lights_per_cluster: u32,
+    frustum_culling: bool,
+    packed: Vec<GpuLight>,
+    bins: Bins,
+    sent: Uploads,
+    /// The room's draws in view, as [`Scene::order`] sorted them.
+    order: Vec<(u8, f32, u32)>,
 }
 
 impl Scene {
@@ -179,7 +185,15 @@ impl Scene {
         let mesh_layout = pipeline_layout(&[&layouts.frame, &layouts.draw, &layouts.material]);
         let msaa = quality.msaa;
         let pipelines = std::array::from_fn(|i| {
-            mesh_pipeline(gpu, &mesh_layout, &module, Kind::from_index(i), quality)
+            let vertex = ("vs_main", vertex_layout());
+            mesh_pipeline(
+                gpu,
+                &mesh_layout,
+                &module,
+                Kind::from_index(i),
+                quality,
+                vertex,
+            )
         });
         let background = gpu.pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("background"),
@@ -267,6 +281,11 @@ impl Scene {
             targets: targets(gpu, width, height, msaa),
             grid: Grid::new(width, height, quality),
             max_lights_per_cluster: quality.max_lights_per_cluster,
+            frustum_culling: quality.frustum_culling,
+            packed: Vec::new(),
+            bins: Bins::default(),
+            sent: Uploads::default(),
+            order: Vec::new(),
             layouts,
             pipelines,
             background,
@@ -298,10 +317,22 @@ impl Scene {
         self.grid = Grid::new(width, height, quality);
     }
 
+    /// Orders the room's draws in view of `camera`; returns how many
+    /// visible draws were left out as outside it.
+    pub fn cull(&mut self, room: Option<&Room>, camera: &Camera) -> u32 {
+        match room {
+            Some(room) => self.order(room, camera),
+            None => {
+                self.order.clear();
+                0
+            }
+        }
+    }
+
     /// Bins the frame's `visible` lights, with their `shadows`, for `camera`
-    /// and uploads them with the frame constants.
+    /// and uploads what changed since the last frame.
     pub fn prepare(
-        &self,
+        &mut self,
         gpu: &Gpu,
         room: Option<&Room>,
         camera: &Camera,
@@ -310,42 +341,63 @@ impl Scene {
         shadows: &Assigned,
     ) -> FrameStats {
         let lights = room.map_or(&[][..], |r| &r.lights[..]);
-        let packed: Vec<GpuLight> = (visible.lights.iter().zip(&shadows.lights))
-            .map(|(&i, &slot)| gpu_light(&lights[i], i, time_s, slot))
-            .collect();
+        self.packed.clear();
+        self.packed.extend(
+            (visible.lights.iter().zip(&shadows.lights))
+                .map(|(&i, &slot)| gpu_light(&lights[i], i, time_s, slot)),
+        );
         let (near, far) = cluster::light_depths(camera.proj, &visible.spheres);
         let grid = self.grid.sliced(near, far);
-        let bins = cluster::bin(
+        self.bins.fill(
             &grid,
             camera.proj,
             &visible.spheres,
             self.max_lights_per_cluster,
         );
-        let queue = &gpu.queue;
-        for (buffer, bytes) in [
-            (&self.lights, bytemuck::cast_slice(&packed)),
-            (&self.cells, bytemuck::cast_slice(&bins.cells)),
-            (&self.indices, bytemuck::cast_slice(&bins.indices)),
-        ] {
-            if !bytes.is_empty() {
-                queue.write_buffer(buffer, 0, bytes);
-            }
-        }
-        queue.write_buffer(
-            &self.frame,
-            0,
-            bytemuck::bytes_of(&frame_uniform(room, camera, &grid, shadows.sun)),
-        );
+        let frame = frame_uniform(room, camera, &grid, shadows.sun);
+        let sent = &mut self.sent;
+        sent.lights
+            .write(gpu, &self.lights, bytemuck::cast_slice(&self.packed));
+        sent.cells
+            .write(gpu, &self.cells, bytemuck::cast_slice(&self.bins.cells));
+        sent.indices
+            .write(gpu, &self.indices, bytemuck::cast_slice(&self.bins.indices));
+        sent.frame
+            .write(gpu, &self.frame, bytemuck::bytes_of(&frame));
         FrameStats {
             lights_in_frustum: visible.in_frustum,
             lights_dropped: visible.dropped,
             clusters: grid.len(),
-            max_lights_overlapping_cluster: bins.max_overlapping,
-            cluster_overflows: bins.overflows,
+            max_lights_overlapping_cluster: self.bins.max_overlapping,
+            cluster_overflows: self.bins.overflows,
             shadows_skipped: shadows.skipped,
-            post_passes: 0,
+            ..FrameStats::default()
         }
     }
+}
+
+/// The bytes last written to a buffer, so that a frame writes it only when
+/// they change: each write stages a copy that costs more than the comparison.
+#[derive(Default)]
+struct Sent(Vec<u8>);
+
+impl Sent {
+    fn write(&mut self, gpu: &Gpu, buffer: &wgpu::Buffer, bytes: &[u8]) {
+        if bytes.is_empty() || self.0 == bytes {
+            return;
+        }
+        gpu.write(buffer, bytes);
+        self.0.clear();
+        self.0.extend_from_slice(bytes);
+    }
+}
+
+#[derive(Default)]
+struct Uploads {
+    lights: Sent,
+    cells: Sent,
+    indices: Sent,
+    frame: Sent,
 }
 
 fn frame_uniform(
@@ -524,12 +576,15 @@ pub(crate) fn depth_state(write: bool, compare: wgpu::CompareFunction) -> wgpu::
     }
 }
 
-fn mesh_pipeline(
+/// The pipeline drawing `kind` with fs_main, its vertices read by the entry
+/// point and buffer layout of `vertex`.
+pub(crate) fn mesh_pipeline(
     gpu: &Gpu,
     layout: &wgpu::PipelineLayout,
     module: &wgpu::ShaderModule,
     kind: Kind,
     quality: &Quality,
+    (entry_point, buffer): (&str, wgpu::VertexBufferLayout<'_>),
 ) -> wgpu::RenderPipeline {
     // The largest square grid within the tap count.
     let pcf_side = quality.shadow_pcf_taps.isqrt().max(1);
@@ -547,9 +602,9 @@ fn mesh_pipeline(
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module,
-            entry_point: Some("vs_main"),
+            entry_point: Some(entry_point),
             compilation_options: options.clone(),
-            buffers: &[Some(vertex_layout())],
+            buffers: &[Some(buffer)],
         },
         primitive: primitive(kind.double_sided),
         depth_stencil: Some(depth_state(kind.is_opaque(), wgpu::CompareFunction::Less)),

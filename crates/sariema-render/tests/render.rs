@@ -87,6 +87,31 @@ fn render_creates_no_pipelines() {
 }
 
 #[test]
+fn culling_leaves_out_draws_off_screen_and_changes_no_pixel() {
+    let mut room = demo_room();
+    let mut aside = room.draws[1].clone();
+    aside.name = Some("aside".into());
+    let moved = glam::Mat4::from_translation(glam::vec3(200.0, 0.0, 0.0))
+        * glam::Mat4::from_cols_array(&aside.transform);
+    aside.transform = moved.to_cols_array();
+    aside.bounds = Aabb::around(&room.meshes[aside.mesh as usize], &aside.transform);
+    aside.casts_shadow = false;
+    room.draws.push(aside);
+    let frame = |frustum_culling| {
+        let quality = Quality {
+            frustum_culling,
+            ..Quality::high()
+        };
+        let mut h = headless(quality, &room);
+        let image = h.render(&camera_of(&room), 0.0);
+        (image, h.renderer().last_frame_stats().draws_culled)
+    };
+    let ((culled, left_out), (all, none_left_out)) = (frame(true), frame(false));
+    assert_eq!((left_out, none_left_out), (1, 0));
+    assert_eq!(compare_images(&culled, &all).unwrap().max_channel_delta, 0);
+}
+
+#[test]
 fn hiding_a_draw_changes_the_image() {
     let room = demo_room();
     let mut h = headless(Quality::high(), &room);

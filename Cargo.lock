@@ -2104,6 +2104,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sariema-anim"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "sariema-format",
+]
+
+[[package]]
 name = "sariema-cli"
 version = "0.1.0"
 dependencies = [
@@ -2113,6 +2121,7 @@ dependencies = [
  "image",
  "jsonschema",
  "pollster",
+ "sariema-anim",
  "sariema-core",
  "sariema-format",
  "sariema-import",
@@ -2155,6 +2164,7 @@ dependencies = [
  "libm",
  "log",
  "meshopt",
+ "sariema-anim",
  "sariema-format",
  "sariema-physics",
  "serde",
@@ -2179,6 +2189,7 @@ dependencies = [
  "image",
  "log",
  "pollster",
+ "sariema-anim",
  "sariema-core",
  "sariema-format",
  "sariema-import",

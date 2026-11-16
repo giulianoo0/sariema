@@ -111,11 +111,13 @@ impl Occlusion {
         );
         let target = |label| mip(&texture(gpu, label, FORMAT, size, 1), 0);
         let (occlusion, scratch) = (target("ao"), target("ao blur scratch"));
-        let pass = |pipeline: &wgpu::RenderPipeline,
+        let pass = |label,
+                    pipeline: &wgpu::RenderPipeline,
                     layout,
                     resources: Vec<_>,
                     target: &wgpu::TextureView| {
             Pass {
+                label,
                 pipeline: pipeline.clone(),
                 group: group(gpu, layout, resources),
                 target: target.clone(),
@@ -123,14 +125,20 @@ impl Occlusion {
         };
         let blur = |pipeline, source, target| {
             let resources = vec![BindingResource::TextureView(source)];
-            pass(pipeline, &self.blur_layout, resources, target)
+            pass("ao blur", pipeline, &self.blur_layout, resources, target)
         };
         let estimate = vec![
             BindingResource::TextureView(view_depth),
             self.params.as_entire_binding(),
         ];
         let passes = vec![
-            pass(&self.estimate, &self.estimate_layout, estimate, &occlusion),
+            pass(
+                "ao",
+                &self.estimate,
+                &self.estimate_layout,
+                estimate,
+                &occlusion,
+            ),
             blur(&self.blur[0], &occlusion, &scratch),
             blur(&self.blur[1], &scratch, &occlusion),
         ];
@@ -146,7 +154,6 @@ impl Occlusion {
             // Where a depth of 1, the cleared background, lands; see resolve_depth.wgsl.
             far: proj.w_axis.z / (1.0 + proj.z_axis.z),
         };
-        gpu.queue
-            .write_buffer(&self.params, 0, bytemuck::bytes_of(&params));
+        gpu.write(&self.params, bytemuck::bytes_of(&params));
     }
 }

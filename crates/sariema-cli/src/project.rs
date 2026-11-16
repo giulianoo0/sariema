@@ -18,14 +18,17 @@ const SCHEMA: &str = include_str!("../../../schemas/project.schema.json");
 
 /// `schemas/project.schema.json`; `name` is checked there and not needed here.
 #[derive(Deserialize)]
-struct Project {
-    assets_root: PathBuf,
+pub struct Project {
+    pub assets_root: PathBuf,
     /// Room id to its room description, relative to the project directory.
     rooms: BTreeMap<String, PathBuf>,
+    /// Actor id to its actor description, relative to the project directory.
+    #[serde(default)]
+    pub actors: BTreeMap<String, PathBuf>,
 }
 
 /// Reads the project in `dir` and checks it against the schema.
-fn load(dir: &Path) -> Result<Project, Failure> {
+pub fn load(dir: &Path) -> Result<Project, Failure> {
     let path = dir.join(FILE);
     let text = fs::read_to_string(&path).map_err(|e| Failure::io(&path, e))?;
     let schema_error = |why: String| Failure::new("E_SCHEMA", format!("{}: {why}", path.display()));
@@ -83,20 +86,32 @@ pub(crate) fn room_ids(dir: &Path) -> Result<Vec<String>, Failure> {
 /// Room `room`'s description, and the assets root its paths are relative to.
 pub(crate) fn room_source(dir: &Path, room: &str) -> Result<(RoomSource, PathBuf), Failure> {
     let project = load(dir)?;
-    let description = project.rooms.get(room).ok_or_else(|| {
-        let ids: Vec<&str> = project.rooms.keys().map(String::as_str).collect();
+    let (description, text) = description(dir, "room", &project.rooms, room)?;
+    let source = RoomSource::from_json(&text)
+        .map_err(|e| Failure::new(e.code(), format!("{}: {e}", description.display())))?;
+    Ok((source, dir.join(&project.assets_root)))
+}
+
+/// The path and text of the description `entries` maps `id` to; `kind` names
+/// the entries in the error.
+pub(crate) fn description(
+    dir: &Path,
+    kind: &str,
+    entries: &BTreeMap<String, PathBuf>,
+    id: &str,
+) -> Result<(PathBuf, String), Failure> {
+    let path = entries.get(id).ok_or_else(|| {
+        let ids: Vec<&str> = entries.keys().map(String::as_str).collect();
         Failure::new(
             "E_SCHEMA",
             format!(
-                "{}: no room {room}; its rooms are {}",
+                "{}: no {kind} {id}; its {kind}s are {}",
                 dir.join(FILE).display(),
                 list(&ids)
             ),
         )
     })?;
-    let description = dir.join(description);
-    let text = fs::read_to_string(&description).map_err(|e| Failure::io(&description, e))?;
-    let source = RoomSource::from_json(&text)
-        .map_err(|e| Failure::new(e.code(), format!("{}: {e}", description.display())))?;
-    Ok((source, dir.join(&project.assets_root)))
+    let path = dir.join(path);
+    let text = fs::read_to_string(&path).map_err(|e| Failure::io(&path, e))?;
+    Ok((path, text))
 }

@@ -20,6 +20,9 @@ pub fn inspect(path: &Path) -> Result<Done, Failure> {
     if bytes.starts_with(&sariema_format::collision::MAGIC) {
         return crate::collision::inspect(path, &bytes);
     }
+    if bytes.starts_with(&sariema_format::actor::MAGIC) {
+        return crate::actor::inspect(path, &bytes);
+    }
     let room =
         decode(&bytes).map_err(|e| Failure::new(e.code(), format!("{}: {e}", path.display())))?;
     let lights: Vec<&str> = room.lights.iter().map(|l| l.name.as_str()).collect();

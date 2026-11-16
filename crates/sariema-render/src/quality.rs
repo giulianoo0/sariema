@@ -38,6 +38,15 @@ pub struct Quality {
     /// Bilinear samples per direction of each post-processing blur, odd and
     /// at most 9; each one past the centre weighs two texels.
     pub blur_taps: u32,
+    /// A blur over a level of at most this many texels runs in one pass of
+    /// `blur_taps`² samples instead of two of `blur_taps`; past it the
+    /// samples cost more than the pass saves. A smaller bloom level is
+    /// reduced and blurred in one pass where four times its texels fit, as
+    /// each of its samples takes four of the level above. The bloom's first
+    /// level always takes two: its horizontal pass keeps only the light past
+    /// the threshold, which is not linear, so it cannot be folded into one
+    /// two-dimensional sample.
+    pub blur_one_pass_max_texels: u32,
     /// Depth samples per texel of the screen-space ambient occlusion, at most
     /// 32; 0 turns the occlusion off whatever the look asks.
     pub ao_samples: u32,
@@ -50,6 +59,14 @@ pub struct Quality {
     /// Most texels of the occlusion target the radius may span; a surface
     /// near enough to the camera to need more gets a smaller radius.
     pub ao_max_radius_texels: u32,
+    /// Leaves out the room draws and actors whose bounds lie outside the
+    /// view. Off draws everything, for comparing images.
+    pub frustum_culling: bool,
+    /// Shadow slots of a frame, the sun's first and then the highest-ranked
+    /// lights', that also hold actors; each is redrawn in the frames an actor
+    /// within its reach moves. An actor that none holds gets a disc shadow,
+    /// so 0 gives every actor a disc.
+    pub actor_shadow_slots: u32,
 }
 
 impl Quality {
@@ -70,10 +87,15 @@ impl Quality {
             // miniature blur reach, which is part of the look.
             bloom_levels: 4,
             blur_taps: 5,
+            // 1/4 of 1920×1080 is 129 600 texels; its 1/2 level, 518 400,
+            // blurs faster in two passes on an Apple M5.
+            blur_one_pass_max_texels: 1 << 17,
             ao_samples: 6,
             ao_divisor: 4,
             ao_blur_taps: 5,
             ao_max_radius_texels: 24,
+            frustum_culling: true,
+            actor_shadow_slots: 0,
         }
     }
 
@@ -90,6 +112,7 @@ impl Quality {
             shadow_pcf_taps: 4,
             ao_samples: 8,
             ao_max_radius_texels: 32,
+            actor_shadow_slots: 1,
             ..Quality::low()
         }
     }
@@ -107,6 +130,7 @@ impl Quality {
             shadow_pcf_taps: 16,
             ao_samples: 12,
             ao_blur_taps: 9,
+            actor_shadow_slots: 2,
             ..Quality::medium()
         }
     }
@@ -141,6 +165,10 @@ impl Quality {
         let min_slots_per_side = (shadow_atlas_size / shadow_min_slot_px) as u64;
         let min_slots = (min_slots_per_side * min_slots_per_side).min(u32::MAX as u64) as u32;
         let blur_taps = self.blur_taps.clamp(1, MAX_BLUR_TAPS);
+        let max_shadowed_lights = self
+            .max_shadowed_lights
+            .min(min_slots)
+            .min(entries(view_stride(limits).max(GPU_SHADOW_SIZE)).saturating_sub(1));
         Quality {
             max_visible_lights: self.max_visible_lights.min(entries(GPU_LIGHT_SIZE)),
             max_lights_per_cluster,
@@ -149,10 +177,8 @@ impl Quality {
             depth_slices: self.depth_slices.clamp(1, cluster_budget),
             shadow_atlas_size,
             // The slot buffers also hold the sun's.
-            max_shadowed_lights: self
-                .max_shadowed_lights
-                .min(min_slots)
-                .min(entries(view_stride(limits).max(GPU_SHADOW_SIZE)).saturating_sub(1)),
+            max_shadowed_lights,
+            actor_shadow_slots: self.actor_shadow_slots.min(max_shadowed_lights + 1),
             shadow_min_slot_px,
             bloom_levels: self.bloom_levels.max(1),
             blur_taps: odd(blur_taps),
