@@ -21,9 +21,39 @@ fn expected_slide(approach_deg: f32) -> f32 {
     kept.max(0.85 * ((kept - head_on) / (full - head_on)).clamp(0.0, 1.0))
 }
 
-/// Steps along a wall through `along` (unit, horizontal): checks the
-/// velocity's sign never flips and returns the steady speed along the wall.
-fn slide_speed(positions: &[Vec3], along: Vec3, normal: Vec3) -> f32 {
+/// From the first position touching a wall (closer than `touching` along
+/// `normal` to the origin), or from the start when the actor only walks
+/// alongside: the velocity along the wall never changes sign or stops, and the
+/// actor never moves away from the wall.
+fn steady_from_contact(positions: &[Vec3], along: Vec3, normal: Vec3, touching: f32) {
+    let first = positions
+        .iter()
+        .position(|p| p.dot(normal) < touching)
+        .unwrap_or(0);
+    let steps: Vec<Vec3> = positions[first..].windows(2).map(|w| w[1] - w[0]).collect();
+    let sign = steps[0].dot(along).signum();
+    for (k, d) in steps.iter().enumerate() {
+        let (tangent, away) = (d.dot(along), d.dot(normal));
+        assert!(
+            tangent != 0.0 && tangent.signum() == sign,
+            "step {k} after contact: {tangent} along the wall"
+        );
+        assert!(
+            away < 1e-4,
+            "step {k} after contact: {away} away from the wall"
+        );
+    }
+}
+
+/// Feet closer than this to the plane of a wall's face touch it: the radius
+/// and two skins, so a step that ends touching counts even if it bounced.
+const TOUCHING: f32 = 0.3 + 0.021;
+
+/// Steps along a wall through `along` (unit, horizontal) whose face is
+/// `face` from the origin: checks the velocity from the first contact on, and
+/// returns the steady speed along the wall.
+fn slide_speed(positions: &[Vec3], along: Vec3, normal: Vec3, face: f32) -> f32 {
+    steady_from_contact(positions, along, normal, face + TOUCHING);
     let steps: Vec<Vec3> = positions.windows(2).map(|w| w[1] - w[0]).collect();
     let tail = &steps[steps.len() / 2..];
     let tangent: Vec<f32> = tail.iter().map(|d| d.dot(along) / DT).collect();
@@ -60,7 +90,7 @@ fn walls_at_0_30_45_89_degrees_slide_at_the_preserved_speed() {
         let push = (along - normal).normalize();
         let mut events = Vec::new();
         let positions = hold(&mut world, id, Vec2::new(push.x, push.z), 240, &mut events);
-        let speed = slide_speed(&positions, along, normal);
+        let speed = slide_speed(&positions, along, normal, 0.1);
         assert!(
             (speed - SPEED * expected_slide(45.0)).abs() < 1e-3,
             "wall {wall_deg}°: {speed}"
@@ -91,7 +121,7 @@ fn approach_angles_0_30_45_89_keep_the_expected_speed_along_a_turned_wall() {
         let push = along * a.cos() - normal * a.sin();
         let mut events = Vec::new();
         let positions = hold(&mut world, id, Vec2::new(push.x, push.z), 180, &mut events);
-        let speed = slide_speed(&positions, along, normal);
+        let speed = slide_speed(&positions, along, normal, 0.1);
         let want = SPEED * expected_slide(approach);
         assert!(
             (speed - want).abs() < 2e-3,
@@ -129,6 +159,7 @@ fn mesh_diagonal_wall_slides_without_jitter() {
     let push = (along * 2.0 - normal).normalize();
     let mut events = Vec::new();
     let positions = hold(&mut world, id, Vec2::new(push.x, push.z), 240, &mut events);
+    steady_from_contact(&positions, along, normal, TOUCHING);
     let steps: Vec<Vec3> = positions.windows(2).map(|w| w[1] - w[0]).skip(60).collect();
     let first = steps[0];
     let jitter = steps
