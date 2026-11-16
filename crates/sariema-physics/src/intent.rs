@@ -61,6 +61,9 @@ pub enum Intent {
     SetColliderEnabled { collider: ColliderId, enabled: bool },
     /// Multiplies the actor's walk speed; 1 is normal.
     SetSpeedScale { actor: ActorId, scale: f32 },
+    /// Turns the actor in place towards `yaw` at the controller's turn
+    /// rate; walking turns it towards where it goes instead.
+    Face { actor: ActorId, yaw: f32 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

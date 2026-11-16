@@ -108,6 +108,8 @@ struct Actor {
     nav: Option<usize>,
     awake: bool,
     triggers: Vec<u32>,
+    /// Off: the actor is left out of every step, as if removed.
+    active: bool,
 }
 
 pub struct World {
@@ -253,6 +255,7 @@ impl World {
             nav: None,
             awake: true,
             triggers: Vec::new(),
+            active: true,
         };
         actor.ground = self.standing_on(&actor, desc.position, desc.yaw);
         self.actors.push(actor);
@@ -304,6 +307,35 @@ impl World {
 
     pub fn actor_collider(&self, id: ActorId) -> ActorCollider {
         self.actors[id.0 as usize].desc.collider
+    }
+
+    /// Leaves an actor out of every step (motion, pushing, triggers, which
+    /// it leaves) or brings it back; its id stays valid. A caller whose
+    /// actors come and go reuses ids this way instead of adding more.
+    pub fn set_actor_active(&mut self, id: ActorId, active: bool, events: &mut Vec<Event>) {
+        let a = &mut self.actors[id.0 as usize];
+        if a.active == active {
+            return;
+        }
+        a.active = active;
+        a.awake = true;
+        if !active {
+            for &t in &a.triggers {
+                events.push(Event {
+                    actor: id,
+                    kind: EventKind::TriggerExit(TriggerId(t)),
+                });
+            }
+            a.triggers.clear();
+            a.route = None;
+            a.move_to = None;
+            a.stick = Vec2::ZERO;
+            a.knockback = None;
+        }
+    }
+
+    pub fn actor_active(&self, id: ActorId) -> bool {
+        self.actors[id.0 as usize].active
     }
 
     pub fn actor_count(&self) -> usize {
@@ -386,6 +418,11 @@ impl World {
             Intent::SetSpeedScale { actor, scale } => {
                 self.actors[actor.0 as usize].speed_scale = scale
             }
+            Intent::Face { actor, yaw } => {
+                let a = &mut self.actors[actor.0 as usize];
+                a.target_yaw = wrap_angle(yaw);
+                a.awake = true;
+            }
         }
     }
 
@@ -415,7 +452,7 @@ impl World {
                     break;
                 }
                 let a = &self.actors[i];
-                if a.posed {
+                if a.posed || !a.active {
                     continue;
                 }
                 let only = Filter {
@@ -459,11 +496,15 @@ impl World {
         self.steps += 1;
         self.settle_enabled(events);
         for i in 0..self.actors.len() {
-            self.step_actor(i, events);
+            if self.actors[i].active {
+                self.step_actor(i, events);
+            }
         }
         self.separate();
         for i in 0..self.actors.len() {
-            self.update_triggers(i, events);
+            if self.actors[i].active {
+                self.update_triggers(i, events);
+            }
         }
         self.scene.settle_platforms();
         self.geometry_changed = false;
@@ -749,7 +790,8 @@ impl World {
                 a.target_yaw = want;
             }
         }
-        let yaw = wrap_angle(a.yaw + wrap_angle(a.target_yaw - a.yaw) * blend);
+        let max = self.derived.max_turn;
+        let yaw = wrap_angle(a.yaw + (wrap_angle(a.target_yaw - a.yaw) * blend).clamp(-max, max));
         let swings = a.desc.collider.head.is_some_and(|h| h.forward != 0.0);
         if !swings || yaw == a.yaw {
             a.yaw = yaw;
@@ -862,7 +904,7 @@ impl World {
         for k in 0..self.order.len() {
             let ia = self.order[k] as usize;
             let a = &actors[ia];
-            if a.posed {
+            if a.posed || !a.active {
                 continue;
             }
             let ra = a.desc.collider.radius;
@@ -872,7 +914,7 @@ impl World {
                 if b.position.x - rb > a.position.x + ra {
                     break;
                 }
-                if b.posed {
+                if b.posed || !b.active {
                     continue;
                 }
                 let top_a = a.position.y + a.desc.collider.height;

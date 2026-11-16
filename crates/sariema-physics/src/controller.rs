@@ -29,6 +29,8 @@ pub(crate) struct Derived {
     pub full_slide: f32,
     /// Share of the remaining angle the facing covers in one step.
     pub yaw_blend: f32,
+    /// The most an actor turns in one step, radians.
+    pub max_turn: f32,
 }
 
 impl Derived {
@@ -39,6 +41,7 @@ impl Derived {
             head_on: libm::sinf(c.corner_assist_angle_deg.to_radians()),
             full_slide: libm::cosf(c.wall_slide_full_angle_deg.to_radians()),
             yaw_blend: 1.0 - libm::expf(-c.yaw_rate * s.step_seconds),
+            max_turn: c.max_yaw_speed * s.step_seconds,
         }
     }
 }

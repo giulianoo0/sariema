@@ -78,6 +78,9 @@ pub struct ControllerSettings {
     pub yaw_rate: f32,
     /// Changes of the wanted facing smaller than this, in radians, are ignored.
     pub yaw_filter: f32,
+    /// Radians per second an actor turns at most, whatever `yaw_rate` asks;
+    /// infinite leaves turning to `yaw_rate` alone.
+    pub max_yaw_speed: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -137,6 +140,7 @@ impl Default for Settings {
                 accel_steps: 0,
                 yaw_rate: 14.0,
                 yaw_filter: 0.1,
+                max_yaw_speed: f32::INFINITY,
             },
             nav: NavSettings {
                 cell_size: 0.1,
