@@ -3,9 +3,8 @@
 //! Assembles a room pack from a kit, the game's placement file (`montagem.json`)
 //! and its lighting file (`luz.json`).
 //!
-//! Placement, rotation and states follow `buildCasa` in the game's
-//! `src/origem3d/casa.ts`. Hinges (`giros`) are not applied: hinged parts stay
-//! at their rest pose.
+//! Placement, rotation and states follow the reference game's `buildCasa`.
+//! Hinges (`giros`) are not applied: hinged parts stay at their rest pose.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;

@@ -370,10 +370,11 @@ fn truncated_glb_is_error() {
 }
 
 #[test]
-#[ignore = "needs the Origem assets in SARIEMA_ORIGEM_ASSETS"]
+#[ignore = "needs the reference assets in SARIEMA_REFERENCE_ASSETS"]
 fn loads_real_house_kit() {
-    let root = std::env::var_os("SARIEMA_ORIGEM_ASSETS")
-        .expect("set SARIEMA_ORIGEM_ASSETS to the Origem assets directory, the one holding casa/");
+    let root = std::env::var_os("SARIEMA_REFERENCE_ASSETS").expect(
+        "set SARIEMA_REFERENCE_ASSETS to the reference assets directory, the one holding casa/",
+    );
     let kit = load_kit(&Path::new(&root).join("casa/kit_casa_pain.opt.glb")).unwrap();
     // The sum of `tris_visiveis` in the game's pecas.json.
     assert_eq!(kit.triangles(), 45_400);

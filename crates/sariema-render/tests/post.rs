@@ -16,7 +16,7 @@ const W: u32 = 960;
 const H: u32 = 540;
 const GOLDEN_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/golden");
 
-/// `real-noite` from LOOKS in the Origem game's post.ts.
+/// The reference game's `real-noite` look.
 fn real_noite() -> Look {
     Look {
         real: 1.0,
@@ -32,7 +32,7 @@ fn real_noite() -> Look {
     }
 }
 
-/// `desenho-dia` from LOOKS in the Origem game's post.ts.
+/// The reference game's `desenho-dia` look.
 fn desenho_dia() -> Look {
     Look {
         real: 0.0,

@@ -2,7 +2,7 @@
 
 ## `montagem_min.json`, `luz_min.json`, `sala_min.json`
 
-Hand-written, in the formats of the Origem game's `montagem.json` and `luz.json`,
+Hand-written, in the formats of the reference game's `montagem.json` and `luz.json`,
 over `kit_min.opt.glb`. Room `a` (corner at the origin) holds two `caixa` and a
 `mesa`, lit by a spot and a point light; room `b`, 2 cells (3 m) east, holds the
 `lampada` and has no local lights. `sala_min.json` is the room description that

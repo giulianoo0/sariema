@@ -2,8 +2,8 @@
 
 //! Reads a kit: a GLB whose scene root nodes are reusable scenery pieces.
 //!
-//! Which nodes of a piece show follows `applyState` in the game's
-//! `src/origem3d/casa.ts`, applied to a freshly loaded piece.
+//! Which nodes of a piece show follows the reference game's `applyState`,
+//! applied to a freshly loaded piece.
 //!
 //! Vertex UVs are kept as stored: materials map them with
 //! `uv * uv_scale + uv_offset`, as `KHR_texture_transform` does.
