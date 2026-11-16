@@ -406,41 +406,73 @@ fn effects_turned_off_draw_no_passes() {
     let levels = Quality::high().bloom_levels;
     // The bloom and the miniature blur start from the scene reduced to 1/2 and 1/4.
     let reduce = 2;
-    // Bright and blurred at 1/4, then reduced and blurred at each smaller level.
-    let bloom = 2 + 3 * (levels - 1);
     // One depth resolve serves the miniature blur and the occlusion.
     let resolve = 1;
-    // A two-pass blur at 1/2 and at 1/4.
-    let tilt = 2 + 2;
     // The estimate, then its two-pass blur.
     let ao = 1 + 2;
     let composite = 1;
-    let passes = |tilt, bloom, ao| post_passes(Quality::high(), tilt, bloom, ao);
-    assert_eq!(passes(0.0, 0.0, 0.0), composite);
-    assert_eq!(passes(0.0, 0.3, 0.0), reduce + bloom + composite);
-    assert_eq!(passes(1.0, 0.0, 0.0), reduce + resolve + tilt + composite);
-    assert_eq!(
-        passes(1.0, 0.3, 0.0),
-        reduce + bloom + resolve + tilt + composite
-    );
-    assert_eq!(passes(0.0, 0.0, 0.5), resolve + ao + composite);
-    assert_eq!(
-        passes(1.0, 0.0, 0.5),
-        reduce + resolve + tilt + ao + composite
-    );
-    assert_eq!(
-        passes(1.0, 0.3, 0.5),
-        reduce + bloom + resolve + tilt + ao + composite
-    );
-    let no_occlusion = Quality {
-        ao_samples: 0,
-        ..Quality::high()
+    // Bright and blurred at 1/4, in two passes; then each smaller level
+    // reduced and blurred in `blur` passes; then the 1/2 and 1/4 levels
+    // blurred in `blur` passes each.
+    for (one_pass_max, blur) in [(0, 2), (u32::MAX, 1)] {
+        let quality = Quality {
+            blur_one_pass_max_texels: one_pass_max,
+            ..Quality::high()
+        };
+        let bloom = 2 + (1 + blur) * (levels - 1);
+        let tilt = 2 * blur;
+        let passes = |tilt, bloom, ao| post_passes(quality.clone(), tilt, bloom, ao);
+        assert_eq!(passes(0.0, 0.0, 0.0), composite);
+        assert_eq!(passes(0.0, 0.3, 0.0), reduce + bloom + composite);
+        assert_eq!(passes(1.0, 0.0, 0.0), reduce + resolve + tilt + composite);
+        assert_eq!(
+            passes(1.0, 0.3, 0.0),
+            reduce + bloom + resolve + tilt + composite
+        );
+        assert_eq!(passes(0.0, 0.0, 0.5), resolve + ao + composite);
+        assert_eq!(
+            passes(1.0, 0.0, 0.5),
+            reduce + resolve + tilt + ao + composite
+        );
+        assert_eq!(
+            passes(1.0, 0.3, 0.5),
+            reduce + bloom + resolve + tilt + ao + composite
+        );
+        let no_occlusion = Quality {
+            ao_samples: 0,
+            ..quality.clone()
+        };
+        assert_eq!(post_passes(no_occlusion.clone(), 0.0, 0.0, 0.5), composite);
+        assert_eq!(
+            post_passes(no_occlusion, 1.0, 0.0, 0.5),
+            reduce + resolve + tilt + composite
+        );
+    }
+}
+
+#[test]
+fn one_pass_blurs_match_two_pass_blurs() {
+    let room = demo_room();
+    let look = with(|l| {
+        l.tilt = 1.0;
+        l.bloom_strength = 0.8;
+        l.bloom_threshold = 0.2;
+    });
+    let render = |one_pass_max| {
+        let quality = Quality {
+            blur_one_pass_max_texels: one_pass_max,
+            ..Quality::high()
+        };
+        let mut h = Headless::new(W, H, quality).unwrap();
+        h.renderer().load_room(&room).unwrap();
+        h.renderer().set_look(&look);
+        h.render(&camera_of(&room), 0.0)
     };
-    assert_eq!(post_passes(no_occlusion.clone(), 0.0, 0.0, 0.5), composite);
-    assert_eq!(
-        post_passes(no_occlusion, 1.0, 0.0, 0.5),
-        reduce + resolve + tilt + composite
-    );
+    let (two, one) = (render(0), render(u32::MAX));
+    assert_ne!(two, one, "the blurs ran in one pass");
+    // Only the intermediate level's half-float rounding is gone.
+    let d = compare_images(&two, &one).unwrap();
+    assert!(d.max_channel_delta <= 1, "{d:?}");
 }
 
 #[test]

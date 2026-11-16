@@ -38,6 +38,11 @@ pub struct Quality {
     /// Bilinear samples per direction of each post-processing blur, odd and
     /// at most 9; each one past the centre weighs two texels.
     pub blur_taps: u32,
+    /// A blur over a level of at most this many texels runs in one pass of
+    /// `blur_taps`² samples instead of two of `blur_taps`; past it the
+    /// samples cost more than the pass saves. The bloom's first level, whose
+    /// one-pass form takes twice the samples, always takes two.
+    pub blur_one_pass_max_texels: u32,
     /// Depth samples per texel of the screen-space ambient occlusion, at most
     /// 32; 0 turns the occlusion off whatever the look asks.
     pub ao_samples: u32,
@@ -78,6 +83,9 @@ impl Quality {
             // miniature blur reach, which is part of the look.
             bloom_levels: 4,
             blur_taps: 5,
+            // 1/4 of 1920×1080 is 129 600 texels; its 1/2 level, 518 400,
+            // blurs faster in two passes on an Apple M5.
+            blur_one_pass_max_texels: 1 << 17,
             ao_samples: 6,
             ao_divisor: 4,
             ao_blur_taps: 5,
