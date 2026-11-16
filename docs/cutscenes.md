@@ -54,7 +54,12 @@ Then, in order:
    (0.02 m) only turns; one within `cutscene.start_blend_max` (0.3 m) is
    eased there over `cutscene.start_blend` (0.25 s); a farther one walks
    there at `cutscene.start_walk_speed` (1.5 m/s). Each then turns to its
-   start yaw. The steps begin when every role is in place.
+   start yaw. The steps begin when every role is in place. With a
+   collision module the floor holds actors at its height, so these
+   distances are measured along the ground and an actor is eased in x and
+   z only, getting its collider back when the ease ends: a start a few
+   centimetres above or below where the floor holds the actor adds no
+   time.
 3. **The steps** run in order. A step that takes time (a walk, a line, a
    wait, a blend) holds the next one until it ends.
 4. **The end.** The hero goes back to whoever had it, where the cutscene
@@ -139,12 +144,12 @@ would is refused with `E_TELEPORT_VISIBLE`, and an actor that still went too
 far is put back. A `walk` faster than that fails the check with
 `E_CUTSCENE_SPEED`, against the project's `game.settings` (or the defaults),
 and so does `cutscene.start_walk_speed` in a cutscene with a role that has a
-start. At run time a walk goes at its speed times the role's speed scale,
-which the game sets with `set_speed_scale` and the check cannot see. A walk
-too fast at that scale is refused and ends at once where the role stands,
-played or skipped alike; the walk to a start slows to the fastest allowed
-instead. A walk the run-time measurement stops ends there with `blocked`,
-whether the runtime or a collision module moves actors.
+start. A walk goes at its speed in metres per second of the world,
+whatever speed scale the game gave the role with `set_speed_scale` (that
+scales the player's axis and `move_intent`, not a scripted walk), so it
+takes its length over its speed, as authored. A walk the run-time
+measurement stops ends there with `blocked`, whether the runtime or a
+collision module moves actors.
 
 To move an actor across the scene: walk it; or hide it, wait, teleport it,
 show it; or fade out, teleport it with `"cover": "fade"`, fade in; or cut

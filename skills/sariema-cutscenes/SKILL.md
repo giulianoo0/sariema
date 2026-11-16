@@ -148,10 +148,12 @@ At run time a refused `cutscene_play` arrives as a `rejected` event:
 `E_CUTSCENE_UNBOUND` (bind every role with a start to a live entity, and
 every spawned role to `ctx.reserve()`), `E_CUTSCENE_UNKNOWN` (no file with
 that `name` was built), `E_CUTSCENE_BUSY` (wait for `cutscene_ended`).
-A `walk` goes at its speed times the role's speed scale (`set_speed_scale`,
-which the check cannot see): too fast at that scale, it arrives as a
-`rejected` `E_TELEPORT_VISIBLE` with the `move_to` opcode and ends where the
-role stands, played or skipped alike.
+A `walk` goes at its own speed in world units, whatever the role's speed
+scale (`set_speed_scale` scales the player's axis and `move_intent` only),
+so it takes its length over its speed. With a collision module a start a
+few centimetres off in height only (the floor holds the actor) adds no
+time; one off along the ground by up to `start_blend_max` adds
+`start_blend` (0.25 s, 15 steps).
 
 ## Common mistakes
 

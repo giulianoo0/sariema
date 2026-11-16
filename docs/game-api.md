@@ -148,8 +148,8 @@ millimetre within 10 km of the origin, more beyond (a third of a metre at
 A command that surely jumps is refused when given, with its own opcode, and
 changes nothing: `set_transform` and `teleport` (always too far for an
 actor), `tween` (its fastest step), `follow` (its first step), `move_to`,
-`move_intent`, `set_hero` and `set_speed_scale` (the speed, times the
-actor's speed scale), and `set_parent` (the change of world placement). It
+`move_intent`, `set_hero` and `set_speed_scale` (the velocity times the
+actor's speed scale; a `move_to` at its own speed), and `set_parent` (the change of world placement). It
 is refused with `E_TELEPORT_VISIBLE` when it would carry too far an actor
 visible when the step began that no forced teleport placed: the entity
 itself, a child at any depth (going as far) or a follower (going its lag's
@@ -345,8 +345,10 @@ without `--headless` the pack plays in a window.
 
 ## The engine's systems
 
-- **Movement**: `move_to` walks at a speed and ends with `arrived` (exactly
-  on the target) or `blocked`; `move_intent` holds a velocity; `face` turns
+- **Movement**: `move_to` walks at a speed, in metres per second of the
+  world whatever the actor's speed scale, and ends with `arrived` (exactly
+  on the target) or `blocked`; `set_speed_scale` scales the player's axis
+  and `move_intent`; `move_intent` holds a velocity; `face` turns
   at `motion.turn_rate`. With `motion.builtin` the runtime moves actors
   itself; a collision module takes the same intents
   ([the engine](engine.md) wires `sariema-physics` in when the room has a
