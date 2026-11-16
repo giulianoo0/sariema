@@ -7,7 +7,9 @@
 //! room's lights to the view, bins them into screen tiles × depth slices and
 //! uploads the lists; the fragment shader loops over its cluster's lights.
 //! Shadows come from one depth atlas whose slots are redrawn only when what
-//! they show changes.
+//! they show changes. Post-processing blurs the HDR image into a chain of
+//! smaller levels for bloom and a miniature blur, then one pass tone maps,
+//! grades and dithers it into the target.
 //! Every pipeline is created in [`Renderer::new`]; [`Renderer::render`]
 //! creates no pipeline and no buffer.
 
@@ -22,7 +24,7 @@ mod cluster;
 mod golden;
 mod headless;
 mod lights;
-mod present;
+mod post;
 mod quality;
 mod resources;
 mod scene;
@@ -33,7 +35,7 @@ pub use headless::{Headless, render_coverage, render_to_image};
 pub use quality::Quality;
 
 use cluster::Visible;
-use present::Present;
+use post::Post;
 use resources::Room;
 use scene::Scene;
 use shadow::{Assigned, Shadows};
@@ -133,7 +135,7 @@ pub struct Renderer {
     height: u32,
     scene: Scene,
     shadows: Shadows,
-    present: Present,
+    post: Post,
     room: Option<Room>,
     stats: FrameStats,
     warned: bool,
@@ -173,7 +175,7 @@ impl Renderer {
         let layouts = scene::layouts(&gpu);
         let shadows = Shadows::new(&gpu, &quality, &layouts.draw);
         let scene = Scene::new(&gpu, (width, height), &quality, layouts, &shadows);
-        let present = Present::new(&gpu, config.output_format, scene.output());
+        let post = Post::new(&gpu, config.output_format, &quality, &scene);
         Ok(Renderer {
             gpu,
             quality,
@@ -181,7 +183,7 @@ impl Renderer {
             height,
             scene,
             shadows,
-            present,
+            post,
             room: None,
             stats: FrameStats::default(),
             warned: false,
@@ -211,11 +213,11 @@ impl Renderer {
         self.width = width;
         self.height = height;
         self.scene.resize(&self.gpu, width, height, &self.quality);
-        self.present.bind(&self.gpu, self.scene.output());
+        self.post.resize(&self.gpu, &self.scene);
     }
 
     pub fn set_look(&mut self, look: &Look) {
-        self.present.set_exposure(&self.gpu, look.exposure);
+        self.post.set_look(&self.gpu, look);
     }
 
     /// Shows or hides every draw called `name`; false if there is none.
@@ -272,7 +274,7 @@ impl Renderer {
             self.shadows.draw(&mut encoder, room);
         }
         self.scene.draw(&mut encoder, self.room.as_ref(), camera);
-        self.present.draw(&mut encoder, target);
+        self.post.draw(&self.gpu, &mut encoder, camera, target);
         self.gpu.queue.submit([encoder.finish()]);
     }
 

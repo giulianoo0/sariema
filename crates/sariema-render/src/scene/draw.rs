@@ -35,7 +35,7 @@ impl Scene {
                     },
                 },
             })],
-            depth_stencil_attachment: Some(depth_attachment(depth, wgpu::StoreOp::Discard)),
+            depth_stencil_attachment: Some(depth_attachment(depth, wgpu::StoreOp::Store)),
             ..Default::default()
         });
         pass.set_bind_group(0, &self.frame_group, &[]);

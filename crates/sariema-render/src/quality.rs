@@ -31,6 +31,12 @@ pub struct Quality {
     /// Depth comparisons per shadow lookup, as the largest square grid that
     /// fits; each one filters 2×2 texels.
     pub shadow_pcf_taps: u32,
+    /// Blurred levels summed into the bloom, from 1/4 of the target's size
+    /// down, each half the size of the one before.
+    pub bloom_levels: u32,
+    /// Bilinear samples per direction of each post-processing blur, odd;
+    /// each one past the centre weighs two texels.
+    pub blur_taps: u32,
 }
 
 impl Quality {
@@ -47,6 +53,10 @@ impl Quality {
             max_shadowed_lights: 4,
             shadow_min_slot_px: 64,
             shadow_pcf_taps: 1,
+            // The same in every tier: they set how far the bloom and the
+            // miniature blur reach, which is part of the look.
+            bloom_levels: 4,
+            blur_taps: 5,
         }
     }
 
@@ -109,6 +119,10 @@ impl Quality {
         let shadow_min_slot_px = self.shadow_min_slot_px.max(1);
         let min_slots_per_side = (shadow_atlas_size / shadow_min_slot_px) as u64;
         let min_slots = (min_slots_per_side * min_slots_per_side).min(u32::MAX as u64) as u32;
+        // A blur wider than the largest level would only repeat its edge.
+        let blur_taps = self
+            .blur_taps
+            .clamp(1, limits.max_texture_dimension_2d / 2 + 1);
         Quality {
             max_visible_lights: self.max_visible_lights.min(entries(GPU_LIGHT_SIZE)),
             max_lights_per_cluster,
@@ -122,6 +136,12 @@ impl Quality {
                 .min(min_slots)
                 .min(entries(view_stride(limits).max(GPU_SHADOW_SIZE)).saturating_sub(1)),
             shadow_min_slot_px,
+            bloom_levels: self.bloom_levels.max(1),
+            blur_taps: if blur_taps.is_multiple_of(2) {
+                blur_taps - 1
+            } else {
+                blur_taps
+            },
             ..self.clone()
         }
     }
@@ -182,5 +202,23 @@ mod tests {
         assert_eq!(q.shadow_atlas_size, Quality::high().shadow_atlas_size);
         let per_side = q.shadow_atlas_size / q.shadow_min_slot_px;
         assert_eq!(q.max_shadowed_lights, per_side * per_side);
+    }
+
+    #[test]
+    fn post_settings_are_held_to_usable_values() {
+        let limits = wgpu::Limits::default();
+        let odd = Quality {
+            bloom_levels: 0,
+            blur_taps: 4,
+            ..Quality::high()
+        }
+        .clamped_to(&limits);
+        assert_eq!((odd.bloom_levels, odd.blur_taps), (1, 3));
+        let wide = Quality {
+            blur_taps: u32::MAX,
+            ..Quality::high()
+        }
+        .clamped_to(&limits);
+        assert_eq!(wide.blur_taps, limits.max_texture_dimension_2d / 2 + 1);
     }
 }

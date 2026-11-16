@@ -276,6 +276,11 @@ impl Scene {
         &self.targets.resolved
     }
 
+    /// The scene's depth, with `Quality::msaa` samples per pixel.
+    pub fn depth(&self) -> &wgpu::TextureView {
+        &self.targets.depth
+    }
+
     pub fn resize(&mut self, gpu: &Gpu, width: u32, height: u32, quality: &Quality) {
         self.targets = targets(gpu, width, height, quality.msaa);
         self.grid = Grid::new(width, height, quality);
@@ -578,6 +583,11 @@ fn targets(gpu: &Gpu, width: u32, height: u32, msaa: u32) -> Targets {
             1,
             attachment | wgpu::TextureUsages::TEXTURE_BINDING,
         ),
-        depth: texture("scene depth", DEPTH_FORMAT, msaa, attachment),
+        depth: texture(
+            "scene depth",
+            DEPTH_FORMAT,
+            msaa,
+            attachment | wgpu::TextureUsages::TEXTURE_BINDING,
+        ),
     }
 }
