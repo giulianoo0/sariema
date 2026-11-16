@@ -32,3 +32,21 @@ wat = "1.263.0"
 # The ASTC encoder is C++ that cc builds at the package's opt-level; unoptimised it is about 100× slower.
 [profile.dev.package.ctt-astcenc]
 opt-level = 3
+
+# Unoptimised, wasmi falls back to a dispatch that recurses on the native
+# stack once per WebAssembly call, so a game's deep recursion could overflow
+# the host's stack; optimised, it uses tail calls and traps cleanly.
+[profile.dev.package.wasmi]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.wasmi_core]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.wasmi_ir]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
