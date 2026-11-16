@@ -3,27 +3,25 @@
 //! The `run` command's window: the room seen by its camera, which the mouse
 //! and keys move.
 
-use std::any::Any;
-use std::fmt::{Display, Write};
-use std::panic::{self, AssertUnwindSafe};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::fmt::Write;
+use std::time::Instant;
 
 use sariema_core::{Camera, room_camera};
 use sariema_format::{Look, RoomCamera, RoomPack};
-use sariema_render::{FrameStats, RenderConfig, RenderError, Renderer, request_device};
+use sariema_render::FrameStats;
 use serde_json::json;
 use winit::application::ApplicationHandler;
-use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::{Window, WindowId};
+use winit::window::WindowId;
 
 use crate::RunArgs;
 use crate::output::{Done, Failure};
 use crate::run::frame_stats_json;
 use crate::stage::Stage;
+use crate::window::{FrameClock, Outcome, Screen, Stop, caught, window_error};
 
 /// Below this pitch the floor is nearly edge-on, and a vertical drag
 /// corrected for its foreshortening would throw the focus far away.
@@ -165,89 +163,6 @@ pub fn apply_input(
     }
 }
 
-/// Why the surface gave no frame.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum NoFrame {
-    Outdated,
-    Lost,
-    Timeout,
-    Occluded,
-    Validation,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum Recovery {
-    Reconfigure,
-    /// Make the surface again from the window.
-    Recreate,
-    Retry,
-    /// Draw nothing until the window is shown again.
-    Hide,
-    Fail(String),
-}
-
-/// What to do when the surface gives no frame after `skipped` frames in a row went undrawn.
-fn recovery(why: NoFrame, skipped: u32, settings: &PlayerSettings) -> Recovery {
-    match why {
-        NoFrame::Occluded => Recovery::Hide,
-        NoFrame::Validation => {
-            Recovery::Fail("the window's surface reported a validation error".into())
-        }
-        _ if skipped >= settings.max_skipped_frames => Recovery::Fail(format!(
-            "the window's surface gave no frame {} times in a row, the last time {why:?}",
-            skipped + 1
-        )),
-        NoFrame::Outdated => Recovery::Reconfigure,
-        NoFrame::Lost => Recovery::Recreate,
-        NoFrame::Timeout => Recovery::Retry,
-    }
-}
-
-/// Times between presented frames, over the run and over the title's last second.
-#[derive(Default)]
-struct FrameClock {
-    last: Option<Instant>,
-    run: Intervals,
-    second: Intervals,
-}
-
-impl FrameClock {
-    /// Counts a frame presented `at`. Once the intervals since the last report
-    /// add up to a second, returns their average in ms.
-    fn presented(&mut self, at: Instant) -> Option<f64> {
-        if let Some(last) = self.last.replace(at) {
-            self.run.add(at - last);
-            self.second.add(at - last);
-        }
-        if self.second.total < Duration::from_secs(1) {
-            return None;
-        }
-        std::mem::take(&mut self.second).average_ms()
-    }
-
-    /// Leaves the time until the next presented frame uncounted.
-    fn pause(&mut self) {
-        self.last = None;
-    }
-}
-
-#[derive(Default)]
-struct Intervals {
-    total: Duration,
-    count: u32,
-}
-
-impl Intervals {
-    fn add(&mut self, interval: Duration) {
-        self.total += interval;
-        self.count += 1;
-    }
-
-    fn average_ms(&self) -> Option<f64> {
-        (self.count > 0).then(|| self.total.as_secs_f64() * 1000.0 / self.count as f64)
-    }
-}
-
 /// Shows `room` until the window is closed, Esc is pressed or `frames`
 /// frames are presented.
 pub fn play(room: &RoomPack, args: &RunArgs, frames: Option<u32>) -> Result<Done, Failure> {
@@ -273,10 +188,8 @@ pub fn play(room: &RoomPack, args: &RunArgs, frames: Option<u32>) -> Result<Done
         stage: None,
     };
     event_loop.run_app(&mut player).map_err(window_error)?;
-    match player.stopped.take() {
-        Some(Stop::Failed(failure)) => return Err(failure),
-        Some(Stop::Panicked(payload)) => panic::resume_unwind(payload),
-        None => {}
+    if let Some(stop) = player.stopped.take() {
+        return Err(stop.resume());
     }
     let ms_per_frame = player.clock.run.average_ms();
     let stats = (player.screen.as_ref())
@@ -325,16 +238,19 @@ struct Player<'a> {
     stage: Option<Stage>,
 }
 
-enum Stop {
-    Failed(Failure),
-    Panicked(Box<dyn Any + Send>),
-}
-
 impl ApplicationHandler for Player<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.guard(event_loop, |player| {
             if player.screen.is_none() {
-                let mut screen = Screen::open(event_loop, player.room, player.args)?;
+                let args = player.args;
+                let mut screen = Screen::open(
+                    event_loop,
+                    &player.room.name,
+                    args.width,
+                    args.height,
+                    args.quality.settings(),
+                )?;
+                screen.renderer.load_room(player.room)?;
                 player.stage = Some(Stage::load(&mut screen.renderer, &player.args.stage)?);
                 screen.window.request_redraw();
                 player.screen = Some(screen);
@@ -359,13 +275,10 @@ impl Player<'_> {
         if self.stopped.is_some() {
             return;
         }
-        let stop = match panic::catch_unwind(AssertUnwindSafe(|| step(self))) {
-            Ok(Ok(())) => return,
-            Ok(Err(failure)) => Stop::Failed(failure),
-            Err(payload) => Stop::Panicked(payload),
-        };
-        self.stopped = Some(stop);
-        event_loop.exit();
+        if let Some(stop) = caught(|| step(self)) {
+            self.stopped = Some(stop);
+            event_loop.exit();
+        }
     }
 
     fn input(&mut self, input: PlayerInput) {
@@ -478,7 +391,11 @@ impl Player<'_> {
         if let Some(stage) = &mut self.stage {
             stage.pose(&mut screen.renderer, self.args.stage.time + time_s)?;
         }
-        match screen.draw(&camera, time_s, self.skipped, &self.settings)? {
+        let paint = |renderer: &mut sariema_render::Renderer, view: &wgpu::TextureView| {
+            renderer.render(&camera, time_s, view);
+            Ok(())
+        };
+        match screen.draw(self.skipped, self.settings.max_skipped_frames, paint)? {
             Outcome::Presented => {
                 self.frames += 1;
                 self.skipped = 0;
@@ -513,163 +430,6 @@ fn title(room: &str, ms_per_frame: f64, stats: &FrameStats) -> String {
         let _ = write!(title, ", {} shadows skipped", stats.shadows_skipped);
     }
     title
-}
-
-enum Outcome {
-    Presented,
-    /// No image this time; the next frame tries again.
-    Skipped,
-    /// The window is hidden.
-    Hidden,
-}
-
-/// The window, its surface and the renderer drawing into it.
-struct Screen {
-    window: Arc<Window>,
-    instance: wgpu::Instance,
-    surface: wgpu::Surface<'static>,
-    config: wgpu::SurfaceConfiguration,
-    device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
-    renderer: Renderer,
-    zero_size: bool,
-}
-
-impl Screen {
-    fn open(
-        event_loop: &ActiveEventLoop,
-        room: &RoomPack,
-        args: &RunArgs,
-    ) -> Result<Screen, Failure> {
-        let attributes = Window::default_attributes()
-            .with_title(format!("{} - sariema", room.name))
-            .with_inner_size(PhysicalSize::new(args.width, args.height));
-        let window = Arc::new(event_loop.create_window(attributes).map_err(window_error)?);
-        let instance =
-            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-        let surface = instance
-            .create_surface(window.clone())
-            .map_err(device_error)?;
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: Some(&surface),
-            ..Default::default()
-        }))
-        .map_err(|_| RenderError::NoAdapter)?;
-        let (device, queue) = request_device(&adapter, "sariema window")?;
-        let size = window.inner_size();
-        let (width, height) = fit(size, &device);
-        let mut config = surface
-            .get_default_config(&adapter, width.max(1), height.max(1))
-            .ok_or_else(|| device_error("the adapter cannot present to this window"))?;
-        let formats = surface.get_capabilities(&adapter).formats;
-        config.format = formats
-            .into_iter()
-            .find(|f| f.is_srgb())
-            .unwrap_or(config.format);
-        config.present_mode = wgpu::PresentMode::Fifo;
-        let render_config = RenderConfig {
-            width: config.width,
-            height: config.height,
-            output_format: config.format,
-            quality: args.quality.settings(),
-        };
-        let mut renderer = Renderer::new(device.clone(), queue.clone(), render_config)?;
-        renderer.load_room(room)?;
-        let mut screen = Screen {
-            window,
-            instance,
-            surface,
-            config,
-            device,
-            queue,
-            renderer,
-            zero_size: true,
-        };
-        screen.resize(size);
-        Ok(screen)
-    }
-
-    fn resize(&mut self, size: PhysicalSize<u32>) {
-        let (width, height) = fit(size, &self.device);
-        self.zero_size = width == 0 || height == 0;
-        if self.zero_size {
-            return;
-        }
-        self.config.width = width;
-        self.config.height = height;
-        self.surface.configure(&self.device, &self.config);
-        self.renderer.resize(width, height);
-    }
-
-    /// `skipped` frames in a row went undrawn before this one.
-    fn draw(
-        &mut self,
-        camera: &Camera,
-        time_s: f32,
-        skipped: u32,
-        settings: &PlayerSettings,
-    ) -> Result<Outcome, Failure> {
-        let why = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(frame) => {
-                return Ok(self.present(frame, camera, time_s, false));
-            }
-            wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
-                return Ok(self.present(frame, camera, time_s, true));
-            }
-            wgpu::CurrentSurfaceTexture::Outdated => NoFrame::Outdated,
-            wgpu::CurrentSurfaceTexture::Lost => NoFrame::Lost,
-            wgpu::CurrentSurfaceTexture::Timeout => NoFrame::Timeout,
-            wgpu::CurrentSurfaceTexture::Occluded => NoFrame::Occluded,
-            wgpu::CurrentSurfaceTexture::Validation => NoFrame::Validation,
-        };
-        match recovery(why, skipped, settings) {
-            Recovery::Reconfigure => self.surface.configure(&self.device, &self.config),
-            Recovery::Recreate => {
-                self.surface = self
-                    .instance
-                    .create_surface(self.window.clone())
-                    .map_err(device_error)?;
-                self.surface.configure(&self.device, &self.config);
-            }
-            Recovery::Retry => {}
-            Recovery::Hide => return Ok(Outcome::Hidden),
-            Recovery::Fail(why) => return Err(device_error(why)),
-        }
-        Ok(Outcome::Skipped)
-    }
-
-    /// A suboptimal surface is configured again after the frame is shown.
-    fn present(
-        &mut self,
-        frame: wgpu::SurfaceTexture,
-        camera: &Camera,
-        time_s: f32,
-        suboptimal: bool,
-    ) -> Outcome {
-        let view = frame.texture.create_view(&Default::default());
-        self.renderer.render(camera, time_s, &view);
-        self.queue.present(frame);
-        if suboptimal {
-            self.surface.configure(&self.device, &self.config);
-        }
-        Outcome::Presented
-    }
-}
-
-/// `size` within the largest texture the device makes, since the renderer
-/// ignores a resize beyond it.
-fn fit(size: PhysicalSize<u32>, device: &wgpu::Device) -> (u32, u32) {
-    let max = device.limits().max_texture_dimension_2d;
-    (size.width.min(max), size.height.min(max))
-}
-
-fn window_error(e: impl Display) -> Failure {
-    Failure::new("E_GPU", format!("window: {e}"))
-}
-
-fn device_error(e: impl Display) -> Failure {
-    RenderError::Device(e.to_string()).into()
 }
 
 #[cfg(test)]
@@ -846,69 +606,6 @@ mod tests {
             OrbitState::new(&camera(), 0.0).look(&look(), &camera()),
             look()
         );
-    }
-
-    #[test]
-    fn validation_fails_at_once_and_a_hidden_window_never_fails() {
-        let settings = PlayerSettings::default();
-        assert!(matches!(
-            recovery(NoFrame::Validation, 0, &settings),
-            Recovery::Fail(_)
-        ));
-        assert_eq!(
-            recovery(NoFrame::Occluded, u32::MAX, &settings),
-            Recovery::Hide
-        );
-    }
-
-    #[test]
-    fn skipped_frames_fail_past_the_cap() {
-        let settings = PlayerSettings {
-            max_skipped_frames: 3,
-            ..PlayerSettings::default()
-        };
-        assert_eq!(
-            recovery(NoFrame::Outdated, 0, &settings),
-            Recovery::Reconfigure
-        );
-        assert_eq!(recovery(NoFrame::Lost, 1, &settings), Recovery::Recreate);
-        assert_eq!(recovery(NoFrame::Timeout, 2, &settings), Recovery::Retry);
-        for why in [NoFrame::Outdated, NoFrame::Lost, NoFrame::Timeout] {
-            let Recovery::Fail(message) = recovery(why, 3, &settings) else {
-                panic!("{why:?} past the cap should fail");
-            };
-            assert!(message.contains("4 times"), "{message}");
-        }
-    }
-
-    #[test]
-    fn frame_time_counts_presented_frames_only() {
-        let t0 = Instant::now();
-        let ms = |n| t0 + Duration::from_millis(n);
-        let mut clock = FrameClock::default();
-        clock.presented(t0);
-        assert_eq!(clock.run.average_ms(), None);
-        clock.presented(ms(10));
-        // A frame skipped at 20 ms is not counted, so the next interval is 20 ms.
-        clock.presented(ms(30));
-        assert_eq!(clock.run.average_ms(), Some(15.0));
-        clock.pause();
-        clock.presented(ms(5_000));
-        clock.presented(ms(5_015));
-        assert_eq!(clock.run.average_ms(), Some(15.0));
-    }
-
-    #[test]
-    fn frame_clock_reports_once_a_second_has_passed() {
-        let t0 = Instant::now();
-        let mut clock = FrameClock::default();
-        assert_eq!(clock.presented(t0), None);
-        assert_eq!(clock.presented(t0 + Duration::from_millis(600)), None);
-        assert_eq!(
-            clock.presented(t0 + Duration::from_millis(1_200)),
-            Some(600.0)
-        );
-        assert_eq!(clock.presented(t0 + Duration::from_millis(1_210)), None);
     }
 
     #[test]

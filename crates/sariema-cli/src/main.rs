@@ -30,6 +30,7 @@ mod simulate;
 mod spot_check;
 mod stage;
 mod ui;
+mod window;
 
 #[derive(Parser)]
 #[command(
