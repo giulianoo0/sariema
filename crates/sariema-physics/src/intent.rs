@@ -67,6 +67,14 @@ pub enum Intent {
     /// Turns the actor in place towards `yaw` at the controller's turn
     /// rate; walking turns it towards where it goes instead.
     Face { actor: ActorId, yaw: f32 },
+    /// Radians per second the actor turns at most, in place of
+    /// `controller.max_yaw_speed`; none gives it the setting back.
+    SetMaxYawSpeed { actor: ActorId, speed: Option<f32> },
+    /// Off, the actor's body is in no other actor's way: they neither push
+    /// it nor are pushed by it, and hinged platforms turn through it. It
+    /// still walks on the room's floors, stops at its walls and is seen by
+    /// triggers.
+    SetSolid { actor: ActorId, solid: bool },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

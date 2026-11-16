@@ -26,7 +26,9 @@ actors, sound bank, HUD; [game-api.md](game-api.md) has the pack). With a
 collision pack the runtime's built-in mover is switched off
 (`motion.builtin = false`) and the collision module moves every actor;
 `Engine::new`, given a simulation, refuses collision with the mover still
-on (`E_SETTINGS`), since every actor would move twice.
+on (`E_SETTINGS`), since every actor would move twice, and physics
+settings out of range (`E_SETTINGS`, naming the key), however the host
+built them.
 
 ## The order of a step
 
@@ -224,11 +226,14 @@ fuller value. A teleport under a cover fade is therefore never seen.
 ## Settings
 
 Every number the glue uses is a field of `EngineSettings`, with a default;
-each module's own settings stay in its crate.
+each module's own settings stay in its crate. The collision module's are
+the game's, `physics` in its runtime settings (`game.settings.physics` in
+the project, [physics.md](physics.md)): the engine gives them to every
+room's world with the runtime's step and its turns capped at
+`motion.turn_rate`.
 
 | Field | Default | What |
 |-------|---------|------|
-| `physics` | `sariema_physics::Settings::default()` | the collision module's; its step is set to the runtime's, its turn speed capped at `motion.turn_rate` |
 | `anim` | `AnimSettings::default()` | the animator's |
 | `knockback_s` | 0.25 | seconds a `knockback` pushes for |
 | `contact_blend` | 0.25 | fraction of a traversal over which the feet ease onto and off a contact |

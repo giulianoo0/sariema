@@ -5,14 +5,10 @@
 
 use sariema_anim::AnimSettings;
 use sariema_audio::MixerSettings;
-use sariema_physics::Settings as PhysicsSettings;
 use sariema_ui::Color;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct EngineSettings {
-    /// The collision module's settings. The engine sets its step to the
-    /// runtime's and caps its turn speed at `motion.turn_rate`.
-    pub physics: PhysicsSettings,
     pub anim: AnimSettings,
     /// Seconds a `knockback` impulse pushes for; its m/s times this is the
     /// distance, given out fastest first.
@@ -32,7 +28,6 @@ pub struct EngineSettings {
 impl Default for EngineSettings {
     fn default() -> EngineSettings {
         EngineSettings {
-            physics: PhysicsSettings::default(),
             anim: AnimSettings::default(),
             knockback_s: 0.25,
             contact_blend: 0.25,

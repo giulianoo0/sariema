@@ -365,7 +365,14 @@ without `--headless` the pack plays in a window.
 
 - **Movement**: `move_to` walks at a speed and ends with `arrived` (exactly
   on the target) or `blocked`; `move_intent` holds a velocity; `face` turns
-  at `motion.turn_rate`. With `motion.builtin` the runtime moves actors
+  at the actor's turn rate. `motion.turn_rate` is every actor's rate and the
+  fastest anything turns; `set_turn_rate` gives one actor a rate of its own,
+  no faster (`E_TURN_RATE` otherwise), and 0 gives it the setting back, so
+  a big hero and a small companion turn each at its own speed under the
+  same jump limit. `set_collider` on an actor switches its body: off, a
+  hidden or stowed actor is no invisible obstacle (others walk through it,
+  doors swing through it), while it still walks with collision; the body
+  stays off in every room until the game turns it on. With `motion.builtin` the runtime moves actors
   itself; a collision module takes the same intents
   ([the engine](engine.md) wires `sariema-physics` in when the room has a
   collision pack). `traverse` carries an actor along one of the room's
@@ -386,7 +393,16 @@ without `--headless` the pack plays in a window.
 - **Followers** keep an entity at another's position plus an offset,
   closing the gap with a half-life.
 - **Timers** fire after a whole number of steps, once or repeating.
-- **Zones**: spheres reporting actors entering and leaving.
+- **Zones**: spheres (`zone`) or upright cylinders (`zone_cylinder`)
+  reporting actors entering and leaving by where their feet are. A
+  cylinder takes the feet within its radius of its axis and between its
+  bottom and top, so a place drawn as a circle on the floor counts the
+  same at the floor and on a ramp or step within its height, where a
+  sphere would bulge out in the middle and miss the rim. Both kinds share
+  one set of ids: setting one replaces the other, and `remove_zone`
+  removes either. A cylinder with a radius or height below 0 is
+  `rejected` with `E_ZONE_SIZE`; a NaN or infinite one, like any
+  non-finite number in a command, stops the game at decoding.
 - **Camera rigs**: follow a subject (dead zone, spring, look-ahead, bounds),
   frame two subjects, or a fixed pose; `camera_use` blends from the pose on
   screen to the new rig over `blend` seconds with an easing. Reframing the
@@ -471,6 +487,16 @@ the same format, so a window's saves replay headless; `host_exit` closes
 the window. A page gets every message from `on("host")` and answers loads
 from `on("saveLoad")` ([web.md](web.md#host-messages-and-saves)).
 
+A save that brings an actor back where it stood asks the engine, which
+alone knows where collision left it: `locate` names the entity, and at the
+next step `located` gives its feet in the world and its yaw as the step it
+was asked in left them, after collision and the no-jump rule. The yaw is
+in degrees, in (-180, 180], whether something carries the actor or not.
+An entity despawned before that step ends gets `rejected` with
+`E_ENTITY_STALE` and the opcode of `locate` instead. The answer comes from the step's state, so a replay, the native build and the web
+build give the same numbers. Saving it and teleporting there on load puts
+the actor back where the player last saw it.
+
 ## Settings
 
 A project sets them in `sariema.json` under `game.settings`, as nested
@@ -524,7 +550,8 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `motion.camera_relative` | true | The hero's move axis turns with the camera's view direction. |
 | `motion.max_visible_speed` | 20 | Metres per second a visible actor may move, carried or driven by anything; a faster move is a jump. |
 | `motion.min_carrier_scale` | 0.000001 | A carrier scaled below this cannot hold a visible actor the no-jump rule puts back: the actor leaves it. |
-| `motion.turn_rate` | 540 | Degrees per second an actor turns; nothing turns faster, and a larger turn in one step is a jump. |
+| `motion.turn_rate` | 540 | Degrees per second an actor turns unless set_turn_rate gives it a slower rate of its own; nothing turns faster, and a larger turn in one step is a jump. |
+| `physics.*` | [physics.md](physics.md#settings) | The collision module's settings (`physics.controller.step_height`, `physics.controller.accel_steps`, …), with the defaults and meanings listed there. |
 | `spring_rest` | 0.001 | A spring stops, exactly on its target, once its offset and velocity are both within this. |
 | `vm.commands_bytes_per_step` | 4194304 | Bytes of commands one tick may submit; more stops the game with E_GAME_BUDGET. |
 | `vm.fuel_first_step` | 200000000 | Budget of the first tick, which usually builds the world. |

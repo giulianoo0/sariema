@@ -320,6 +320,8 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "a ui_text or say line longer than the engine's hud.max_text_bytes; a cutscene's line that is fails the load",
     ),
     ("E_NOT_ACTOR", Kind::Rejected, Reject::NotActor.message()),
+    ("E_TURN_RATE", Kind::Rejected, Reject::TurnRate.message()),
+    ("E_ZONE_SIZE", Kind::Rejected, Reject::ZoneSize.message()),
     (
         "E_RIG_UNKNOWN",
         Kind::Rejected,

@@ -6,10 +6,15 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# The settings read from and written to a game's JSON settings.
+serde = ["dep:serde"]
+
 [dependencies]
 glam.workspace = true
 libm.workspace = true
 sariema-format = { path = "../sariema-format" }
+serde = { workspace = true, optional = true }
 
 [[bench]]
 name = "step"

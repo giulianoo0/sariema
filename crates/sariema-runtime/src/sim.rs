@@ -23,12 +23,13 @@ use crate::cutscene::Sequencer;
 use crate::events::{EventQueue, Happening};
 use crate::hash::StateHasher;
 use crate::input::{Actions, RawInput};
-use crate::motion::Goal;
+use crate::motion::{Goal, angle_between};
 use crate::no_jump;
 use crate::outbox::{HostIn, HostOut};
 use crate::settings::Settings;
 use crate::state::State;
 use crate::tween::Values;
+use crate::world::Reject;
 
 /// Why a game stopped for good.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -289,6 +290,7 @@ impl<L: Logic> Simulation<L> {
         let events = &mut s.events;
         s.zones.step(&s.world, |e| events.push(e));
         s.fx.step(&s.world);
+        answer_locates(s);
         self.step += 1;
     }
 
@@ -374,6 +376,45 @@ fn happening(s: &mut State, event: &Event<'_>) {
             marker,
         }),
         _ => {}
+    }
+}
+
+/// Where each entity `locate` asked for stands now that the step is
+/// resolved and measured: its world place, and the yaw it was given when
+/// nothing carries it, else the world one.
+fn answer_locates(s: &mut State) {
+    for k in 0..s.locates.len() {
+        let entity = s.locates[k];
+        let (Some(node), Some(pose)) = (s.world.node(entity), s.world.pose(entity)) else {
+            s.events.push(Event::Rejected {
+                opcode: Command::Locate { entity }.opcode(),
+                code: Reject::Stale.code(),
+                entity,
+            });
+            continue;
+        };
+        let yaw = if node.parent.is_none() {
+            node.local.yaw
+        } else {
+            let (yaw, _, _) = pose.rotation.to_euler(glam::EulerRot::YXZ);
+            yaw.to_degrees()
+        };
+        s.events.push(Event::Located {
+            entity,
+            position: pose.position.to_array(),
+            yaw: half_turn(yaw),
+        });
+    }
+    s.locates.clear();
+}
+
+/// `yaw` in (-180, 180], unchanged when it already is: wrapping adds a
+/// whole turn and would round away its last bits.
+fn half_turn(yaw: f32) -> f32 {
+    if yaw > -180.0 && yaw <= 180.0 {
+        yaw
+    } else {
+        angle_between(0.0, yaw)
     }
 }
 

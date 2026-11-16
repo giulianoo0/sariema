@@ -56,6 +56,8 @@ step, in id order, and appends events to a buffer the caller owns.
 | `SetColliderEnabled` | Enable or disable a collider. Actors inside a collider being enabled are pushed out of it at the next step, or it stays disabled. |
 | `SetSpeedScale` | Multiply the walk speed. |
 | `Face { yaw }` | Turn in place towards `yaw`; walking turns towards where the actor goes instead. |
+| `SetSolid { solid }` | Off, the actor is in no other actor's way: they neither push it nor are pushed by it, and hinged platforms turn through it; it still walks on floors, stops at walls and enters triggers. The engine sends it for `set_collider` on an actor. |
+| `SetMaxYawSpeed { speed }` | Radians per second this actor turns at most, in place of `controller.max_yaw_speed`; `None` gives it the setting back. The engine sends it for `set_turn_rate`. |
 
 `World::set_actor_active(id, false)` leaves an actor out of every step (it
 leaves its triggers) without changing any other id; the engine uses it for
@@ -311,7 +313,10 @@ queries and path searches the game runs between them:
 comparable; `tests/determinism.rs` pins one replay's hash, and checks that
 runs batching 2 or 5 steps per frame, with path searches, walkable-cell
 listings, ray casts and overlap queries between steps, give the same hash at
-every step as the plain run.
+every step as the plain run. An actor's body (`SetSolid`) and its own
+turn cap (`SetMaxYawSpeed`) count only when set off their defaults, so
+two runs that differ in them alone hash apart while a world that never
+sets them keeps its pinned hash.
 
 A step allocates nothing once warm: buffers are kept between steps. The walkable
 grid allocates when built or rebuilt after a collider changes.
@@ -391,7 +396,8 @@ sariema physics-map room.srmc -o map.png [--path <from>:<to>] [--actor <name>] [
 Every command takes `--json`.
 
 `check` places each spot's actor collider at the spot, and the carried
-actor's collider at each traversal's end. It reports every problem as one
+actor's collider at each traversal's end, with the settings of the
+project's game (`game.settings.physics`), the defaults without one. It reports every problem as one
 failure, naming the room and the spot or traversal:
 
 | Code | Meaning |
@@ -420,7 +426,18 @@ canopy or a ceiling.
 ## Settings
 
 Every number that bounds or tunes the simulation is a field of
-`sariema_physics::Settings`. Defaults come from the game this engine replaces:
+`sariema_physics::Settings`. A game sets them in its project's
+`game.settings` under `physics` (`{"physics": {"controller":
+{"step_height": 0.26}}}`), which its pack carries to the collision module
+(`docs/engine.md`); a key left out keeps its default. `step_seconds` and
+`controller.max_yaw_speed` belong to the engine, which sets them to the
+runtime's step and `motion.turn_rate`, so a game's settings cannot name
+them. A size or count that cannot run (a `nav.cell_size` of 0, no
+`slide_iterations` or `sweep_iterations`, a slope of 90° or more), a
+negative length or tolerance, or a fraction outside 0 to 1
+(`wall_slide_preservation`, `stuck_progress`) fails loading with
+`E_SETTINGS`, from a game's settings and from a host's built in Rust
+alike (`Engine::new` checks them). Defaults come from the game this engine replaces:
 its measured hero speed, collider, stick curve and turning rate, and, for what
 a 2D game does not have (steps, slopes, snapping), values chosen to match how
 it feels.
@@ -454,7 +471,7 @@ it feels.
 | `controller.accel_steps` | 0 | Steps to full speed and to stop; 0 is instant. |
 | `controller.yaw_rate` | 14 /s | Facing closes `1 − e^(−rate·dt)` of the remaining angle per step. |
 | `controller.yaw_filter` | 0.1 rad | Smaller changes of the wanted facing are ignored. |
-| `controller.max_yaw_speed` | infinite | Radians per second an actor turns at most; the engine sets it to the runtime's `motion.turn_rate`, so no turn is fast enough to count as a jump. |
+| `controller.max_yaw_speed` | infinite | Radians per second an actor turns at most; the engine sets it to the runtime's `motion.turn_rate`, so no turn is fast enough to count as a jump, and an actor's own `set_turn_rate` overrides it for that actor. |
 | `nav.cell_size` | 0.1 m | Walkable-grid cell side. |
 | `nav.max_layers` | 4 | Floors per grid column. |
 | `nav.snap_radius` | 0.5 m | How far a start or target may be from a floor. |
@@ -564,9 +581,8 @@ room with 135 colliders in 0.2 s.
   wall, may overlap if the game turns them so.
 - `physics-map` does not draw traversals or contact points.
 - Actors push each other apart as vertical circles (radius of the body
-  capsule, overlapping heights); head spheres do not push.
-- `check` uses the default controller settings; a game that tunes them should
-  check with its own (not yet exposed on the command line).
+  capsule, overlapping heights); head spheres do not push. An actor whose
+  body is off (`SetSolid`) takes no part in it.
 - The pinned replay hash was produced on aarch64 macOS and reproduced on
   x86_64-apple-darwin and on wasm32 under node, in debug and release builds.
   Other targets are untested.

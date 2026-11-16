@@ -38,13 +38,16 @@ impl Default for SpotCheckSettings {
     }
 }
 
+/// `physics` are the game's settings of the collision module, which walks
+/// the routes and judges the ground as the game will.
 pub fn check_room(
     room: &str,
     pack: &CollisionPack,
+    physics: &Settings,
     settings: &SpotCheckSettings,
     findings: &mut Vec<Finding>,
 ) -> Result<(), Failure> {
-    let physics = Settings::default();
+    let physics = physics.clone();
     let limits = Limits {
         max_slope_deg: physics.controller.max_slope_deg,
         cos_max_slope: physics.controller.max_slope_deg.to_radians().cos(),

@@ -16,8 +16,8 @@ use sariema_core::STEP_SECONDS;
 use sariema_format::collision::{CollisionPack, Traversal};
 use sariema_format::script::{Anchor, Command, Controller, Entity, Event, Kind, Property, name_id};
 use sariema_physics::{
-    ActorCollider, ActorDesc, ActorId, ColliderId, EventKind, Intent, World, WorldBuild,
-    actor_collider, hinge_turned, wrap_angle,
+    ActorCollider, ActorDesc, ActorId, ColliderId, EventKind, Intent, Settings as PhysicsSettings,
+    World, WorldBuild, actor_collider, hinge_turned, wrap_angle,
 };
 use sariema_runtime::events::Happening;
 use sariema_runtime::motion::Goal;
@@ -49,6 +49,8 @@ struct Mapped {
     speed: f32,
     /// Placed by the entity carrying it, with its collider off.
     carried: bool,
+    /// Degrees per second it turns at most; `motion.turn_rate` when none.
+    turn_rate: Option<f32>,
 }
 
 struct Traversing {
@@ -141,9 +143,10 @@ impl Physics {
     pub fn new(
         pack: Arc<CollisionPack>,
         settings: &EngineSettings,
+        physics: &PhysicsSettings,
         turn_rate: f32,
     ) -> Result<Physics, String> {
-        let mut build = Physics::start(pack, settings, turn_rate);
+        let mut build = Physics::start(pack, settings, physics, turn_rate);
         loop {
             if let Some(physics) = build.advance(usize::MAX)? {
                 return Ok(physics);
@@ -152,13 +155,16 @@ impl Physics {
     }
 
     /// Starts building the collision of `pack` a share at a time: the
-    /// collision [`Physics::new`] gives.
+    /// collision [`Physics::new`] gives. `physics` are the game's settings
+    /// of the module, stepped at the runtime's step and turning at most
+    /// `turn_rate` degrees a second.
     pub fn start(
         pack: Arc<CollisionPack>,
         settings: &EngineSettings,
+        physics: &PhysicsSettings,
         turn_rate: f32,
     ) -> PhysicsBuild {
-        let mut physics = settings.physics.clone();
+        let mut physics = physics.clone();
         physics.step_seconds = STEP_SECONDS;
         physics.controller.max_yaw_speed = turn_rate.to_radians();
         PhysicsBuild {
@@ -435,6 +441,15 @@ impl Physics {
             };
             let yaw = node.local.yaw;
             let id = self.add(body, pose.position, yaw);
+            let turn_rate = s.motion.get(entity).and_then(|m| m.turn_rate);
+            self.world.apply(Intent::SetMaxYawSpeed {
+                actor: id,
+                speed: turn_rate.map(f32::to_radians),
+            });
+            self.world.apply(Intent::SetSolid {
+                actor: id,
+                solid: s.motion.get(entity).is_none_or(|m| m.body),
+            });
             self.owners[id.0 as usize] = entity;
             if self.actors.len() <= i {
                 self.actors.resize_with(i + 1, || None);
@@ -446,6 +461,7 @@ impl Physics {
                 written: (pose.position, yaw),
                 speed: 0.0,
                 carried: !node.parent.is_none(),
+                turn_rate,
             });
         }
     }
@@ -548,7 +564,20 @@ impl Physics {
                 }
             }
             PhysicsIntent::Collider { entity, enabled } => {
-                let asset = s.world.node(entity).map_or(0, |n| n.asset);
+                let Some(node) = s.world.node(entity) else {
+                    return;
+                };
+                if node.kind == Kind::Actor {
+                    if let Some(m) = self.mapped(entity) {
+                        let id = m.id;
+                        self.world.apply(Intent::SetSolid {
+                            actor: id,
+                            solid: enabled,
+                        });
+                    }
+                    return;
+                }
+                let asset = node.asset;
                 if let Some(c) = self
                     .pack
                     .colliders
@@ -568,6 +597,16 @@ impl Physics {
                 duration,
             } => self.start_traversal(s, entity, traversal, duration),
             PhysicsIntent::Teleport { .. } | PhysicsIntent::Stop { .. } => self.halt(s, intent),
+            PhysicsIntent::TurnRate { entity, rate } => {
+                if let Some(m) = self.mapped_mut(entity) {
+                    m.turn_rate = rate;
+                    let id = m.id;
+                    self.world.apply(Intent::SetMaxYawSpeed {
+                        actor: id,
+                        speed: rate.map(f32::to_radians),
+                    });
+                }
+            }
             PhysicsIntent::SkippedWalk { entity, target } => {
                 let Some(m) = self.mapped(entity) else {
                     return;
@@ -739,8 +778,9 @@ impl Physics {
             let f = t.done as f32 / t.steps as f32;
             let total = t.along[t.along.len() - 1];
             let mut at = point_along(&t.path, &t.along, f * total);
+            let max_turn = m.turn_rate.map_or(self.max_turn, |r| r * STEP_SECONDS);
             let turn = ((t.yaw - m.written.1 + 180.0).rem_euclid(360.0) - 180.0)
-                .clamp(-self.max_turn, self.max_turn);
+                .clamp(-max_turn, max_turn);
             let yaw = m.written.1 + turn;
             let scale = s.world.node(t.entity).map_or(1.0, |n| n.local.scale);
             let rotation = Quat::from_rotation_y(yaw.to_radians());

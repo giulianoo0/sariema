@@ -162,13 +162,22 @@ impl<L: Logic> Engine<L> {
             });
         }
         let failed = |code: &'static str| move |message: String| LoadError { code, message };
+        s.settings
+            .physics
+            .validate()
+            .map_err(failed("E_SETTINGS"))?;
         let models = assets
             .actors
             .iter()
             .map(|(name, pack)| Model::new(name, pack).map_err(failed("E_SCHEMA")))
             .collect::<Result<Vec<_>, _>>()?;
-        let rooms = Rooms::new(assets.rooms, &settings, s.settings.motion.turn_rate)
-            .map_err(failed("E_SCHEMA"))?;
+        let rooms = Rooms::new(
+            assets.rooms,
+            &settings,
+            &s.settings.physics,
+            s.settings.motion.turn_rate,
+        )
+        .map_err(failed("E_SCHEMA"))?;
         let audio_failed = |e: sariema_audio::AudioError| LoadError {
             code: e.code(),
             message: e.to_string(),

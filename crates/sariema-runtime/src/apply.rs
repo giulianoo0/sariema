@@ -239,6 +239,9 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
         }
         C::SetCollider { entity, enabled } => {
             s.world.check(entity).map_err(refuse(entity))?;
+            if actor(s, entity).is_ok() {
+                s.motion.mover_mut(entity).body = enabled;
+            }
             s.outbox
                 .physics
                 .push(PhysicsIntent::Collider { entity, enabled });
@@ -642,6 +645,33 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             topic: topic.into(),
             payload: payload.into(),
         }),
+        C::ZoneCylinder {
+            zone,
+            center,
+            radius,
+            height,
+        } => {
+            if radius < 0.0 || height < 0.0 {
+                return Err(refuse(Entity::NONE)(Reject::ZoneSize));
+            }
+            s.zones.set_cylinder(zone, v3(center), radius, height);
+        }
+        C::Locate { entity } => {
+            s.world.check(entity).map_err(refuse(entity))?;
+            s.locates.push(entity);
+        }
+        C::SetTurnRate { entity, rate } => {
+            actor(s, entity)?;
+            let setting = s.settings.motion.turn_rate;
+            if !(0.0..=setting).contains(&rate) {
+                return Err(refuse(entity)(Reject::TurnRate));
+            }
+            let own = (rate > 0.0).then_some(rate);
+            s.motion.mover_mut(entity).turn_rate = own;
+            s.outbox
+                .physics
+                .push(PhysicsIntent::TurnRate { entity, rate: own });
+        }
     }
     Ok(())
 }

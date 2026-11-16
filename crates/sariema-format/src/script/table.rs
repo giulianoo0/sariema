@@ -54,6 +54,10 @@ batch_table! {
         0x0018 SetSpeedScale set_speed_scale { entity: Entity, scale: f32 }
         /// An impulse in m/s for the collision module.
         0x0019 Knockback knockback { entity: Entity, impulse: Vec3 }
+        /// Switches the collider of a room node, or an actor's body: an
+        /// actor whose body is off is in no other actor's way, neither
+        /// pushing nor pushed, and hinged pieces turn through it; it still
+        /// walks on the floors, stops at the walls and enters triggers.
         0x001A SetCollider set_collider { entity: Entity, enabled: bool }
         /// Carries an actor along the room's traversal `traversal` (a name in
         /// its collision pack) over `duration` seconds, collider off, its
@@ -205,6 +209,25 @@ batch_table! {
         0x00A4 SaveLoad save_load {}
         /// A message on a topic the host and game agreed on.
         0x00A5 HostSend host_send { topic: Str, payload: Bytes }
+
+        /// Degrees per second `entity`, an actor, turns at most, in place
+        /// of `motion.turn_rate`, which stays the fastest anything turns; 0
+        /// gives it the setting back. A faster rate, or one below 0, is
+        /// refused with E_TURN_RATE.
+        0x00D0 SetTurnRate set_turn_rate { entity: Entity, rate: f32 }
+        /// A vertical cylinder `height` m tall round `center` that reports
+        /// actors whose feet are within `radius` of its axis and between its
+        /// bottom and top, entering and leaving: a circle on a floor that
+        /// also takes the ramp or step above it. It shares its ids with
+        /// `zone`, each replacing the other; `remove_zone` removes it. A
+        /// radius or height below 0 is `E_ZONE_SIZE`.
+        0x00D1 ZoneCylinder zone_cylinder { zone: u32, center: Vec3, radius: f32, height: f32 }
+        /// Asks where `entity` stands: `located` answers at the next step
+        /// with its place and yaw in the world as this step left them, after
+        /// collision and the no-jump rule, the same in a replay and on every
+        /// host. An entity gone by the end of the step gets `rejected`
+        /// (`E_ENTITY_STALE`) instead.
+        0x00D2 Locate locate { entity: Entity }
     }
     events {
         /// The first event of the first tick.
@@ -256,5 +279,10 @@ batch_table! {
         /// The engine refused a command, or stopped a move that carried a
         /// visible actor too far in a step (`opcode` 0); `code` says why.
         0x0060 Rejected rejected { opcode: u16, code: Str, entity: Entity }
+
+        /// Where `entity` stood at the end of the step `locate` asked in:
+        /// its origin (an actor's feet) in the world and its yaw about +Y in
+        /// degrees, in (-180, 180], with a parent or without.
+        0x00D0 Located located { entity: Entity, position: Vec3, yaw: f32 }
     }
 }

@@ -58,12 +58,18 @@ pub struct Mover {
     /// Yaw in degrees to turn to.
     pub face: Option<f32>,
     pub speed_scale: f32,
+    /// Degrees per second it turns at most; `motion.turn_rate` when none.
+    pub turn_rate: Option<f32>,
+    /// Its body stands in other actors' way (`set_collider`).
+    pub body: bool,
 }
 
 const IDLE: Mover = Mover {
     goal: Goal::Idle,
     face: None,
     speed_scale: 1.0,
+    turn_rate: None,
+    body: true,
 };
 
 /// Degrees about +Y of a horizontal direction; 0 is −Z.
@@ -127,7 +133,6 @@ impl Motion {
         settings: &MotionSettings,
         mut arrived: impl FnMut(Entity),
     ) {
-        let max_turn = settings.turn_rate * STEP_SECONDS;
         for slot in &mut self.movers {
             let Some((e, m)) = slot else { continue };
             let e = *e;
@@ -162,6 +167,7 @@ impl Motion {
                 }
             }
             if let Some(face) = m.face {
+                let max_turn = m.turn_rate.unwrap_or(settings.turn_rate) * STEP_SECONDS;
                 let turn = angle_between(local.yaw, face);
                 if turn.abs() <= max_turn {
                     local.yaw = face;

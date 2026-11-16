@@ -61,6 +61,7 @@ pub fn check(dir: &Path, room: Option<&str>, spots: &SpotCheckSettings) -> Resul
         Some(room) => vec![room.to_owned()],
         None => project::room_ids(dir)?,
     };
+    let physics = game::physics(dir)?;
     let mut findings = Vec::new();
     let mut rooms = Vec::new();
     for id in &ids {
@@ -68,7 +69,7 @@ pub fn check(dir: &Path, room: Option<&str>, spots: &SpotCheckSettings) -> Resul
         let mut report =
             json!({ "room": id, "collision": false, "spots": 0, "routes": 0, "traversals": 0 });
         if let Some(pack) = build_collision(&source, &assets_root)? {
-            spot_check::check_room(id, &pack, spots, &mut findings)?;
+            spot_check::check_room(id, &pack, &physics, spots, &mut findings)?;
             report["collision"] = Value::Bool(true);
             report["spots"] = pack.spots.len().into();
             report["routes"] = pack.routes.len().into();
