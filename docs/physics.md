@@ -269,7 +269,10 @@ queries and path searches the game runs between them:
 comparable; `tests/determinism.rs` pins one replay's hash, and checks that
 runs batching 2 or 5 steps per frame, with path searches, walkable-cell
 listings, ray casts and overlap queries between steps, give the same hash at
-every step as the plain run.
+every step as the plain run. An actor's body (`SetSolid`) and its own
+turn cap (`SetMaxYawSpeed`) count only when set off their defaults, so
+two runs that differ in them alone hash apart while a world that never
+sets them keeps its pinned hash.
 
 A step allocates nothing once warm: buffers are kept between steps. The walkable
 grid allocates when built or rebuilt after a collider changes.

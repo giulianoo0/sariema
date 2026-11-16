@@ -88,3 +88,33 @@ fn a_leaf_swings_through_an_actor_whose_body_is_off() {
         world.step(&mut events);
     }
 }
+
+/// The state hash of a resting actor on a floor after `intent`, if any,
+/// and a few steps.
+fn hash_after(intent: impl Fn(sariema_physics::ActorId) -> Option<Intent>) -> u64 {
+    let mut room = Room::default();
+    room.floor(20.0);
+    let mut world = room.world(Settings::default());
+    let id = actor(&mut world, Vec3::ZERO);
+    settle(&mut world, id);
+    if let Some(intent) = intent(id) {
+        world.apply(intent);
+    }
+    let mut events = Vec::new();
+    for _ in 0..4 {
+        world.step(&mut events);
+    }
+    world.state_hash()
+}
+
+#[test]
+fn the_body_and_the_turn_cap_count_in_the_state_hash_only_off_their_defaults() {
+    let plain = hash_after(|_| None);
+    let solid = |solid| move |actor| Some(Intent::SetSolid { actor, solid });
+    let cap = |speed| move |actor| Some(Intent::SetMaxYawSpeed { actor, speed });
+    assert_eq!(hash_after(solid(true)), plain);
+    assert_eq!(hash_after(cap(None)), plain);
+    assert_ne!(hash_after(solid(false)), plain);
+    assert_ne!(hash_after(cap(Some(3.0))), plain);
+    assert_ne!(hash_after(cap(Some(3.0))), hash_after(cap(Some(4.0))));
+}
