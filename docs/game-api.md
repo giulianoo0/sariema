@@ -370,8 +370,8 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `input.buttons` | the input table above | Buttons: name, keys and gamepad buttons. |
 | `max_entities` | 65536 | Entity slots a game may use; a spawn at a higher index is rejected with E_ENTITY_LIMIT. |
 | `max_steps_per_frame` | 5 | Fixed steps one display frame may run; the time beyond is dropped, so a stall slows the game instead of freezing it. |
-| `max_time_scale` | 4 | The fastest a time_scale may play the world; a larger scale is lowered to it. |
-| `min_time_scale` | 0.05 | The slowest a time_scale may play the world; a smaller scale is raised to it, so the world never stops. |
+| `max_time_scale` | 4 | The fastest a time_scale may play the world; a larger scale is lowered to it. Positive and at least min_time_scale, or loading fails with E_SETTINGS. |
+| `min_time_scale` | 0.05 | The slowest a time_scale may play the world; a smaller scale is raised to it, so the world never stops. Positive, or loading fails with E_SETTINGS. |
 | `motion.arrive_distance` | 0.01 | Metres from a walk target that count as arrived. |
 | `motion.builtin` | true | The runtime moves actors itself; off when a collision module consumes the movement intents. |
 | `motion.camera_relative` | true | The hero's move axis turns with the camera's view direction. |

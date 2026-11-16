@@ -73,13 +73,28 @@ impl From<VmError> for LoadError {
 
 /// The runtime settings a pack carries; an empty text is the defaults.
 pub fn pack_settings(pack: &GamePack) -> Result<Settings, LoadError> {
-    if pack.settings.trim().is_empty() {
-        return Ok(Settings::default());
-    }
-    serde_json::from_str(&pack.settings).map_err(|e| LoadError {
-        code: "E_SCHEMA",
-        message: format!("game pack {}: settings: {e}", pack.name),
+    parse_settings(&pack.settings).map_err(|e| LoadError {
+        code: e.code,
+        message: format!("game pack {}: settings: {}", pack.name, e.message),
     })
+}
+
+/// Runtime settings from their JSON text, checked; an empty text is the
+/// defaults.
+pub fn parse_settings(text: &str) -> Result<Settings, LoadError> {
+    let settings = if text.trim().is_empty() {
+        Settings::default()
+    } else {
+        serde_json::from_str(text).map_err(|e| LoadError {
+            code: "E_SCHEMA",
+            message: e.to_string(),
+        })?
+    };
+    settings.validate().map_err(|message| LoadError {
+        code: "E_SETTINGS",
+        message,
+    })?;
+    Ok(settings)
 }
 
 /// Loads a game pack into a simulation seeded with `seed`.

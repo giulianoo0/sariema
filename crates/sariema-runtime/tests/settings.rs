@@ -48,3 +48,27 @@ fn settings_round_trip_and_refuse_unknown_keys() {
     assert!(serde_json::from_str::<Settings>(r#"{"motoin":{}}"#).is_err());
     assert!(serde_json::from_str::<Settings>(r#"{"cutscene":{"end_ease":"wobbly"}}"#).is_err());
 }
+
+#[test]
+fn time_scale_bounds_must_be_positive_and_in_order() {
+    use sariema_format::script::GamePack;
+    use sariema_runtime::game::pack_settings;
+    let pack = |settings: &str| GamePack {
+        name: "t".into(),
+        batch_version: 0,
+        wasm: Vec::new(),
+        cutscenes: Vec::new(),
+        names: Vec::new(),
+        settings: settings.into(),
+    };
+    for bad in [
+        r#"{ "min_time_scale": 2, "max_time_scale": 1 }"#,
+        r#"{ "min_time_scale": 0 }"#,
+        r#"{ "max_time_scale": -1 }"#,
+    ] {
+        let e = pack_settings(&pack(bad)).expect_err(bad);
+        assert_eq!(e.code, "E_SETTINGS", "{bad}");
+        assert!(e.message.contains("time_scale"), "{}", e.message);
+    }
+    assert!(pack_settings(&pack(r#"{ "min_time_scale": 1, "max_time_scale": 1 }"#)).is_ok());
+}

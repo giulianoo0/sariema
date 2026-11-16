@@ -26,6 +26,19 @@ pub struct Settings {
     pub vm: VmSettings,
 }
 
+impl Settings {
+    /// Why these settings cannot run, if they cannot.
+    pub fn validate(&self) -> Result<(), String> {
+        let (min, max) = (self.min_time_scale, self.max_time_scale);
+        if !(min > 0.0 && max > 0.0 && min <= max) {
+            return Err(format!(
+                "min_time_scale ({min}) and max_time_scale ({max}) must be positive, the minimum no larger than the maximum"
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
@@ -95,11 +108,11 @@ pub const DOCS: &[(&str, &str)] = &[
     ),
     (
         "max_time_scale",
-        "The fastest a time_scale may play the world; a larger scale is lowered to it.",
+        "The fastest a time_scale may play the world; a larger scale is lowered to it. Positive and at least min_time_scale, or loading fails with E_SETTINGS.",
     ),
     (
         "min_time_scale",
-        "The slowest a time_scale may play the world; a smaller scale is raised to it, so the world never stops.",
+        "The slowest a time_scale may play the world; a smaller scale is raised to it, so the world never stops. Positive, or loading fails with E_SETTINGS.",
     ),
     (
         "spring_rest",

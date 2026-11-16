@@ -151,6 +151,11 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "parallel branches move the same role or set the same flag",
     ),
     (
+        "E_SETTINGS",
+        Kind::Failure,
+        "the runtime settings cannot run: a time scale bound is not positive or min_time_scale is above max_time_scale",
+    ),
+    (
         "E_BATCH_TRUNCATED",
         Kind::Stop,
         "a command record ends early",

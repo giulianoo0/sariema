@@ -108,6 +108,7 @@ fn api_lists_every_error_code_the_engine_gives() {
             "E_CUTSCENE_ROLE",
             "E_GAME_BUILD",
             "E_PROJECT_EXISTS",
+            "E_SETTINGS",
         ]);
     for code in given {
         assert!(listed.contains(code), "{code} is not in sariema api");
