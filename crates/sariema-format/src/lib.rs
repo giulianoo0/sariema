@@ -20,11 +20,12 @@ pub mod demo;
 pub mod scenery;
 pub mod script;
 pub mod sound;
+pub mod stream;
 
 pub const MAGIC: [u8; 4] = *b"SRMA";
 pub const VERSION: u32 = 6;
 
-const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
+pub(crate) const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
 #[repr(C)]
 #[derive(
@@ -483,15 +484,25 @@ pub fn decode(bytes: &[u8]) -> Result<RoomPack, FormatError> {
 }
 
 fn validate(room: &RoomPack) -> Result<(), FormatError> {
-    let invalid = |why: String| Err(FormatError::Invalid(why));
     for (i, mesh) in room.meshes.iter().enumerate() {
-        let vertices = mesh.vertices.len();
-        if let Some(&index) = mesh.indices.iter().find(|&&ix| ix as usize >= vertices) {
-            return invalid(format!(
-                "mesh {i} uses vertex {index} but has {vertices} vertices"
-            ));
-        }
+        validate_mesh(i, mesh)?;
     }
+    validate_rest(room)
+}
+
+pub(crate) fn validate_mesh(i: usize, mesh: &Mesh) -> Result<(), FormatError> {
+    let vertices = mesh.vertices.len();
+    match mesh.indices.iter().find(|&&ix| ix as usize >= vertices) {
+        Some(&index) => Err(FormatError::Invalid(format!(
+            "mesh {i} uses vertex {index} but has {vertices} vertices"
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// Everything [`validate`] checks but the meshes' own indices.
+pub(crate) fn validate_rest(room: &RoomPack) -> Result<(), FormatError> {
+    let invalid = |why: String| Err(FormatError::Invalid(why));
     for (i, material) in room.materials.iter().enumerate() {
         let textures = [material.base_color_texture, material.emissive_texture];
         if let Some(texture) = textures
