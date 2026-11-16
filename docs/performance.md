@@ -47,7 +47,13 @@ The JSON report holds:
   finishing its last, divided by the frames; the median of the runs.
 - `per_frame`: render passes, post passes, draw calls of every pass, bytes
   written to GPU buffers, and allocations and bytes allocated during
-  `render` on every thread (the CLI counts them in its global allocator).
+  `render`. The allocations are counted only by a CLI built with
+  `cargo build --release -p sariema-cli --features alloc-count`, whose
+  global allocator wraps the system's for the whole binary; any other build
+  reports them as `null`. They are the allocations made through Rust's
+  allocator, on every thread, a `realloc` counting as one allocation of its
+  new size; memory that Metal or another system framework allocates itself
+  is not in them.
 - `gpu`: `"timestamps": "unsupported"` where the device lacks
   `TIMESTAMP_QUERY`. Otherwise `frame_ms`, from the start of a frame's first
   pass to the end of its last, and per pass the median and 90th percentile

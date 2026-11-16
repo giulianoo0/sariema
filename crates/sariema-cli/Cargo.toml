@@ -10,6 +10,11 @@ license.workspace = true
 name = "sariema"
 path = "src/main.rs"
 
+[features]
+# Counts the allocations `bench` reports, with a global allocator that
+# wraps the system's for the whole binary; off in every other build.
+alloc-count = []
+
 [dependencies]
 clap.workspace = true
 glam.workspace = true

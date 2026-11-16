@@ -155,15 +155,17 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     for _ in 0..args.runs {
         let run = Instant::now();
         for _ in 0..args.frames {
-            let (allocations, allocated) = alloc::so_far();
+            let before = allocations_so_far();
             let start = Instant::now();
             draw(&mut renderer);
             let cpu = start.elapsed();
-            let (allocations_after, allocated_after) = alloc::so_far();
+            let after = allocations_so_far();
             samples.frame.push(ms(cpu));
             samples.stages.push(renderer.last_frame_timings());
-            samples.allocations.push(allocations_after - allocations);
-            samples.allocated_bytes.push(allocated_after - allocated);
+            if let (Some((count, bytes)), Some((count_after, bytes_after))) = (before, after) {
+                samples.allocations.push(count_after - count);
+                samples.allocated_bytes.push(bytes_after - bytes);
+            }
         }
         wait(&device)?;
         walls.push(ms(run.elapsed()) / args.frames as f64);
@@ -234,8 +236,8 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
                 "post_passes": frame_stats.post_passes,
                 "draws": frame_stats.draws,
                 "bytes_uploaded": frame_stats.bytes_uploaded,
-                "allocations": stats::summary(&samples.allocations),
-                "allocated_bytes": stats::summary(&samples.allocated_bytes),
+                "allocations": counted(&samples.allocations),
+                "allocated_bytes": counted(&samples.allocated_bytes),
             },
             "frame_stats": crate::run::frame_stats_json(&frame_stats),
             "gpu": gpu,
@@ -308,6 +310,25 @@ fn wait(device: &wgpu::Device) -> Result<(), Failure> {
         .poll(wgpu::PollType::wait_indefinitely())
         .map(drop)
         .map_err(|e| Failure::new("E_GPU", e.to_string()))
+}
+
+/// Null in builds without the `alloc-count` feature, which count nothing.
+fn counted(values: &[u64]) -> Value {
+    if values.is_empty() {
+        Value::Null
+    } else {
+        stats::summary(values)
+    }
+}
+
+#[cfg(feature = "alloc-count")]
+fn allocations_so_far() -> Option<(u64, u64)> {
+    Some(alloc::so_far())
+}
+
+#[cfg(not(feature = "alloc-count"))]
+fn allocations_so_far() -> Option<(u64, u64)> {
+    None
 }
 
 /// The time since its first call, the clock of the frame's stages.

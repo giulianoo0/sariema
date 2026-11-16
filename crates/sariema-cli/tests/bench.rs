@@ -77,7 +77,12 @@ fn bench_reports_stages_counts_and_load() {
         per_frame["bytes_uploaded"].as_u64().unwrap() > 0,
         "{per_frame}"
     );
-    assert!(per_frame["allocations"]["median"].is_u64(), "{per_frame}");
+    if cfg!(feature = "alloc-count") {
+        assert!(per_frame["allocations"]["median"].is_u64(), "{per_frame}");
+    } else {
+        assert!(per_frame["allocations"].is_null(), "{per_frame}");
+        assert!(per_frame["allocated_bytes"].is_null(), "{per_frame}");
+    }
     for stage in [
         "read",
         "decode",

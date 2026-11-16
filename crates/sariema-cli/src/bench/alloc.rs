@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The CLI's global allocator: the system's, counting every allocation so
-//! `bench` can report how many a frame makes.
+//! With the `alloc-count` feature, the CLI's global allocator: the
+//! system's, counting every allocation made through Rust's allocator on
+//! every thread, a `realloc` as one allocation of its new size, so `bench`
+//! can report how many a frame makes. Memory that system frameworks such as
+//! Metal allocate themselves does not pass through it.
+
+#![cfg(feature = "alloc-count")]
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicU64, Ordering};
