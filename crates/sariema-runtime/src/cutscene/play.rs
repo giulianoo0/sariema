@@ -371,7 +371,8 @@ fn begin_placing(s: &mut State, cutscene: &Cutscene, run: &mut Run) {
         let mut ctx = ctx!(s, cutscene, run, false);
         let at = ctx.position(e);
         let visible = ctx.s.world.node(e).is_some_and(|n| n.visible) || ctx.s.world.was_visible(e);
-        let floored = !ctx.s.settings.motion.builtin;
+        let floored =
+            !ctx.s.settings.motion.builtin && (to.y - at.y).abs() <= settings.start_height;
         let distance = if floored {
             (to - at).with_y(0.0).length()
         } else {

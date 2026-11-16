@@ -174,3 +174,20 @@ fn a_scene_whose_start_sits_a_few_centimetres_up_takes_its_walk_and_no_more() {
         "the scene is its 120-step walk: it played {played} steps against {due}"
     );
 }
+
+#[test]
+fn a_start_a_storey_off_in_height_is_eased_to_in_height_too() {
+    let json = r#"{ "name": "stroll",
+        "roles": { "hero": { "start": { "position": [1.5, 0.28, -0.6], "yaw": -90 } } },
+        "steps": [ { "call": "go" } ] }"#;
+    let p = play(json, FROM, 1.0, 40);
+    let go = call(&p, "go");
+    let top = p.roots[..go as usize]
+        .iter()
+        .map(|r| r.y)
+        .fold(0.0, f32::max);
+    assert!(
+        (top - 0.28).abs() < 0.02,
+        "28 cm up is past cutscene.start_height (0.25 m): the hero is eased up to it, reached {top}"
+    );
+}

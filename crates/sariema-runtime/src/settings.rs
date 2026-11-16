@@ -61,6 +61,7 @@ impl Default for Settings {
 pub struct CutsceneSettings {
     pub start_tolerance: f32,
     pub start_blend_max: f32,
+    pub start_height: f32,
     pub start_blend: f32,
     pub start_walk_speed: f32,
     pub end_blend: f32,
@@ -76,6 +77,7 @@ impl Default for CutsceneSettings {
         CutsceneSettings {
             start_tolerance: 0.02,
             start_blend_max: 0.3,
+            start_height: 0.25,
             start_blend: 0.25,
             start_walk_speed: 1.5,
             end_blend: 0.6,
@@ -179,6 +181,10 @@ pub const DOCS: &[(&str, &str)] = &[
     (
         "cutscene.start_blend_max",
         "Up to this distance an actor is eased into its start place; farther, it walks there.",
+    ),
+    (
+        "cutscene.start_height",
+        "With a collision module, metres a start may sit above or below the actor and still be measured along the ground, the floor holding the actor at its height; a start farther in height is eased or walked to in full.",
     ),
     ("cutscene.start_blend", "Seconds of that easing."),
     (

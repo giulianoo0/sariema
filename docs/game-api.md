@@ -443,7 +443,9 @@ without `--headless` the pack plays in a window.
   clip where it is. A rate sent during a `clip_path` lasts until the next
   span begins with its own; the clips queued with `clip_next` keep theirs.
   Refused with `E_CLIP_NOT_PLAYING` when the actor plays another clip or
-  none, and `E_CLIP_RATE` below 0.
+  none, and `E_CLIP_RATE` below 0. A `play_clip` or `clip_next` at a
+  speed of 0 or below is refused with `E_CLIP_RATE` too: it would never
+  reach its end.
 - **Time scale**: `time_scale` plays the world slower or faster than real
   time, reached over `blend` seconds. The display frames' time is scaled
   before it becomes steps: a step stays 1/60 s of world time, so play stays
@@ -492,6 +494,7 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `cutscene.skip_fade` | 0.3 | Seconds of the fade a skip runs under, out and back in. |
 | `cutscene.start_blend` | 0.25 | Seconds of that easing. |
 | `cutscene.start_blend_max` | 0.3 | Up to this distance an actor is eased into its start place; farther, it walks there. |
+| `cutscene.start_height` | 0.25 | With a collision module, metres a start may sit above or below the actor and still be measured along the ground, the floor holding the actor at its height; a start farther in height is eased or walked to in full. |
 | `cutscene.start_tolerance` | 0.02 | Metres from its declared start an actor may be and still start in place. |
 | `cutscene.start_walk_speed` | 1.5 | Metres per second of the walk to the start place. |
 | `input.axes` | the input table above | Move axes: name, keys for up, down, left and right, an optional stick, whether the touch joystick drives it, and a dead zone. |
