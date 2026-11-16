@@ -6,6 +6,8 @@
 //! Local lights use clustered forward shading: each frame the CPU culls the
 //! room's lights to the view, bins them into screen tiles × depth slices and
 //! uploads the lists; the fragment shader loops over its cluster's lights.
+//! Shadows come from one depth atlas whose slots are redrawn only when what
+//! they show changes.
 //! Every pipeline is created in [`Renderer::new`]; [`Renderer::render`]
 //! creates no pipeline and no buffer.
 
@@ -24,15 +26,17 @@ mod present;
 mod quality;
 mod resources;
 mod scene;
+mod shadow;
 
 pub use golden::{GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, GoldenDiff, compare_images};
 pub use headless::{Headless, render_coverage, render_to_image};
 pub use quality::Quality;
 
-use cluster::Grid;
+use cluster::Visible;
 use present::Present;
 use resources::Room;
 use scene::Scene;
+use shadow::{Assigned, Shadows};
 
 #[derive(Clone, Debug)]
 pub struct RenderConfig {
@@ -70,10 +74,14 @@ pub struct FrameStats {
     /// In the frustum but past `Quality::max_visible_lights`.
     pub lights_dropped: u32,
     pub clusters: u32,
-    /// Most lights that touched one cluster, counting those past the cap.
-    pub max_lights_in_cluster: u32,
+    /// The most lights whose reach overlapped one cluster, counting those
+    /// past `Quality::max_lights_per_cluster`.
+    pub max_lights_overlapping_cluster: u32,
     /// Clusters that had more than `Quality::max_lights_per_cluster` lights.
     pub cluster_overflows: u32,
+    /// Lights with `casts_shadow` that were shaded without a shadow: past
+    /// `Quality::max_shadowed_lights`, or with no room left in the atlas.
+    pub shadows_skipped: u32,
 }
 
 /// The device and queue, counting what is created through them.
@@ -123,6 +131,7 @@ pub struct Renderer {
     width: u32,
     height: u32,
     scene: Scene,
+    shadows: Shadows,
     present: Present,
     room: Option<Room>,
     stats: FrameStats,
@@ -142,7 +151,7 @@ impl Renderer {
         let storage = limits.max_storage_buffers_per_shader_stage;
         if storage < scene::STORAGE_BUFFERS {
             return Err(RenderError::Device(format!(
-                "clustered lighting needs {} storage buffers in the fragment stage and this device has {storage}",
+                "lighting needs {} storage buffers in the fragment stage and this device has {storage}",
                 scene::STORAGE_BUFFERS
             )));
         }
@@ -160,7 +169,9 @@ impl Renderer {
             pipelines: Cell::new(0),
             buffers: Cell::new(0),
         };
-        let scene = Scene::new(&gpu, width, height, &quality);
+        let layouts = scene::layouts(&gpu);
+        let shadows = Shadows::new(&gpu, &quality, &layouts.draw);
+        let scene = Scene::new(&gpu, (width, height), &quality, layouts, &shadows);
         let present = Present::new(&gpu, config.output_format, scene.output());
         Ok(Renderer {
             gpu,
@@ -168,6 +179,7 @@ impl Renderer {
             width,
             height,
             scene,
+            shadows,
             present,
             room: None,
             stats: FrameStats::default(),
@@ -183,6 +195,7 @@ impl Renderer {
     /// loaded before, and applies its look.
     pub fn load_room(&mut self, room: &RoomPack) -> Result<(), RenderError> {
         self.room = Some(resources::upload(&self.gpu, self.scene.layouts(), room)?);
+        self.shadows.forget();
         self.set_look(&room.look);
         self.warned = false;
         Ok(())
@@ -214,6 +227,9 @@ impl Renderer {
             .iter_mut()
             .filter(|d| d.name.as_deref() == Some(name))
         {
+            if draw.casts_shadow && draw.visible != visible {
+                self.shadows.caster_toggled(draw.min, draw.max);
+            }
             draw.visible = visible;
             found = true;
         }
@@ -223,21 +239,20 @@ impl Renderer {
     /// Draws a frame into `target`, which must be `width × height` in the
     /// configured output format.
     pub fn render(&mut self, camera: &Camera, time_s: f32, target: &wgpu::TextureView) {
-        let grid = Grid::new(
-            self.width,
-            self.height,
-            &self.quality,
-            camera.near,
-            camera.far,
+        let room = self.room.as_ref();
+        let visible = cluster::visible_lights(
+            room.map_or(&[][..], |r| &r.lights[..]),
+            camera.view,
+            camera.proj,
+            camera.position,
+            self.quality.max_visible_lights,
         );
-        let stats = self.scene.prepare(
-            &self.gpu,
-            self.room.as_ref(),
-            camera,
-            time_s,
-            &grid,
-            &self.quality,
-        );
+        let shadows = self
+            .shadows
+            .assign(&self.gpu, room, camera, &visible.lights);
+        let stats = self
+            .scene
+            .prepare(&self.gpu, room, camera, time_s, &visible, &shadows);
         if !self.warned && (stats.lights_dropped > 0 || stats.cluster_overflows > 0) {
             self.warned = true;
             log::warn!(
@@ -251,6 +266,9 @@ impl Renderer {
         }
         self.stats = stats;
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
+        if let Some(room) = &self.room {
+            self.shadows.draw(&mut encoder, room);
+        }
         self.scene.draw(&mut encoder, self.room.as_ref(), camera);
         self.present.draw(&mut encoder, target);
         self.gpu.queue.submit([encoder.finish()]);
@@ -259,21 +277,10 @@ impl Renderer {
     /// Depth of the non-additive visible draws into a single-sample
     /// `Depth32Float` view cleared to 1.
     pub(crate) fn render_depth(&mut self, camera: &Camera, depth: &wgpu::TextureView) {
-        let grid = Grid::new(
-            self.width,
-            self.height,
-            &self.quality,
-            camera.near,
-            camera.far,
-        );
-        self.scene.prepare(
-            &self.gpu,
-            self.room.as_ref(),
-            camera,
-            0.0,
-            &grid,
-            &self.quality,
-        );
+        let room = self.room.as_ref();
+        let (none, no_shadows) = (Visible::default(), Assigned::default());
+        self.scene
+            .prepare(&self.gpu, room, camera, 0.0, &none, &no_shadows);
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
         self.scene
             .draw_depth(&mut encoder, self.room.as_ref(), camera, depth);
@@ -288,6 +295,11 @@ impl Renderer {
     /// Buffers created since [`Renderer::new`].
     pub fn buffers_created(&self) -> u32 {
         self.gpu.buffers.get()
+    }
+
+    /// Shadow maps drawn since [`Renderer::new`], one per atlas slot drawn.
+    pub fn shadow_passes_rendered(&self) -> u32 {
+        self.shadows.drawn()
     }
 
     pub fn last_frame_stats(&self) -> FrameStats {

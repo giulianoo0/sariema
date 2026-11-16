@@ -5,7 +5,7 @@ struct Frame {
     view_proj: mat4x4<f32>,
     view: mat4x4<f32>,
     camera_pos: vec4<f32>,
-    // xyz points towards the sun.
+    // xyz points towards the sun; w is its shadow slot, -1 for none.
     sun_dir: vec4<f32>,
     // Colour × intensity; zero without a sun.
     sun_color: vec4<f32>,

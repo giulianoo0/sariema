@@ -7,15 +7,18 @@ use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use sariema_core::Camera;
 
-use crate::cluster::{self, Grid};
+use crate::cluster::{self, Grid, Visible};
 use crate::lights::{GPU_LIGHT_SIZE, GpuLight, gpu_light};
 use crate::resources::{DrawUniform, Room};
+use crate::shadow::{self, Assigned, Shadows};
 use crate::{FrameStats, Gpu, Quality};
+
+mod draw;
 
 pub(crate) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 pub(crate) const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-/// Lights, cluster cells and light indices.
-pub(crate) const STORAGE_BUFFERS: u32 = 3;
+/// Lights, cluster cells, light indices and shadow slots.
+pub(crate) const STORAGE_BUFFERS: u32 = 4;
 
 const SOURCE: &str = concat!(
     include_str!("../shaders/common.wgsl"),
@@ -138,14 +141,21 @@ pub(crate) struct Scene {
     indices: wgpu::Buffer,
     frame_group: wgpu::BindGroup,
     targets: Targets,
+    grid: Grid,
+    max_lights_per_cluster: u32,
 }
 
 impl Scene {
     /// Creates every scene pipeline and the per-frame buffers, sized for the
     /// worst case `quality` allows so frames never reallocate them.
-    pub fn new(gpu: &Gpu, width: u32, height: u32, quality: &Quality) -> Scene {
+    pub fn new(
+        gpu: &Gpu,
+        (width, height): (u32, u32),
+        quality: &Quality,
+        layouts: Layouts,
+        shadows: &Shadows,
+    ) -> Scene {
         let device = &gpu.device;
-        let layouts = layouts(gpu);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("scene"),
             source: wgpu::ShaderSource::Wgsl(SOURCE.into()),
@@ -160,7 +170,8 @@ impl Scene {
         };
         let mesh_layout = pipeline_layout(&[&layouts.frame, &layouts.draw, &layouts.material]);
         let msaa = quality.msaa;
-        let pipelines = Kind::ALL.map(|kind| mesh_pipeline(gpu, &mesh_layout, &module, kind, msaa));
+        let pipelines =
+            Kind::ALL.map(|kind| mesh_pipeline(gpu, &mesh_layout, &module, kind, quality));
         let background = gpu.pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("background"),
             layout: Some(&pipeline_layout(&[&layouts.frame])),
@@ -228,19 +239,22 @@ impl Scene {
             mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
+        let entries = [
+            entry(0, frame.as_entire_binding()),
+            entry(1, lights.as_entire_binding()),
+            entry(2, cells.as_entire_binding()),
+            entry(3, indices.as_entire_binding()),
+            entry(4, wgpu::BindingResource::Sampler(&sampler)),
+        ];
         let frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("frame"),
             layout: &layouts.frame,
-            entries: &[
-                entry(0, frame.as_entire_binding()),
-                entry(1, lights.as_entire_binding()),
-                entry(2, cells.as_entire_binding()),
-                entry(3, indices.as_entire_binding()),
-                entry(4, wgpu::BindingResource::Sampler(&sampler)),
-            ],
+            entries: &[entries.as_slice(), &shadows.group_entries()].concat(),
         });
         Scene {
             targets: targets(gpu, width, height, msaa),
+            grid: Grid::new(width, height, quality),
+            max_lights_per_cluster: quality.max_lights_per_cluster,
             layouts,
             pipelines,
             background,
@@ -264,37 +278,31 @@ impl Scene {
 
     pub fn resize(&mut self, gpu: &Gpu, width: u32, height: u32, quality: &Quality) {
         self.targets = targets(gpu, width, height, quality.msaa);
+        self.grid = Grid::new(width, height, quality);
     }
 
-    /// Culls and bins the room's lights for `camera` and uploads them with
-    /// the frame constants.
+    /// Bins the frame's `visible` lights, with their `shadows`, for `camera`
+    /// and uploads them with the frame constants.
     pub fn prepare(
         &self,
         gpu: &Gpu,
         room: Option<&Room>,
         camera: &Camera,
         time_s: f32,
-        grid: &Grid,
-        quality: &Quality,
+        visible: &Visible,
+        shadows: &Assigned,
     ) -> FrameStats {
         let lights = room.map_or(&[][..], |r| &r.lights[..]);
-        let visible = cluster::visible_lights(
-            lights,
-            camera.view,
-            camera.proj,
-            camera.position,
-            quality.max_visible_lights,
-        );
-        let packed: Vec<GpuLight> = visible
-            .lights
-            .iter()
-            .map(|&i| gpu_light(&lights[i], i, time_s))
+        let packed: Vec<GpuLight> = (visible.lights.iter().zip(&shadows.lights))
+            .map(|(&i, &slot)| gpu_light(&lights[i], i, time_s, slot))
             .collect();
+        let (near, far) = cluster::light_depths(camera.proj, &visible.spheres);
+        let grid = self.grid.sliced(near, far);
         let bins = cluster::bin(
-            grid,
+            &grid,
             camera.proj,
             &visible.spheres,
-            quality.max_lights_per_cluster,
+            self.max_lights_per_cluster,
         );
         let queue = &gpu.queue;
         for (buffer, bytes) in [
@@ -309,130 +317,25 @@ impl Scene {
         queue.write_buffer(
             &self.frame,
             0,
-            bytemuck::bytes_of(&frame_uniform(room, camera, grid)),
+            bytemuck::bytes_of(&frame_uniform(room, camera, &grid, shadows.sun)),
         );
         FrameStats {
             lights_in_frustum: visible.in_frustum,
             lights_dropped: visible.dropped,
             clusters: grid.len(),
-            max_lights_in_cluster: bins.max_in_cluster,
+            max_lights_overlapping_cluster: bins.max_overlapping,
             cluster_overflows: bins.overflows,
-        }
-    }
-
-    pub fn draw(&self, encoder: &mut wgpu::CommandEncoder, room: Option<&Room>, camera: &Camera) {
-        let Targets {
-            multisampled,
-            resolved,
-            depth,
-        } = &self.targets;
-        let (view, resolve_target) = match multisampled {
-            Some(samples) => (samples, Some(resolved)),
-            None => (resolved, None),
-        };
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("scene"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
-                depth_slice: None,
-                resolve_target,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: if resolve_target.is_some() {
-                        wgpu::StoreOp::Discard
-                    } else {
-                        wgpu::StoreOp::Store
-                    },
-                },
-            })],
-            depth_stencil_attachment: Some(depth_attachment(depth, wgpu::StoreOp::Discard)),
-            ..Default::default()
-        });
-        pass.set_bind_group(0, &self.frame_group, &[]);
-        pass.set_pipeline(&self.background);
-        pass.draw(0..3, 0..1);
-        let Some(room) = room else {
-            return;
-        };
-        let order = draw_order(room, camera.position);
-        if order.is_empty() {
-            return;
-        }
-        room.bind_meshes(&mut pass);
-        let mut current = None;
-        for i in order {
-            let draw = &room.draws[i];
-            if current != Some(draw.kind) {
-                pass.set_pipeline(&self.pipelines[draw.kind as usize]);
-                current = Some(draw.kind);
-            }
-            let material = &room.materials[draw.material as usize];
-            if matches!(draw.kind, Kind::LitBlend | Kind::UnlitBlend) {
-                let mask = material.drawn as u8 as f64;
-                pass.set_blend_constant(wgpu::Color {
-                    r: mask,
-                    g: mask,
-                    b: mask,
-                    a: mask,
-                });
-            }
-            pass.set_bind_group(2, &material.group, &[]);
-            room.draw(&mut pass, i);
-        }
-    }
-
-    pub fn draw_depth(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        room: Option<&Room>,
-        camera: &Camera,
-        depth: &wgpu::TextureView,
-    ) {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("depth only"),
-            depth_stencil_attachment: Some(depth_attachment(depth, wgpu::StoreOp::Store)),
-            ..Default::default()
-        });
-        let Some(room) = room else {
-            return;
-        };
-        let order: Vec<usize> = draw_order(room, camera.position)
-            .into_iter()
-            .filter(|&i| room.draws[i].kind != Kind::Additive)
-            .collect();
-        if order.is_empty() {
-            return;
-        }
-        pass.set_pipeline(&self.depth_only);
-        pass.set_bind_group(0, &self.frame_group, &[]);
-        room.bind_meshes(&mut pass);
-        for i in order {
-            room.draw(&mut pass, i);
+            shadows_skipped: shadows.skipped,
         }
     }
 }
 
-/// Visible draws: opaque front to back, then blended back to front, then additive.
-fn draw_order(room: &Room, eye: Vec3) -> Vec<usize> {
-    let mut order: Vec<(u8, f32, usize)> = room
-        .draws
-        .iter()
-        .enumerate()
-        .filter(|(_, d)| d.visible && d.index_count > 0)
-        .map(|(i, d)| {
-            let distance2 = eye.distance_squared(d.center);
-            match d.kind {
-                Kind::Additive => (2, 0.0, i),
-                kind if kind.is_opaque() => (0, distance2, i),
-                _ => (1, -distance2, i),
-            }
-        })
-        .collect();
-    order.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
-    order.into_iter().map(|(_, _, i)| i).collect()
-}
-
-fn frame_uniform(room: Option<&Room>, camera: &Camera, grid: &Grid) -> FrameUniform {
+fn frame_uniform(
+    room: Option<&Room>,
+    camera: &Camera,
+    grid: &Grid,
+    sun_shadow: Option<u32>,
+) -> FrameUniform {
     let mut sh = [[0.0; 4]; 9];
     let (mut sun_dir, mut sun_color) = ([0.0; 4], [0.0; 4]);
     let (mut bottom, mut top) = ([0.0; 4], [0.0; 4]);
@@ -442,7 +345,9 @@ fn frame_uniform(room: Option<&Room>, camera: &Camera, grid: &Grid) -> FrameUnif
         }
         if let Some(sun) = &room.sun {
             let towards = Vec3::from(sun.direction).normalize_or_zero();
-            sun_dir = towards.extend(0.0).into();
+            sun_dir = towards
+                .extend(sun_shadow.map_or(-1.0, |slot| slot as f32))
+                .into();
             sun_color = rgb_w(sun.color.map(|c| c * sun.intensity), 0.0);
         }
         bottom = rgb_w(room.background.bottom, 0.0);
@@ -467,7 +372,7 @@ fn rgb_w(rgb: [f32; 3], w: f32) -> [f32; 4] {
     [rgb[0], rgb[1], rgb[2], w]
 }
 
-fn layouts(gpu: &Gpu) -> Layouts {
+pub(crate) fn layouts(gpu: &Gpu) -> Layouts {
     let device = &gpu.device;
     // `dynamic` is the binding size of a uniform bound with a dynamic offset.
     let uniform = |binding, visibility, dynamic: Option<u64>| wgpu::BindGroupLayoutEntry {
@@ -511,17 +416,22 @@ fn layouts(gpu: &Gpu) -> Layouts {
         frame: layout(
             "frame",
             &[
-                uniform(0, both, None),
-                storage(1),
-                storage(2),
-                storage(3),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
+                [
+                    uniform(0, both, None),
+                    storage(1),
+                    storage(2),
+                    storage(3),
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ]
+                .as_slice(),
+                &shadow::layout_entries(),
+            ]
+            .concat(),
         ),
         draw: layout(
             "draw",
@@ -567,7 +477,7 @@ fn entry(binding: u32, resource: wgpu::BindingResource<'_>) -> wgpu::BindGroupEn
     wgpu::BindGroupEntry { binding, resource }
 }
 
-fn vertex_layout() -> wgpu::VertexBufferLayout<'static> {
+pub(crate) fn vertex_layout() -> wgpu::VertexBufferLayout<'static> {
     const ATTRIBUTES: [wgpu::VertexAttribute; 4] =
         wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Unorm8x4];
     wgpu::VertexBufferLayout {
@@ -585,7 +495,7 @@ fn primitive() -> wgpu::PrimitiveState {
     }
 }
 
-fn depth_state(write: bool, compare: wgpu::CompareFunction) -> wgpu::DepthStencilState {
+pub(crate) fn depth_state(write: bool, compare: wgpu::CompareFunction) -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: DEPTH_FORMAT,
         depth_write_enabled: Some(write),
@@ -595,31 +505,20 @@ fn depth_state(write: bool, compare: wgpu::CompareFunction) -> wgpu::DepthStenci
     }
 }
 
-fn depth_attachment(
-    view: &wgpu::TextureView,
-    store: wgpu::StoreOp,
-) -> wgpu::RenderPassDepthStencilAttachment<'_> {
-    wgpu::RenderPassDepthStencilAttachment {
-        view,
-        depth_ops: Some(wgpu::Operations {
-            load: wgpu::LoadOp::Clear(1.0),
-            store,
-        }),
-        stencil_ops: None,
-    }
-}
-
 fn mesh_pipeline(
     gpu: &Gpu,
     layout: &wgpu::PipelineLayout,
     module: &wgpu::ShaderModule,
     kind: Kind,
-    msaa: u32,
+    quality: &Quality,
 ) -> wgpu::RenderPipeline {
     let lit = matches!(kind, Kind::LitOpaque | Kind::LitBlend);
+    // The largest square grid within the tap count.
+    let pcf_side = quality.shadow_pcf_taps.isqrt().max(1);
     let constants = [
         ("LIT", lit as u8 as f64),
         ("BLEND", !kind.is_opaque() as u8 as f64),
+        ("PCF_SIDE", pcf_side as f64),
     ];
     let options = wgpu::PipelineCompilationOptions {
         constants: &constants,
@@ -637,7 +536,7 @@ fn mesh_pipeline(
         primitive: primitive(),
         depth_stencil: Some(depth_state(kind.is_opaque(), wgpu::CompareFunction::Less)),
         multisample: wgpu::MultisampleState {
-            count: msaa,
+            count: quality.msaa,
             ..Default::default()
         },
         fragment: Some(wgpu::FragmentState {

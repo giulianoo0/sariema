@@ -17,8 +17,8 @@ pub(crate) const COUNT_BITS: u32 = 8;
 pub(crate) const MAX_CLUSTER_LIGHTS: u32 = (1 << COUNT_BITS) - 1;
 pub(crate) const MAX_INDEX_ENTRIES: u32 = 1 << (32 - COUNT_BITS);
 
-/// Screen tiles by logarithmic depth slices between the camera's near and
-/// far planes. Tile (0, 0) is the top-left corner.
+/// Screen tiles by logarithmic depth slices between view depths `near` and
+/// `far`. Tile (0, 0) is the top-left corner.
 #[derive(Clone, Debug)]
 pub(crate) struct Grid {
     pub width: u32,
@@ -32,24 +32,41 @@ pub(crate) struct Grid {
 }
 
 impl Grid {
-    /// Tiles of at least `quality.cluster_tile_px`, grown until the grid fits
-    /// `quality.cluster_budget`.
-    pub fn new(width: u32, height: u32, quality: &Quality, near: f32, far: f32) -> Grid {
+    /// The smallest tiles of at least `quality.cluster_tile_px` that keep the
+    /// grid within `quality.cluster_budget`. Its slices span every positive
+    /// depth until [`Grid::sliced`].
+    pub fn new(width: u32, height: u32, quality: &Quality) -> Grid {
         let slices = quality.depth_slices;
         let count =
             |tile: u32| width.div_ceil(tile) as u64 * height.div_ceil(tile) as u64 * slices as u64;
-        let tile_px = (quality.cluster_tile_px..)
-            .find(|&tile| count(tile) <= quality.cluster_budget as u64 || tile >= width.max(height))
-            .expect("a tile as large as the screen ends the search");
+        // The count never grows with the tile, so bisection finds the smallest
+        // that fits, or else a tile as large as the screen.
+        let (mut lo, mut hi) = (quality.cluster_tile_px, width.max(height));
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if count(mid) <= quality.cluster_budget as u64 {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
         Grid {
             width,
             height,
-            tile_px,
-            tiles_x: width.div_ceil(tile_px),
-            tiles_y: height.div_ceil(tile_px),
+            tile_px: lo,
+            tiles_x: width.div_ceil(lo),
+            tiles_y: height.div_ceil(lo),
             slices,
+            near: f32::MIN_POSITIVE,
+            far: f32::MAX,
+        }
+    }
+
+    pub fn sliced(&self, near: f32, far: f32) -> Grid {
+        Grid {
             near,
             far,
+            ..self.clone()
         }
     }
 
@@ -148,9 +165,38 @@ pub(crate) fn spot_axis(position: [f32; 3], target: [f32; 3]) -> Vec3 {
     (Vec3::from(target) - Vec3::from(position)).normalize_or(Vec3::NEG_Y)
 }
 
+/// View depths of the near and far planes of `proj`.
+pub(crate) fn depth_range(proj: Mat4) -> (f32, f32) {
+    let unproject = proj.inverse();
+    let depth = |ndc_z| -unproject.project_point3(vec3(0.0, 0.0, ndc_z)).z;
+    (depth(0.0), depth(1.0))
+}
+
+/// The view depths the view-space `spheres` reach, within `proj`'s near and
+/// far planes; all of them if none of the spheres is there.
+pub(crate) fn light_depths(proj: Mat4, spheres: &[Sphere]) -> (f32, f32) {
+    let (near, far) = depth_range(proj);
+    let nearest = spheres
+        .iter()
+        .map(|s| -s.center.z - s.radius)
+        .fold(f32::INFINITY, f32::min);
+    let farthest = spheres
+        .iter()
+        .map(|s| s.radius - s.center.z)
+        .fold(f32::NEG_INFINITY, f32::max);
+    let (lo, hi) = (nearest.max(near), farthest.min(far));
+    if lo < hi { (lo, hi) } else { (near, far) }
+}
+
+/// How much `light` matters at `point`: `importance × intensity / distance²`.
+pub(crate) fn priority(light: &Light, point: Vec3) -> f32 {
+    let distance2 = point.distance_squared(light.position.into());
+    light.importance * light.intensity / distance2.max(f32::MIN_POSITIVE)
+}
+
 /// World-space sphere around everything `light` can reach. A range of 0 or
 /// less means no cutoff, as three.js treats `distance = 0`.
-fn reach(light: &Light) -> Sphere {
+pub(crate) fn reach(light: &Light) -> Sphere {
     let position = Vec3::from(light.position);
     let range = if light.range > 0.0 {
         light.range
@@ -197,7 +243,7 @@ pub(crate) struct Visible {
 }
 
 /// The lights whose reach meets the view frustum, keeping at most `max` by
-/// `importance × intensity / distance²` to the eye.
+/// [`priority`] at the eye.
 pub(crate) fn visible_lights(
     lights: &[Light],
     view: Mat4,
@@ -218,9 +264,7 @@ pub(crate) fn visible_lights(
             let inside = planes
                 .iter()
                 .all(|p| p.dot(sphere.center.extend(1.0)) >= -sphere.radius);
-            let distance2 = eye.distance_squared(light.position.into());
-            let priority = light.importance * light.intensity / distance2.max(f32::MIN_POSITIVE);
-            inside.then_some((priority, i, sphere))
+            inside.then_some((priority(light, eye), i, sphere))
         })
         .collect();
     let in_frustum = found.len() as u32;
@@ -257,8 +301,8 @@ pub(crate) struct Bins {
     pub cells: Vec<u32>,
     /// Positions in the sphere list given to [`bin`].
     pub indices: Vec<u32>,
-    /// Most lights that touched one cluster, counting those past the cap.
-    pub max_in_cluster: u32,
+    /// Most lights overlapping one cluster, counting those past the cap.
+    pub max_overlapping: u32,
     /// Clusters that had more lights than the cap.
     pub overflows: u32,
 }
@@ -295,7 +339,7 @@ pub(crate) fn bin(grid: &Grid, proj: Mat4, spheres: &[Sphere], max_per_cluster: 
         }
     }
     Bins {
-        max_in_cluster: counts.iter().copied().max().unwrap_or(0),
+        max_overlapping: counts.iter().copied().max().unwrap_or(0),
         overflows: counts.iter().filter(|&&n| n > max_per_cluster).count() as u32,
         cells,
         indices,
@@ -320,7 +364,7 @@ mod tests {
             cluster_budget: 10_000,
             ..Quality::low()
         };
-        Grid::new(W, H, &quality, 0.05, 100.0)
+        Grid::new(W, H, &quality).sliced(0.05, 100.0)
     }
 
     /// `(tile x, tile y, slice, lights)` of every non-empty cluster.
@@ -358,9 +402,44 @@ mod tests {
             depth_slices: 4,
             ..Quality::low()
         };
-        let g = Grid::new(W, H, &quality, 0.05, 100.0);
+        let g = Grid::new(W, H, &quality);
         assert!(g.len() <= 100 && g.tile_px > 16, "{g:?}");
         assert_eq!(grid().tile_px, 64);
+    }
+
+    #[test]
+    fn tile_is_the_smallest_that_fits_the_budget() {
+        for (budget, tile, slices) in [(100, 16, 4), (1536, 64, 16), (3072, 8, 16), (5, 1, 1)] {
+            let quality = Quality {
+                cluster_budget: budget,
+                cluster_tile_px: tile,
+                depth_slices: slices,
+                ..Quality::low()
+            };
+            let g = Grid::new(W, H, &quality);
+            assert!(g.len() <= budget, "{g:?}");
+            let one_smaller = W.div_ceil(g.tile_px - 1) * H.div_ceil(g.tile_px - 1) * slices;
+            assert!(g.tile_px == tile || one_smaller > budget, "{g:?}");
+        }
+    }
+
+    #[test]
+    fn depth_range_comes_from_the_projection() {
+        let (near, far) = depth_range(perspective(1.0, 1.5, 0.3, 40.0));
+        assert!(
+            (near - 0.3).abs() < 1e-5 && (far - 40.0).abs() < 1e-2,
+            "{near} {far}"
+        );
+    }
+
+    #[test]
+    fn slices_span_only_the_depths_lights_reach() {
+        let spheres = [sphere(0.0, 0.0, -12.0, 2.0), sphere(1.0, 0.0, -20.0, 1.0)];
+        assert_eq!(light_depths(proj(), &spheres), (10.0, 21.0));
+        let (near, far) = depth_range(proj());
+        let past_both_planes = sphere(0.0, 0.0, -50.0, f32::INFINITY);
+        assert_eq!(light_depths(proj(), &[past_both_planes]), (near, far));
+        assert_eq!(light_depths(proj(), &[]), (near, far));
     }
 
     #[test]
@@ -397,7 +476,7 @@ mod tests {
         let cells = occupied(&g, &bins);
         assert!(cells.iter().all(|c| c.3 == [0, 1]), "{cells:?}");
         assert_eq!(bins.overflows as usize, cells.len());
-        assert_eq!(bins.max_in_cluster, 3);
+        assert_eq!(bins.max_overlapping, 3);
     }
 
     fn point(x: f32, z: f32, intensity: f32) -> Light {

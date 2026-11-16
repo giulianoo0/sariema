@@ -37,7 +37,19 @@ struct Material {
 // Per cluster: offset into light_indices << COUNT_BITS | light count.
 @group(0) @binding(2) var<storage, read> clusters: array<u32>;
 @group(0) @binding(3) var<storage, read> light_indices: array<u32>;
+struct Shadow {
+    // World to the atlas: texture coordinates in xy and depth in z, after dividing by w.
+    to_atlas: mat4x4<f32>,
+    // The slot's texture coordinates, min in xy and max in zw.
+    bounds: vec4<f32>,
+    // World size of a texel: x + y × distance to the light.
+    texel: vec2<f32>,
+}
+
 @group(0) @binding(4) var material_sampler: sampler;
+@group(0) @binding(5) var shadow_atlas: texture_depth_2d;
+@group(0) @binding(6) var shadow_sampler: sampler_comparison;
+@group(0) @binding(7) var<storage, read> shadows: array<Shadow>;
 @group(2) @binding(0) var<uniform> material: Material;
 @group(2) @binding(1) var base_texture: texture_2d<f32>;
 @group(2) @binding(2) var emissive_texture: texture_2d<f32>;
@@ -45,6 +57,8 @@ struct Material {
 override LIT: bool = true;
 // Premultiplied output with opacity in alpha, for blended and additive pipelines.
 override BLEND: bool = false;
+// Shadow lookups compare a PCF_SIDE × PCF_SIDE grid of texels.
+override PCF_SIDE: u32 = 1u;
 
 struct VertexOut {
     @builtin(position) clip: vec4<f32>,
@@ -102,7 +116,8 @@ fn lit(in: VertexOut, n: vec3<f32>, v: vec3<f32>, base: vec3<f32>) -> vec3<f32> 
     let alpha = roughness * roughness;
 
     var color = ambient(n) * diffuse / PI;
-    color += frame.sun_color.rgb * brdf(n, v, frame.sun_dir.xyz, diffuse, f0, alpha);
+    let sun = shadow(i32(frame.sun_dir.w), in.world, n, 0.0);
+    color += frame.sun_color.rgb * sun * brdf(n, v, frame.sun_dir.xyz, diffuse, f0, alpha);
     let cell = clusters[cluster_index(in.clip.xy, in.view_depth)];
     let first = cell >> COUNT_BITS;
     let count = cell & ((1u << COUNT_BITS) - 1u);
@@ -111,9 +126,35 @@ fn lit(in: VertexOut, n: vec3<f32>, v: vec3<f32>, base: vec3<f32>) -> vec3<f32> 
         let to_light = light.position - in.world;
         let d2 = dot(to_light, to_light);
         let l = to_light * inverseSqrt(max(d2, 1e-12));
-        color += light.color * falloff(light, l, d2) * brdf(n, v, l, diffuse, f0, alpha);
+        let reaching = falloff(light, l, d2) * shadow(light.shadow, in.world, n, sqrt(d2));
+        color += light.color * reaching * brdf(n, v, l, diffuse, f0, alpha);
     }
     return color;
+}
+
+// Fraction of a light reaching `world` past the casters in shadow slot
+// `slot`, 1 for no slot. Bilinear comparisons make each tap a 2×2 filter.
+fn shadow(slot: i32, world: vec3<f32>, n: vec3<f32>, light_distance: f32) -> f32 {
+    if slot < 0 {
+        return 1.0;
+    }
+    let s = shadows[slot];
+    let texel = s.texel.x + s.texel.y * light_distance;
+    // Looking up from beyond the filter's reach off the surface keeps lit faces from shadowing themselves.
+    let p = s.to_atlas * vec4(world + n * texel * (0.5 * f32(PCF_SIDE) + 1.0), 1.0);
+    let at = p.xyz / p.w;
+    if p.w <= 0.0 || at.z > 1.0 || any(at.xy < s.bounds.xy) || any(at.xy > s.bounds.zw) {
+        return 1.0;
+    }
+    let step = 1.0 / vec2<f32>(textureDimensions(shadow_atlas));
+    let centre = 0.5 * f32(PCF_SIDE - 1u);
+    var lit = 0.0;
+    for (var i = 0u; i < PCF_SIDE * PCF_SIDE; i++) {
+        let offset = (vec2(f32(i % PCF_SIDE), f32(i / PCF_SIDE)) - centre) * step;
+        let uv = clamp(at.xy + offset, s.bounds.xy, s.bounds.zw);
+        lit += textureSampleCompareLevel(shadow_atlas, shadow_sampler, uv, at.z);
+    }
+    return lit / f32(PCF_SIDE * PCF_SIDE);
 }
 
 fn cluster_index(pixel: vec2<f32>, depth: f32) -> u32 {

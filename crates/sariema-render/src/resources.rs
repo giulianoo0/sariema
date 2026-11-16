@@ -36,13 +36,21 @@ struct MaterialUniform {
 pub(crate) struct DrawItem {
     pub name: Option<String>,
     pub visible: bool,
+    pub casts_shadow: bool,
     pub kind: Kind,
     pub material: u32,
-    /// Centre of the world-space bounds, for sorting.
-    pub center: Vec3,
+    /// World-space bounds.
+    pub min: Vec3,
+    pub max: Vec3,
     pub index_count: u32,
     first_index: u32,
     base_vertex: i32,
+}
+
+impl DrawItem {
+    pub fn center(&self) -> Vec3 {
+        (self.min + self.max) * 0.5
+    }
 }
 
 pub(crate) struct MaterialGpu {
@@ -94,6 +102,17 @@ pub(crate) fn upload(gpu: &Gpu, layouts: &Layouts, room: &RoomPack) -> Result<Ro
         ranges.push((indices.len() as u32, vertices.len() as i32));
         vertices.extend_from_slice(&mesh.vertices);
         indices.extend_from_slice(&mesh.indices);
+    }
+    // A mirroring transform reverses the winding, so its draws use a copy of
+    // the mesh's triangles wound the other way.
+    let mut mirrored_first: Vec<Option<u32>> = vec![None; room.meshes.len()];
+    for d in room.draws.iter().filter(|d| mirrors(&d.transform)) {
+        let mesh = d.mesh as usize;
+        if mirrored_first[mesh].is_none() {
+            mirrored_first[mesh] = Some(indices.len() as u32);
+            let triangles = room.meshes[mesh].indices.as_chunks::<3>().0;
+            indices.extend(triangles.iter().flat_map(|&[a, b, c]| [a, c, b]));
+        }
     }
     let vertices = gpu.buffer_with(
         "vertices",
@@ -178,13 +197,20 @@ pub(crate) fn upload(gpu: &Gpu, layouts: &Layouts, room: &RoomPack) -> Result<Ro
         .iter()
         .map(|d| {
             let (first_index, base_vertex) = ranges[d.mesh as usize];
-            let (min, max) = (Vec3::from(d.bounds.min), Vec3::from(d.bounds.max));
+            let first_index = match mirrored_first[d.mesh as usize] {
+                Some(first) if mirrors(&d.transform) => first,
+                _ => first_index,
+            };
+            let kind = Kind::of(&room.materials[d.material as usize]);
             DrawItem {
                 name: d.name.clone(),
                 visible: d.visible,
-                kind: Kind::of(&room.materials[d.material as usize]),
+                // Glows add light and block none.
+                casts_shadow: d.casts_shadow && kind != Kind::Additive,
+                kind,
                 material: d.material,
-                center: (min + max) * 0.5,
+                min: d.bounds.min.into(),
+                max: d.bounds.max.into(),
                 index_count: room.meshes[d.mesh as usize].indices.len() as u32,
                 first_index,
                 base_vertex,
@@ -324,7 +350,7 @@ fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
 }
 
 /// The items' bytes, each starting at a multiple of `stride`.
-fn strided<T: Pod>(items: impl Iterator<Item = T>, stride: usize) -> Vec<u8> {
+pub(crate) fn strided<T: Pod>(items: impl Iterator<Item = T>, stride: usize) -> Vec<u8> {
     let mut bytes = Vec::new();
     for item in items {
         bytes.extend_from_slice(bytemuck::bytes_of(&item));
@@ -345,6 +371,10 @@ fn material_uniform(m: &Material) -> MaterialUniform {
         drawn: m.drawn as u8 as f32,
         _pad: 0.0,
     }
+}
+
+fn mirrors(transform: &[f32; 16]) -> bool {
+    Mat3::from_mat4(Mat4::from_cols_array(transform)).determinant() < 0.0
 }
 
 fn draw_uniform(transform: &[f32; 16]) -> DrawUniform {

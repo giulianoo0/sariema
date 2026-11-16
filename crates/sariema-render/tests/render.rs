@@ -108,6 +108,18 @@ fn resize_to_zero_is_ignored() {
 }
 
 #[test]
+fn mirrored_draw_looks_like_the_original() {
+    let room = demo_room();
+    let mut mirrored = room.clone();
+    let red = &mut mirrored.draws[1];
+    let flip_x = glam::Mat4::from_scale(glam::vec3(-1.0, 1.0, 1.0));
+    red.transform = (glam::Mat4::from_cols_array(&red.transform) * flip_x).to_cols_array();
+    let (a, b) = (render(&room), render(&mirrored));
+    let d = compare_images(&a, &b).unwrap();
+    assert!(within_golden_tolerance(&a, &b), "{d:?}");
+}
+
+#[test]
 fn unlit_material_ignores_lights() {
     let mut room = demo_room();
     room.draws.truncate(1);
@@ -278,7 +290,10 @@ fn lights_are_dropped_only_past_the_visible_budget() {
     let far = h.renderer().last_frame_stats();
     assert_eq!(far.lights_in_frustum, 300, "{far:?}");
     assert_eq!(far.lights_dropped, 300 - 256, "{far:?}");
-    assert!(far.clusters > 0 && far.max_lights_in_cluster > 0, "{far:?}");
+    assert!(
+        far.clusters > 0 && far.max_lights_overlapping_cluster > 0,
+        "{far:?}"
+    );
 }
 
 #[test]

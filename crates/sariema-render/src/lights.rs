@@ -28,8 +28,8 @@ pub(crate) struct GpuLight {
     _pad: [u32; 2],
 }
 
-/// `light`, the `index`-th of its room, at `time_s`.
-pub(crate) fn gpu_light(light: &Light, index: usize, time_s: f32) -> GpuLight {
+/// `light`, the `index`-th of its room, at `time_s`, with its shadow slot.
+pub(crate) fn gpu_light(light: &Light, index: usize, time_s: f32, shadow: Option<u32>) -> GpuLight {
     let flicker = if light.flicker.is_some() {
         flicker(time_s, index)
     } else {
@@ -54,7 +54,7 @@ pub(crate) fn gpu_light(light: &Light, index: usize, time_s: f32) -> GpuLight {
         cone_cos,
         direction,
         penumbra_cos,
-        shadow: -1,
+        shadow: shadow.map_or(-1, |slot| slot as i32),
         flags,
         _pad: [0; 2],
     }

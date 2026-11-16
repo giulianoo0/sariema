@@ -14,6 +14,8 @@ pub struct Camera {
     /// View to clip space, WebGPU convention: NDC depth in [0, 1], Y up.
     pub proj: Mat4,
     pub position: Vec3,
+    /// The point the camera looks at.
+    pub focus: Vec3,
     pub near: f32,
     pub far: f32,
 }
@@ -28,6 +30,7 @@ pub fn room_camera(cam: &RoomCamera, aspect: f32) -> Camera {
         view: Mat4::from_rotation_x(pitch) * Mat4::from_translation(-position),
         proj: directx::perspective(cam.fov_y_deg.to_radians(), aspect, NEAR, FAR),
         position,
+        focus: cam.focus.into(),
         near: NEAR,
         far: FAR,
     }

@@ -3,6 +3,7 @@
 use crate::cluster::{MAX_CLUSTER_LIGHTS, MAX_INDEX_ENTRIES};
 use crate::lights::GPU_LIGHT_SIZE;
 use crate::scene::{DEPTH_FORMAT, HDR_FORMAT};
+use crate::shadow::{GPU_SHADOW_SIZE, view_stride};
 
 /// Renderer settings that trade cost for coverage. Every field is a default
 /// a game may override; [`crate::Renderer::new`] clamps them to the device.
@@ -11,14 +12,18 @@ pub struct Quality {
     /// Local lights shaded per frame; past it, the lowest priority ones are dropped.
     pub max_visible_lights: u32,
     pub max_lights_per_cluster: u32,
-    /// Most clusters in the grid; the tile grows until the grid fits.
+    /// Most clusters in the grid; tiles grow from `cluster_tile_px` to fit.
     pub cluster_budget: u32,
     pub cluster_tile_px: u32,
     pub depth_slices: u32,
     /// Samples per pixel of the scene target.
     pub msaa: u32,
+    /// Side in texels of the one depth texture every shadow map shares.
     pub shadow_atlas_size: u32,
+    /// Local lights with a shadow map; the sun's does not count.
     pub max_shadowed_lights: u32,
+    /// Depth comparisons per shadow lookup, as the largest square grid that
+    /// fits; each one filters 2×2 texels.
     pub shadow_pcf_taps: u32,
 }
 
@@ -83,7 +88,13 @@ impl Quality {
             cluster_tile_px: self.cluster_tile_px.max(1),
             depth_slices: self.depth_slices.clamp(1, cluster_budget),
             msaa: supported_samples(device, self.msaa),
-            shadow_atlas_size: self.shadow_atlas_size.min(limits.max_texture_dimension_2d),
+            shadow_atlas_size: self
+                .shadow_atlas_size
+                .clamp(1, limits.max_texture_dimension_2d),
+            // The slot buffers also hold the sun's.
+            max_shadowed_lights: self
+                .max_shadowed_lights
+                .min(entries(view_stride(&limits).max(GPU_SHADOW_SIZE)).saturating_sub(1)),
             ..self.clone()
         }
     }
