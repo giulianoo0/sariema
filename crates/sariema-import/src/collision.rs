@@ -8,8 +8,9 @@
 //! surface becomes the hull; any other piece, and every flat one, becomes its
 //! triangles, simplified. A hinged part of a loose piece that turns about a
 //! vertical axis, a door leaf, becomes a collider of its own named like its
-//! node, `<piece>_<hinge>`, stored closed, with the hinge that turns it. Authored values are on the engine's axes: Y up,
-//! north is −Z, metres, yaw about +Y with yaw 0 facing +Z.
+//! node, `<piece>_<hinge>`, stored closed, with the hinge that turns it.
+//! Authored values are on the engine's axes: Y up, north is −Z, metres, yaw
+//! about +Y with yaw 0 facing +Z.
 
 use std::collections::HashMap;
 use std::path::Path;
