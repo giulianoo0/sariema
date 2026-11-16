@@ -156,6 +156,11 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "a cutscene walk, or the walk to a role's start, is faster than motion.max_visible_speed",
     ),
     (
+        "E_CUTSCENE_PATH_CUT",
+        Kind::Failure,
+        "a path's first clip after it begins before its last span ends",
+    ),
+    (
         "E_SETTINGS",
         Kind::Failure,
         "the runtime settings cannot run: a time scale bound is not positive or min_time_scale is above max_time_scale",

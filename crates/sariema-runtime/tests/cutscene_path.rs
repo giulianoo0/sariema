@@ -167,3 +167,25 @@ fn the_sill_trip_example_passes_the_rules() {
     let (cutscene, _) = compile_json(&std::fs::read_to_string(path).unwrap()).unwrap();
     assert_eq!(check(&cutscene, &Settings::default()), []);
 }
+
+#[test]
+fn a_clip_after_the_path_that_begins_before_its_last_span_ends_fails_the_check() {
+    let then = |after: f32| {
+        format!(
+            r#"{{ "name": "cut",
+            "roles": {{ "hero": {{ "start": {{ "position": [0, 0, 0] }} }} }},
+            "steps": [ {{ "path": {{ "role": "hero", "clip": "vault", "spans": [
+                {{ "at": [0.2, 0.8], "to": [0, 0, -1] }} ],
+              "then": [ {{ "clip": "land", "after": {after} }} ] }} }} ] }}"#
+        )
+    };
+    let settings = Settings::default();
+    let codes = |after: f32| -> Vec<&'static str> {
+        let (cutscene, _) = compile_json(&then(after)).unwrap();
+        check(&cutscene, &settings).iter().map(|e| e.code).collect()
+    };
+    assert_eq!(codes(0.5), ["E_CUTSCENE_PATH_CUT"]);
+    assert_eq!(codes(0.8), Vec::<&str>::new());
+    assert_eq!(codes(0.9), Vec::<&str>::new());
+    assert_eq!(codes(0.0), Vec::<&str>::new(), "0 is the clip's end");
+}

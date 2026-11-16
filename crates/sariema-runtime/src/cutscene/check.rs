@@ -17,6 +17,9 @@
 //! - No walk is faster than an actor may be seen to move: neither a `walk`
 //!   nor, for a role with a start, `cutscene.start_walk_speed` exceeds the
 //!   project's `motion.max_visible_speed`. (`E_CUTSCENE_SPEED`)
+//! - A `path` plays its clip to its last span's end: the first clip after
+//!   it may not begin before then, which would stop the path half-way.
+//!   (`E_CUTSCENE_PATH_CUT`)
 
 use std::collections::BTreeSet;
 
@@ -43,7 +46,7 @@ impl std::fmt::Display for CheckError {
 }
 
 /// Every error code the check can give.
-pub const CODES: [&str; 7] = [
+pub const CODES: [&str; 8] = [
     "E_CUTSCENE_TELEPORT",
     "E_CUTSCENE_COVER",
     "E_CUTSCENE_START",
@@ -51,6 +54,7 @@ pub const CODES: [&str; 7] = [
     "E_CUTSCENE_SPAWN",
     "E_CUTSCENE_RACE",
     "E_CUTSCENE_SPEED",
+    "E_CUTSCENE_PATH_CUT",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -208,9 +212,25 @@ impl Checker<'_> {
                 k.cut = false;
                 elapse(k);
             }
-            Block::Path { role, spans, .. } => {
+            Block::Path {
+                role, spans, then, ..
+            } => {
                 let at = format!("{at}.path");
                 self.uses(k, *role, &at);
+                let end = spans.last().map_or(0.0, |s| s.until);
+                if let Some(first) = then.first()
+                    && first.after > 0.0
+                    && first.after < end
+                {
+                    self.fail(
+                        "E_CUTSCENE_PATH_CUT",
+                        &format!("{at}.then[0].after"),
+                        format!(
+                            "the next clip begins at {} s, before the last span ends at {end} s, and would stop the path there",
+                            first.after
+                        ),
+                    );
+                }
                 let mut from: Option<[f32; 3]> = None;
                 for span in spans {
                     if let (Some(a), Some(b)) = (from, span.to) {
