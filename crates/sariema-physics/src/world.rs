@@ -413,6 +413,8 @@ impl World {
                 let a = &mut self.actors[actor.0 as usize];
                 a.release();
                 a.teleport = Some((position, yaw));
+                a.move_to = None;
+                a.route = None;
             }
             Intent::Pose {
                 actor,
@@ -591,7 +593,6 @@ impl World {
                     a.vertical = 0.0;
                     a.ground = ground;
                     a.route = None;
-                    a.move_to = None;
                     a.awake = true;
                 }
                 None => events.push(Event {

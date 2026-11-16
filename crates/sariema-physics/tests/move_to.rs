@@ -230,3 +230,52 @@ fn the_ground_under_a_dais_is_no_floor_and_its_top_is_reachable() {
         assert!(world.find_path(id, start, target, &mut path), "{target}");
     }
 }
+
+#[test]
+fn a_move_given_after_a_teleport_in_the_same_step_starts_from_where_it_lands() {
+    let mut world = fixture().world(Settings::default());
+    let id = actor(&mut world, Vec3::new(-5.0, 0.0, 5.0));
+    settle(&mut world, id);
+    world.apply(Intent::MoveTo {
+        actor: id,
+        target: Vec3::new(-5.0, 0.0, 2.0),
+        face: None,
+    });
+    world.apply(Intent::Teleport {
+        actor: id,
+        position: Vec3::new(1.0, 0.0, 4.0),
+        yaw: 0.0,
+    });
+    let target = Vec3::new(5.0, 0.0, 5.0);
+    assert_eq!(walk_to(&mut world, id, target, 0.0), EventKind::Arrived);
+    let a = world.actor(id);
+    assert!(
+        Vec2::new(a.position.x - target.x, a.position.z - target.z).length() <= 0.02 + 1e-4,
+        "{a:?}"
+    );
+
+    world.apply(Intent::MoveTo {
+        actor: id,
+        target: Vec3::new(5.0, 0.0, 2.0),
+        face: None,
+    });
+    world.apply(Intent::Teleport {
+        actor: id,
+        position: Vec3::new(1.0, 0.0, 4.0),
+        yaw: 0.0,
+    });
+    let mut events = Vec::new();
+    for _ in 0..30 {
+        world.step(&mut events);
+    }
+    let a = world.actor(id);
+    assert!(
+        !a.moving_to,
+        "a teleport drops the moves given before it: {a:?}"
+    );
+    assert!(
+        a.position
+            .abs_diff_eq(Vec3::new(1.0, a.position.y, 4.0), 1e-4),
+        "{a:?}"
+    );
+}
