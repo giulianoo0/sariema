@@ -557,6 +557,12 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             topic: topic.into(),
             payload: payload.into(),
         }),
+        C::ZoneCylinder {
+            zone,
+            center,
+            radius,
+            height,
+        } => s.zones.set_cylinder(zone, v3(center), radius, height),
         C::SetTurnRate { entity, rate } => {
             actor(s, entity)?;
             let setting = s.settings.motion.turn_rate;

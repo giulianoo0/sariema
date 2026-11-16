@@ -183,6 +183,12 @@ batch_table! {
         /// gives it the setting back. A faster rate, or one below 0, is
         /// refused with E_TURN_RATE.
         0x00D0 SetTurnRate set_turn_rate { entity: Entity, rate: f32 }
+        /// A vertical cylinder `height` m tall round `center` that reports
+        /// actors whose feet are within `radius` of its axis and between its
+        /// bottom and top, entering and leaving: a circle on a floor that
+        /// also takes the ramp or step above it. It shares its ids with
+        /// `zone`, each replacing the other; `remove_zone` removes it.
+        0x00D1 ZoneCylinder zone_cylinder { zone: u32, center: Vec3, radius: f32, height: f32 }
     }
     events {
         /// The first event of the first tick.
