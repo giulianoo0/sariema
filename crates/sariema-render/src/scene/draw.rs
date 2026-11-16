@@ -5,8 +5,9 @@
 
 use glam::Vec3;
 use sariema_core::Camera;
+use sariema_format::AlphaMode;
 
-use super::{Kind, Scene, Targets};
+use super::{Scene, Targets};
 use crate::resources::Room;
 
 impl Scene {
@@ -64,13 +65,12 @@ impl Scene {
         let mut current = None;
         for i in order {
             let draw = &room.draws[i];
-            let pipeline = (draw.double_sided, draw.kind);
-            if current != Some(pipeline) {
-                pass.set_pipeline(&self.pipelines[draw.double_sided as usize][draw.kind as usize]);
-                current = Some(pipeline);
+            if current != Some(draw.kind) {
+                pass.set_pipeline(&self.pipelines[draw.kind.index()]);
+                current = Some(draw.kind);
             }
             let material = &room.materials[draw.material as usize];
-            if matches!(draw.kind, Kind::LitBlend | Kind::UnlitBlend) {
+            if draw.kind.alpha == AlphaMode::Blend {
                 let mask = material.drawn as u8 as f64;
                 pass.set_blend_constant(wgpu::Color {
                     r: mask,
@@ -101,7 +101,7 @@ impl Scene {
         };
         let order: Vec<usize> = draw_order(room, camera.position)
             .into_iter()
-            .filter(|&i| room.draws[i].kind != Kind::Additive)
+            .filter(|&i| room.draws[i].kind.alpha != AlphaMode::Additive)
             .collect();
         if order.is_empty() {
             return;
@@ -124,10 +124,10 @@ fn draw_order(room: &Room, eye: Vec3) -> Vec<usize> {
         .filter(|(_, d)| d.visible && d.index_count > 0)
         .map(|(i, d)| {
             let distance2 = eye.distance_squared(d.center());
-            match d.kind {
-                Kind::Additive => (2, 0.0, i),
-                kind if kind.is_opaque() => (0, distance2, i),
-                _ => (1, -distance2, i),
+            match d.kind.alpha {
+                AlphaMode::Opaque => (0, distance2, i),
+                AlphaMode::Blend => (1, -distance2, i),
+                AlphaMode::Additive => (2, 0.0, i),
             }
         })
         .collect();

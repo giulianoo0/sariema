@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 
 use glam::{Mat3, Mat4, Vec3};
 use sariema_format::{
-    Aabb, Ambient, Background, Draw, Light, LightKind, Look, Material, Mesh, Mobility, RoomCamera,
-    RoomPack, Shading, Stats, Sun, Texture, Vertex, hemisphere_sh9,
+    Aabb, AlphaMode, Ambient, Background, Draw, Light, LightKind, Look, Material, Mesh, Mobility,
+    RoomCamera, RoomPack, Stats, Sun, Texture, Vertex, hemisphere_sh9,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -257,7 +257,7 @@ fn dress(materials: &mut [Material], source: &RoomSource) {
         let named = |names: &[String]| names.contains(&material.name);
         material.drawn = named(&source.drawn_materials);
         if named(&source.additive_materials) {
-            material.shading = Shading::Additive;
+            material.alpha = AlphaMode::Additive;
         }
         if let Some((_, rim)) = source
             .rim_materials
@@ -342,7 +342,7 @@ impl Scene<'_> {
             transform,
             visible,
             // Additive surfaces (light cones, glows) add light and block none.
-            casts_shadow: self.kit.materials[material as usize].shading != Shading::Additive,
+            casts_shadow: self.kit.materials[material as usize].alpha != AlphaMode::Additive,
         });
         self.meshes.push(mesh);
     }

@@ -141,7 +141,7 @@ fn unlit_material_ignores_lights() {
 #[test]
 fn additive_draw_adds_light_and_hides_nothing() {
     let mut room = demo_room();
-    room.materials[3].shading = Shading::Additive;
+    room.materials[3].alpha = AlphaMode::Additive;
     let mut h = headless(Quality::high(), &room);
     let with = h.render(&camera_of(&room), 0.0);
     h.renderer().set_draw_visible("box_blue", false);
@@ -154,23 +154,37 @@ fn additive_draw_adds_light_and_hides_nothing() {
     assert!(compare_images(&with, &without).unwrap().max_channel_delta > 0);
 }
 
-#[test]
-fn additive_surface_is_lit() {
-    // three.js lights a standard material under additive blending, so in the
-    // dark it adds only its emissive light, which here is none.
+/// The demo room with box_blue blended additively, and no light at all unless `lights_on`.
+fn additive_box(shading: Shading, lights_on: bool) -> RoomPack {
     let mut room = demo_room();
-    room.materials[3].shading = Shading::Additive;
-    room.lights.clear();
-    room.sun = None;
-    room.ambient = Ambient { sh9: [[0.0; 3]; 9] };
-    let mut h = headless(Quality::high(), &room);
-    let with = h.render(&camera_of(&room), 0.0);
+    room.materials[3].shading = shading;
+    room.materials[3].alpha = AlphaMode::Additive;
+    if !lights_on {
+        room.lights.clear();
+        room.sun = None;
+        room.ambient = Ambient { sh9: [[0.0; 3]; 9] };
+    }
+    room
+}
+
+/// The largest change box_blue makes to the frame.
+fn box_blue_delta(room: &RoomPack) -> u8 {
+    let mut h = headless(Quality::high(), room);
+    let with = h.render(&camera_of(room), 0.0);
     h.renderer().set_draw_visible("box_blue", false);
-    let without = h.render(&camera_of(&room), 0.0);
-    assert_eq!(
-        compare_images(&with, &without).unwrap().max_channel_delta,
-        0
-    );
+    let without = h.render(&camera_of(room), 0.0);
+    compare_images(&with, &without).unwrap().max_channel_delta
+}
+
+#[test]
+fn unlit_additive_glows_in_the_dark() {
+    assert!(box_blue_delta(&additive_box(Shading::Unlit, false)) > 0);
+}
+
+#[test]
+fn lit_additive_adds_only_the_light_it_receives() {
+    assert_eq!(box_blue_delta(&additive_box(Shading::Lit, false)), 0);
+    assert!(box_blue_delta(&additive_box(Shading::Lit, true)) > 0);
 }
 
 /// The demo room with an untextured floor, turned upside down when `flipped`.

@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use common::write_glb;
 use sariema_format::{
-    Draw, LightKind, Mobility, RoomPack, Shading, TextureFormat, decode, encode, eval_sh9,
+    AlphaMode, Draw, LightKind, Mobility, RoomPack, Shading, TextureFormat, decode, encode,
+    eval_sh9,
 };
 use sariema_import::{ImportError, RoomSource, build_room};
 use serde_json::{Value, json};
@@ -370,7 +371,11 @@ fn material_lists_mark_materials() {
     let mat0 = &r.materials[0];
     assert!(mat0.drawn);
     assert_eq!(mat0.rim, 0.4);
-    assert_eq!(mat0.shading, Shading::Additive);
+    // Blending is changed; the lighting the kit declares is kept.
+    assert_eq!(
+        (mat0.shading, mat0.alpha),
+        (Shading::Lit, AlphaMode::Additive)
+    );
     assert!(r.draws.iter().all(|d| !d.casts_shadow));
 }
 

@@ -154,9 +154,7 @@ fn material(doc: &gltf::Document, m: &gltf::Material) -> Result<Material, Import
         (None, None) => ([0.0; 2], [1.0; 2]),
     };
     let additive = truthy(extra(&m.extras, "aditivo")) || name.ends_with("_aditivo");
-    let shading = if additive {
-        Shading::Additive
-    } else if m.extensions.unlit.is_some() {
+    let shading = if m.extensions.unlit.is_some() {
         Shading::Unlit
     } else {
         Shading::Lit
@@ -179,6 +177,7 @@ fn material(doc: &gltf::Document, m: &gltf::Material) -> Result<Material, Import
         emissive_texture: emissive.map(|(image, _)| image),
         shading,
         alpha: match m.alpha_mode.as_deref() {
+            _ if additive => AlphaMode::Additive,
             Some("BLEND") => AlphaMode::Blend,
             _ => AlphaMode::Opaque,
         },

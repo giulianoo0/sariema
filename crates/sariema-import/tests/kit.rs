@@ -236,8 +236,16 @@ fn materials_follow_the_mapping_rules() {
     assert_eq!(liso.emissive, [0.0; 3]);
     assert_eq!((liso.drawn, liso.rim), (false, 0.0));
     assert_eq!(material("tela").shading, Shading::Unlit);
-    assert_eq!(material("brilho").shading, Shading::Additive);
-    assert_eq!(material("cone_aditivo").shading, Shading::Additive);
+    let brilho = material("brilho");
+    assert_eq!(
+        (brilho.shading, brilho.alpha),
+        (Shading::Unlit, AlphaMode::Additive)
+    );
+    let cone = material("cone_aditivo");
+    assert_eq!(
+        (cone.shading, cone.alpha),
+        (Shading::Lit, AlphaMode::Additive)
+    );
     assert_eq!(material("vidro").alpha, AlphaMode::Blend);
     assert!(material("vidro").double_sided && !liso.double_sided);
     assert_eq!(material("lampada").emissive, [4.0, 2.0, 1.0]);

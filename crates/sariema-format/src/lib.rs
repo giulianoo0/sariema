@@ -46,14 +46,14 @@ pub struct Mesh {
 pub enum Shading {
     Lit,
     Unlit,
-    /// Lit, then added over what is behind; blocks nothing.
-    Additive,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AlphaMode {
     Opaque,
     Blend,
+    /// Added over what is behind, blocking nothing.
+    Additive,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

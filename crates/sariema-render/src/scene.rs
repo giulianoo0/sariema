@@ -6,6 +6,7 @@
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use sariema_core::Camera;
+use sariema_format::{AlphaMode, Shading};
 
 use crate::cluster::{self, Grid, Visible};
 use crate::lights::{GPU_LIGHT_SIZE, GpuLight, gpu_light};
@@ -41,38 +42,43 @@ struct FrameUniform {
     slicing: [f32; 4],
 }
 
-/// One pipeline each; nothing depends on how many lights a room has.
+/// What picks a draw's pipeline. There is one pipeline per kind; nothing
+/// depends on how many lights a room has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Kind {
-    LitOpaque,
-    LitBlend,
-    UnlitOpaque,
-    UnlitBlend,
-    Additive,
+pub(crate) struct Kind {
+    pub lit: bool,
+    pub alpha: AlphaMode,
+    pub double_sided: bool,
 }
 
 impl Kind {
-    const ALL: [Kind; 5] = [
-        Kind::LitOpaque,
-        Kind::LitBlend,
-        Kind::UnlitOpaque,
-        Kind::UnlitBlend,
-        Kind::Additive,
-    ];
+    const COUNT: usize = 12;
+    const ALPHAS: [AlphaMode; 3] = [AlphaMode::Opaque, AlphaMode::Blend, AlphaMode::Additive];
 
     pub fn of(material: &sariema_format::Material) -> Kind {
-        use sariema_format::{AlphaMode, Shading};
-        match (material.shading, material.alpha) {
-            (Shading::Lit, AlphaMode::Opaque) => Kind::LitOpaque,
-            (Shading::Lit, AlphaMode::Blend) => Kind::LitBlend,
-            (Shading::Unlit, AlphaMode::Opaque) => Kind::UnlitOpaque,
-            (Shading::Unlit, AlphaMode::Blend) => Kind::UnlitBlend,
-            (Shading::Additive, _) => Kind::Additive,
+        Kind {
+            lit: material.shading == Shading::Lit,
+            alpha: material.alpha,
+            double_sided: material.double_sided,
+        }
+    }
+
+    /// Where its pipeline is in `Scene::pipelines`; [`Kind::from_index`] inverts it.
+    fn index(self) -> usize {
+        let alpha = Kind::ALPHAS.iter().position(|&a| a == self.alpha).unwrap();
+        (self.lit as usize * Kind::ALPHAS.len() + alpha) * 2 + self.double_sided as usize
+    }
+
+    fn from_index(i: usize) -> Kind {
+        Kind {
+            lit: i / (2 * Kind::ALPHAS.len()) == 1,
+            alpha: Kind::ALPHAS[i / 2 % Kind::ALPHAS.len()],
+            double_sided: i % 2 == 1,
         }
     }
 
     pub fn is_opaque(self) -> bool {
-        matches!(self, Kind::LitOpaque | Kind::UnlitOpaque)
+        self.alpha == AlphaMode::Opaque
     }
 
     fn target(self) -> wgpu::ColorTargetState {
@@ -81,11 +87,11 @@ impl Kind {
             dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
             operation: wgpu::BlendOperation::Add,
         };
-        let (blend, write_mask) = match self {
-            Kind::LitOpaque | Kind::UnlitOpaque => (None, wgpu::ColorWrites::ALL),
+        let (blend, write_mask) = match self.alpha {
+            AlphaMode::Opaque => (None, wgpu::ColorWrites::ALL),
             // The blend constant carries the material's mask value, so the
             // mask blends towards it by the surface's opacity.
-            Kind::LitBlend | Kind::UnlitBlend => (
+            AlphaMode::Blend => (
                 Some(wgpu::BlendState {
                     color: premultiplied,
                     alpha: wgpu::BlendComponent {
@@ -96,7 +102,7 @@ impl Kind {
                 wgpu::ColorWrites::ALL,
             ),
             // Glows add light over whatever is behind and keep its mask.
-            Kind::Additive => (
+            AlphaMode::Additive => (
                 Some(wgpu::BlendState {
                     color: wgpu::BlendComponent {
                         dst_factor: wgpu::BlendFactor::One,
@@ -132,8 +138,8 @@ struct Targets {
 
 pub(crate) struct Scene {
     layouts: Layouts,
-    /// Indexed by `double_sided as usize`, then by `Kind`.
-    pipelines: [[wgpu::RenderPipeline; Kind::ALL.len()]; 2],
+    /// Indexed by [`Kind::index`].
+    pipelines: [wgpu::RenderPipeline; Kind::COUNT],
     background: wgpu::RenderPipeline,
     depth_only: wgpu::RenderPipeline,
     frame: wgpu::Buffer,
@@ -171,9 +177,8 @@ impl Scene {
         };
         let mesh_layout = pipeline_layout(&[&layouts.frame, &layouts.draw, &layouts.material]);
         let msaa = quality.msaa;
-        let pipelines = [false, true].map(|double_sided| {
-            Kind::ALL
-                .map(|kind| mesh_pipeline(gpu, &mesh_layout, &module, kind, double_sided, quality))
+        let pipelines = std::array::from_fn(|i| {
+            mesh_pipeline(gpu, &mesh_layout, &module, Kind::from_index(i), quality)
         });
         let background = gpu.pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("background"),
@@ -520,15 +525,12 @@ fn mesh_pipeline(
     layout: &wgpu::PipelineLayout,
     module: &wgpu::ShaderModule,
     kind: Kind,
-    double_sided: bool,
     quality: &Quality,
 ) -> wgpu::RenderPipeline {
-    // three.js lights a standard material under additive blending too.
-    let lit = matches!(kind, Kind::LitOpaque | Kind::LitBlend | Kind::Additive);
     // The largest square grid within the tap count.
     let pcf_side = quality.shadow_pcf_taps.isqrt().max(1);
     let constants = [
-        ("LIT", lit as u8 as f64),
+        ("LIT", kind.lit as u8 as f64),
         ("BLEND", !kind.is_opaque() as u8 as f64),
         ("PCF_SIDE", pcf_side as f64),
     ];
@@ -545,7 +547,7 @@ fn mesh_pipeline(
             compilation_options: options.clone(),
             buffers: &[Some(vertex_layout())],
         },
-        primitive: primitive(double_sided),
+        primitive: primitive(kind.double_sided),
         depth_stencil: Some(depth_state(kind.is_opaque(), wgpu::CompareFunction::Less)),
         multisample: wgpu::MultisampleState {
             count: quality.msaa,
