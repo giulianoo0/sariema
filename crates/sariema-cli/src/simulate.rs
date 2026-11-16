@@ -154,13 +154,11 @@ pub fn run(path: &Path, run: &RunArgs) -> Result<Done, Failure> {
     let mut frames = Frames::new(run, assets.as_ref(), &mut engine, steps)?;
 
     let (mut events, mut host, mut logs) = (Vec::new(), Vec::new(), Vec::new());
-    let (mut total, mut slowest) = (Duration::ZERO, Duration::ZERO);
+    let mut took = Vec::with_capacity(steps as usize);
     for step in 0..steps {
         let started = Instant::now();
         engine.step(replay.actions(step));
-        let took = started.elapsed();
-        total += took;
-        slowest = slowest.max(took);
+        took.push(started.elapsed());
         if let Some(frames) = &mut frames {
             frames.after_step(step, &mut engine)?;
         }
@@ -203,6 +201,9 @@ pub fn run(path: &Path, run: &RunArgs) -> Result<Done, Failure> {
     }
     let frames = frames.map(Frames::finish).transpose()?;
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    let total: Duration = took.iter().sum();
+    took.sort_unstable();
+    let (median, slowest) = (took[took.len() / 2], took[took.len() - 1]);
     let engine_hash = hex(engine.state_hash());
     let physics_hash = engine.physics().map(|p| hex(p.world.state_hash()));
     let audio_hash = engine.sound().map(|s| hex(s.hash()));
@@ -231,14 +232,16 @@ pub fn run(path: &Path, run: &RunArgs) -> Result<Done, Failure> {
             "timing": {
                 "total_ms": ms(total),
                 "mean_step_ms": ms(total) / steps as f64,
+                "median_step_ms": ms(median),
                 "max_step_ms": ms(slowest),
             },
         }),
         text: format!(
-            "{steps} steps: engine {engine_hash}, state {state_hash}, world {world_hash}, {} events, {} host messages, {:.3} ms per step (max {:.3})",
+            "{steps} steps: engine {engine_hash}, state {state_hash}, world {world_hash}, {} events, {} host messages, {:.3} ms per step (median {:.3}, max {:.3})",
             events.len(),
             host.len(),
             ms(total) / steps as f64,
+            ms(median),
             ms(slowest)
         ),
     })

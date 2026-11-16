@@ -332,7 +332,11 @@ HUD included, and prints the events, host messages, log, saves and timing,
 with `engine_hash` (the runtime, the collision world and every animator: the
 same on every platform, wasm32 included), `state_hash` and `world_hash` (the
 runtime's), `physics_hash`, and `audio_hash` over the samples it mixed
-(repeatable with the same build, not across builds).
+(repeatable with the same build, not across builds). `timing` gives the
+mean, median and slowest step. With `--screenshot` it also draws the
+frames a window would show at the end of the steps it keeps, the last
+one or `--filmstrip N` spread over the run, without changing any hash;
+without `--headless` the pack plays in a window.
 
 ## The engine's systems
 
