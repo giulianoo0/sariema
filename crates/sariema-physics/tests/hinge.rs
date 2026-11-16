@@ -157,6 +157,29 @@ fn a_leaf_closing_on_an_actor_walking_through_waits_for_it_and_never_pushes_it()
 }
 
 #[test]
+fn a_leaf_opening_away_from_an_actor_leaning_on_it_is_not_held_by_it() {
+    let (mut world, leaf) = doorway(0.0);
+    let id = actor(&mut world, Vec3::new(0.0, 0.0, 2.0));
+    settle(&mut world, id);
+    let leaning = walk(&mut world, id, false, 120);
+    assert!(leaning.z < 0.4, "did not reach the leaf: {leaning}");
+    let mut events = Vec::new();
+    for k in 1..=40 {
+        let yaw = FRAC_PI_2 * k as f32 / 40.0;
+        assert_eq!(
+            world.try_platform_pose(leaf, turned(yaw)),
+            Ok(()),
+            "held at step {k} by the actor behind it at {}",
+            world.actor(id).position
+        );
+        world.step(&mut events);
+        assert!(clear(&world, id), "step {k}: {:?}", world.actor(id));
+    }
+    let through = walk(&mut world, id, false, 120);
+    assert!(through.z < -1.5, "the open leaf held it back: {through}");
+}
+
+#[test]
 fn a_leaf_set_across_an_actor_in_one_go_is_refused() {
     let (mut world, leaf) = doorway(FRAC_PI_2);
     let id = actor(&mut world, Vec3::new(0.0, 0.0, -0.45));
