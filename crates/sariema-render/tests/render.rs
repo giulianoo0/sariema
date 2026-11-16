@@ -10,8 +10,8 @@ use sariema_format::{
     TextureFormat,
 };
 use sariema_render::{
-    GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, RenderConfig, RenderError, Renderer,
-    compare_images, render_coverage, render_to_image,
+    GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, RenderConfig, RenderError, RenderPath,
+    Renderer, compare_images, render_coverage, render_to_image,
 };
 
 const W: u32 = 960;
@@ -481,12 +481,101 @@ fn config(quality: Quality) -> RenderConfig {
     }
 }
 
+/// Where the downlevel path's renders are kept, for comparing them by eye.
+fn downlevel_dir() -> String {
+    let dir = concat!(env!("CARGO_TARGET_TMPDIR"), "/downlevel");
+    std::fs::create_dir_all(dir).unwrap();
+    dir.to_string()
+}
+
 #[test]
-fn device_without_fragment_storage_is_rejected() {
+fn a_device_with_webgl2_limits_takes_the_downlevel_path() {
     let (device, queue) = device(|_| wgpu::Limits::downlevel_webgl2_defaults());
-    match Renderer::new(device, queue, config(Quality::high())) {
+    let mut renderer = Renderer::new(device.clone(), queue, config(Quality::high())).unwrap();
+    assert_eq!(renderer.effective_quality().path, RenderPath::Downlevel);
+    let room = demo_room();
+    renderer.load_room(&room).unwrap();
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: W,
+            height: H,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    renderer.render(
+        &camera_of(&room),
+        0.0,
+        &target.create_view(&Default::default()),
+    );
+    assert!(renderer.last_frame_stats().draws > 0);
+}
+
+#[test]
+fn auto_takes_the_full_path_where_storage_buffers_exist() {
+    let (device, queue) = device(|limits| limits);
+    let renderer = Renderer::new(device, queue, config(Quality::high())).unwrap();
+    assert_eq!(renderer.effective_quality().path, RenderPath::Full);
+}
+
+#[test]
+fn forcing_the_full_path_without_storage_buffers_is_refused() {
+    let (device, queue) = device(|_| wgpu::Limits::downlevel_webgl2_defaults());
+    let full = Quality {
+        path: RenderPath::Full,
+        ..Quality::high()
+    };
+    match Renderer::new(device, queue, config(full)) {
         Err(RenderError::Device(why)) => assert!(why.contains("storage"), "{why}"),
         other => panic!("expected a device error, got {:?}", other.map(|_| ())),
+    }
+}
+
+#[test]
+fn the_downlevel_path_matches_the_lit_golden() {
+    let room = demo_room();
+    let downlevel = Quality {
+        path: RenderPath::Downlevel,
+        ..Quality::high()
+    };
+    let img = headless(downlevel, &room).render(&camera_of(&room), 0.0);
+    img.save(format!("{}/demo_lit.png", downlevel_dir()))
+        .unwrap();
+    let golden = image::open(GOLDEN).unwrap().to_rgba8();
+    let d = compare_images(&img, &golden).unwrap();
+    assert!(within_golden_tolerance(&img, &golden), "{d:?}");
+}
+
+#[test]
+fn data_textures_shade_like_storage_buffers() {
+    let room = many_lights_room();
+    // One sample, so neither path draws a depth pre-pass and only the tables differ.
+    let tight = Quality {
+        msaa: 1,
+        max_lights_per_cluster: 8,
+        ..Quality::medium()
+    };
+    let downlevel = Quality {
+        path: RenderPath::Downlevel,
+        ..tight.clone()
+    };
+    for distance in [8.0, 40.0] {
+        let mut full = headless(tight.clone(), &room);
+        let mut low = headless(downlevel.clone(), &room);
+        let a = full.render(&top_down(distance), 0.0);
+        let b = low.render(&top_down(distance), 0.0);
+        assert_eq!(
+            full.renderer().last_frame_stats(),
+            low.renderer().last_frame_stats()
+        );
+        assert!(low.renderer().last_frame_stats().cluster_overflows > 0 || distance < 10.0);
+        assert_eq!(compare_images(&a, &b).unwrap().max_channel_delta, 0);
     }
 }
 
@@ -527,4 +616,33 @@ fn quality_is_clamped_to_the_device() {
         q.max_shadowed_lights <= min_slots_per_side * min_slots_per_side,
         "{q:?}"
     );
+}
+
+#[test]
+fn downlevel_quality_is_held_to_its_data_textures() {
+    let (device, queue) = device(|_| wgpu::Limits::downlevel_webgl2_defaults());
+    let limits = device.limits();
+    let greedy = Quality {
+        max_visible_lights: u32::MAX,
+        max_lights_per_cluster: u32::MAX,
+        cluster_budget: u32::MAX,
+        max_shadowed_lights: u32::MAX,
+        data_texture_width: u32::MAX,
+        actor_uniform_rows: u32::MAX,
+        ..Quality::high()
+    };
+    let renderer = Renderer::new(device, queue, config(greedy)).unwrap();
+    let q = renderer.effective_quality();
+    let side = limits.max_texture_dimension_2d as u64;
+    let texels = q.data_texture_width as u64 * side;
+    assert!(q.data_texture_width as u64 <= side, "{q:?}");
+    assert!(q.max_visible_lights as u64 * 4 <= texels, "{q:?}");
+    assert!(
+        q.cluster_budget as u64 * q.max_lights_per_cluster as u64 <= texels,
+        "{q:?}"
+    );
+    assert!((q.max_shadowed_lights as u64 + 1) * 6 <= texels, "{q:?}");
+    assert!(q.max_shadowed_lights > 0, "{q:?}");
+    let uniform = limits.max_uniform_buffer_binding_size;
+    assert!(q.actor_uniform_rows as u64 * 16 <= uniform, "{q:?}");
 }

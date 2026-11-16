@@ -17,7 +17,8 @@ use crate::cluster::{priority, reach, spot_axis};
 use crate::cull;
 use crate::resources::{DrawItem, Room, strided};
 use crate::scene::{DEPTH_FORMAT, depth_state, vertex_layout};
-use crate::{Gpu, Quality};
+use crate::table::{self, Table, Texel};
+use crate::{Gpu, Quality, RenderPath};
 
 const SOURCE: &str = concat!(
     include_str!("../shaders/common.wgsl"),
@@ -189,7 +190,7 @@ pub(crate) struct Shadows {
     clear: wgpu::RenderPipeline,
     atlas: wgpu::TextureView,
     sampler: wgpu::Sampler,
-    gpu_slots: wgpu::Buffer,
+    gpu_slots: Table,
     views: wgpu::Buffer,
     views_group: wgpu::BindGroup,
     view_stride: u32,
@@ -251,10 +252,13 @@ impl Shadows {
         });
         let slots = quality.max_shadowed_lights as u64 + 1;
         let view_stride = view_stride(&device.limits());
-        let gpu_slots = gpu.buffer(
+        let gpu_slots = Table::new(
+            gpu,
             "shadow slots",
+            quality.path,
             slots * GPU_SHADOW_SIZE,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            Texel::Four,
+            quality.data_texture_width,
         );
         let views = gpu.buffer(
             "shadow views",
@@ -379,7 +383,7 @@ impl Shadows {
             },
             wgpu::BindGroupEntry {
                 binding: 7,
-                resource: self.gpu_slots.as_entire_binding(),
+                resource: self.gpu_slots.binding(),
             },
         ]
     }
@@ -503,7 +507,7 @@ impl Shadows {
             let gpu_slots: Vec<GpuShadow> = slots.iter().map(|s| s.gpu(self.atlas_size)).collect();
             if !views.is_empty() {
                 gpu.write(&self.views, &views);
-                gpu.write(&self.gpu_slots, bytemuck::cast_slice(&gpu_slots));
+                self.gpu_slots.write(gpu, bytemuck::cast_slice(&gpu_slots));
             }
             std::mem::swap(&mut self.slots, &mut self.next);
         }
@@ -587,7 +591,7 @@ impl Shadows {
 
 /// Bindings 5 to 7 of the scene's frame group: the atlas, its comparison
 /// sampler and the slots.
-pub(crate) fn layout_entries() -> [wgpu::BindGroupLayoutEntry; 3] {
+pub(crate) fn layout_entries(path: RenderPath) -> [wgpu::BindGroupLayoutEntry; 3] {
     let entry = |binding, ty| wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -607,14 +611,7 @@ pub(crate) fn layout_entries() -> [wgpu::BindGroupLayoutEntry; 3] {
             6,
             wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
         ),
-        entry(
-            7,
-            wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-        ),
+        table::layout_entry(7, path),
     ]
 }
 

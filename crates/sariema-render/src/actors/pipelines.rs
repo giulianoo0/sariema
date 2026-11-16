@@ -1,25 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The actors' pipelines, created when the first pack is loaded: one per
-//! material kind its parts use, the shadow caster and the disc shadow.
+//! material kind its parts use, the shadow caster, the disc shadow and, on
+//! the downlevel path, the depth pass's.
 
 use sariema_format::actor::SkinnedVertex;
 
-use crate::scene::{HDR_FORMAT, Kind, Layouts, depth_state, mesh_pipeline};
-use crate::{Gpu, Quality, RenderError};
+use crate::scene::{self, DEPTH_FORMAT, HDR_FORMAT, Kind, Layouts, depth_state, mesh_pipeline};
+use crate::{Gpu, Quality, RenderError, RenderPath};
 
-const SCENE_SOURCE: &str = concat!(
-    include_str!("../../shaders/common.wgsl"),
-    include_str!("../../shaders/scene.wgsl"),
-    include_str!("../../shaders/skin.wgsl"),
-    include_str!("../../shaders/actor.wgsl")
-);
-const SHADOW_SOURCE: &str = concat!(
-    include_str!("../../shaders/common.wgsl"),
-    include_str!("../../shaders/skin.wgsl"),
-    include_str!("../../shaders/shadow.wgsl"),
-    include_str!("../../shaders/actor_shadow.wgsl")
-);
+/// How skin.wgsl reads `actor` on `quality`'s path.
+fn record(quality: &Quality) -> String {
+    match quality.path {
+        RenderPath::Downlevel => format!(
+            "const ACTOR_ROWS: u32 = {}u;\n{}",
+            quality.actor_uniform_rows,
+            include_str!("../../shaders/skin_uniform.wgsl")
+        ),
+        _ => include_str!("../../shaders/skin_storage.wgsl").to_string(),
+    }
+}
 
 pub(super) struct Pipelines {
     module: wgpu::ShaderModule,
@@ -28,28 +28,48 @@ pub(super) struct Pipelines {
     kinds: [Option<wgpu::RenderPipeline>; Kind::COUNT],
     pub shadow: wgpu::RenderPipeline,
     pub disc: wgpu::RenderPipeline,
+    /// Indexed by `double_sided as usize`; made where the scene draws a
+    /// depth pass of its own.
+    depth: Option<[wgpu::RenderPipeline; 2]>,
 }
 
 impl Pipelines {
-    /// Fails on a device that cannot read storage buffers in vertex shaders,
-    /// such as some OpenGL ES 3.1 ones.
+    /// Fails where the device rejects a pipeline, as one that forced
+    /// [`RenderPath::Full`] without storage buffers in vertex shaders would.
     pub fn new(
         gpu: &Gpu,
         layouts: &Layouts,
         actor: &wgpu::BindGroupLayout,
         shadow_view: &wgpu::BindGroupLayout,
         quality: &Quality,
+        depth_pass: bool,
     ) -> Result<Pipelines, RenderError> {
         let device = &gpu.device;
-        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let scope = Scope::push(device);
         let module = |label, source: &str| {
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(label),
                 source: wgpu::ShaderSource::Wgsl(source.into()),
             })
         };
-        let scene = module("actor", SCENE_SOURCE);
-        let shadow_module = module("actor shadow", SHADOW_SOURCE);
+        let record = record(quality);
+        let scene_source = [
+            scene::source(quality).as_str(),
+            &record,
+            include_str!("../../shaders/skin.wgsl"),
+            include_str!("../../shaders/actor.wgsl"),
+        ]
+        .concat();
+        let shadow_source = [
+            include_str!("../../shaders/common.wgsl"),
+            &record,
+            include_str!("../../shaders/skin.wgsl"),
+            include_str!("../../shaders/shadow.wgsl"),
+            include_str!("../../shaders/actor_shadow.wgsl"),
+        ]
+        .concat();
+        let scene = module("actor", &scene_source);
+        let shadow_module = module("actor shadow", &shadow_source);
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("actor"),
             bind_group_layouts: &[Some(&layouts.frame), Some(actor), Some(&layouts.material)],
@@ -120,9 +140,35 @@ impl Pipelines {
             multiview_mask: None,
             cache: None,
         });
-        if let Some(error) = pollster::block_on(scope.pop()) {
+        let depth = depth_pass.then(|| {
+            [false, true].map(|double_sided| {
+                gpu.pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("actor depth"),
+                    layout: Some(&disc_layout),
+                    vertex: wgpu::VertexState {
+                        module: &scene,
+                        entry_point: Some("vs_actor_depth"),
+                        compilation_options: Default::default(),
+                        buffers: &[Some(vertex_layout())],
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        cull_mode: (!double_sided).then_some(wgpu::Face::Back),
+                        ..Default::default()
+                    },
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: DEPTH_FORMAT,
+                        ..depth_state(true, wgpu::CompareFunction::Less)
+                    }),
+                    multisample: Default::default(),
+                    fragment: None,
+                    multiview_mask: None,
+                    cache: None,
+                })
+            })
+        });
+        if let Some(error) = scope.pop() {
             return Err(RenderError::Device(format!(
-                "actors need storage buffers in vertex shaders: {error}"
+                "the actors' pipelines were rejected: {error}"
             )));
         }
         Ok(Pipelines {
@@ -131,7 +177,16 @@ impl Pipelines {
             kinds: Default::default(),
             shadow,
             disc,
+            depth,
         })
+    }
+
+    pub fn depth(&self, double_sided: bool) -> &wgpu::RenderPipeline {
+        let depth = self
+            .depth
+            .as_ref()
+            .expect("made where the scene has a depth pass");
+        &depth[double_sided as usize]
     }
 
     /// Creates `kind`'s pipeline unless it exists.
@@ -164,5 +219,20 @@ fn vertex_layout() -> wgpu::VertexBufferLayout<'static> {
         array_stride: size_of::<SkinnedVertex>() as u64,
         step_mode: wgpu::VertexStepMode::Vertex,
         attributes: &ATTRIBUTES,
+    }
+}
+
+/// A validation error scope where its result can be waited for: not in a
+/// browser's WebGPU, which settles it only once the page yields.
+struct Scope(Option<wgpu::ErrorScopeGuard>);
+
+impl Scope {
+    fn push(device: &wgpu::Device) -> Scope {
+        let browser = device.adapter_info().backend == wgpu::Backend::BrowserWebGpu;
+        Scope((!browser).then(|| device.push_error_scope(wgpu::ErrorFilter::Validation)))
+    }
+
+    fn pop(self) -> Option<wgpu::Error> {
+        self.0.and_then(|scope| pollster::block_on(scope.pop()))
     }
 }

@@ -143,7 +143,8 @@ struct Frame {
 
 impl Post {
     pub fn new(gpu: &Gpu, format: wgpu::TextureFormat, quality: &Quality, scene: &Scene) -> Post {
-        let stages = Stages::new(gpu, format, quality);
+        let depth_samples = scene.depth().texture().sample_count();
+        let stages = Stages::new(gpu, format, quality, depth_samples);
         Post {
             frame: stages.frame(gpu, scene),
             stages,
@@ -257,7 +258,13 @@ impl Post {
 }
 
 impl Stages {
-    fn new(gpu: &Gpu, format: wgpu::TextureFormat, quality: &Quality) -> Stages {
+    /// `depth_samples` is the sample count of the scene depth the chain reads.
+    fn new(
+        gpu: &Gpu,
+        format: wgpu::TextureFormat,
+        quality: &Quality,
+        depth_samples: u32,
+    ) -> Stages {
         use wgpu::util::DeviceExt;
         let device = &gpu.device;
         let module = |label: &str, source: &str| {
@@ -270,7 +277,7 @@ impl Stages {
                 ),
             })
         };
-        let multisampled = quality.msaa > 1;
+        let multisampled = depth_samples > 1;
         let scene_depth = if multisampled {
             "alias SceneDepth = texture_depth_multisampled_2d;\n"
         } else {
@@ -361,7 +368,7 @@ impl Stages {
                 wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             )
         };
-        let samples = [("SAMPLES", quality.msaa as f64)];
+        let samples = [("SAMPLES", depth_samples as f64)];
         let black = device.create_texture_with_data(
             &gpu.queue,
             &wgpu::TextureDescriptor {

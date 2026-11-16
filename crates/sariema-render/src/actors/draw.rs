@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Recording actors: their parts into the scene pass, their discs, and their
-//! depth into shadow slots.
+//! depth into shadow slots and the downlevel path's depth pass.
 
 use glam::Vec3;
 use sariema_format::AlphaMode;
@@ -77,6 +77,33 @@ impl Actors {
         self.discs.len() as u32
     }
 
+    /// Draws the depth of the opaque parts of the frame's actors in view;
+    /// the pass has the frame group at 0. Returns the draws recorded.
+    pub fn draw_depth(&self, pass: &mut wgpu::RenderPass<'_>) -> u32 {
+        let Some(pipelines) = &self.pipelines else {
+            return 0;
+        };
+        let mut drawn = 0;
+        let mut current = None;
+        for &i in &self.in_view {
+            let (instance, model) = self.of(i);
+            let mut bound = false;
+            for part in visible_parts(instance, model).filter(|p| p.kind.is_opaque()) {
+                if !bound {
+                    bind(pass, instance, model);
+                    bound = true;
+                }
+                if current != Some(part.kind.double_sided) {
+                    pass.set_pipeline(pipelines.depth(part.kind.double_sided));
+                    current = Some(part.kind.double_sided);
+                }
+                draw_part(pass, part);
+                drawn += 1;
+            }
+        }
+        drawn
+    }
+
     /// Draws the depth of the casting actors that `reaches` says can be in
     /// the slot whose view is bound at 2 with `view_offset`. Returns the
     /// draws recorded.
@@ -136,7 +163,7 @@ fn bind(pass: &mut wgpu::RenderPass<'_>, instance: &Instance, model: &ModelGpu) 
 fn draw_part(pass: &mut wgpu::RenderPass<'_>, part: &PartGpu) {
     pass.draw_indexed(
         part.first_index..part.first_index + part.index_count,
-        part.base_vertex,
+        0,
         0..1,
     );
 }

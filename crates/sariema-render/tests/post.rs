@@ -6,7 +6,8 @@ use sariema_core::{Camera, room_camera};
 use sariema_format::demo::demo_room;
 use sariema_format::{Aabb, Ambient, Background, Look, RoomCamera, RoomPack, Shading};
 use sariema_render::{
-    GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, compare_images, render_to_image,
+    GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, RenderPath, compare_images,
+    render_to_image,
 };
 
 const W: u32 = 960;
@@ -530,6 +531,19 @@ fn matches_post_goldens() {
 }
 
 #[test]
+fn matches_post_goldens_on_the_downlevel_path() {
+    for (name, look) in golden_looks() {
+        let mut room = demo_room();
+        room.look = look;
+        let mut h = Headless::new(W, H, downlevel()).unwrap();
+        h.renderer().load_room(&room).unwrap();
+        let img = h.render(&camera_of(&room), 0.0);
+        let label = format!("demo_post_{name}");
+        matches_golden_on_the_downlevel_path(&img, &label, &golden_path(name));
+    }
+}
+
+#[test]
 #[ignore = "rewrites tests/golden/demo_post_*.png"]
 fn write_post_goldens() {
     for (name, look) in golden_looks() {
@@ -549,4 +563,24 @@ fn render_still_creates_no_pipelines() {
     }
     assert_eq!(h.renderer().pipelines_created(), pipelines);
     assert_eq!(h.renderer().buffers_created(), buffers);
+}
+
+/// Saves `img` among the downlevel path's renders and checks it against the golden `name`.
+fn matches_golden_on_the_downlevel_path(img: &RgbaImage, name: &str, golden: &str) {
+    let dir = concat!(env!("CARGO_TARGET_TMPDIR"), "/downlevel");
+    std::fs::create_dir_all(dir).unwrap();
+    img.save(format!("{dir}/{name}.png")).unwrap();
+    let golden = image::open(golden).unwrap().to_rgba8();
+    let d = compare_images(img, &golden).unwrap();
+    assert!(
+        d.max_channel_delta <= GOLDEN_MAX_DELTA || d.differing_pixels_ratio <= GOLDEN_MAX_RATIO,
+        "{name}: {d:?}"
+    );
+}
+
+fn downlevel() -> Quality {
+    Quality {
+        path: RenderPath::Downlevel,
+        ..Quality::high()
+    }
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Recording the scene's draws: the background, then the room's visible
-//! draws in order with the actors after its opaque ones, or the room's depth
+//! draws in order with the actors after its opaque ones, or their depth
 //! alone.
 
 use sariema_core::Camera;
@@ -14,8 +14,9 @@ use crate::cull;
 use crate::resources::Room;
 
 impl Scene {
-    /// `keep_depth` stores the depth for post-processing; otherwise it is
-    /// discarded, which spares tile-based GPUs writing it out.
+    /// `keep_depth` keeps the depth for post-processing, stored or drawn
+    /// again into the single-sample depth; otherwise it is discarded, which
+    /// spares tile-based GPUs writing it out.
     pub fn draw(
         &self,
         gpu: &Gpu,
@@ -28,8 +29,9 @@ impl Scene {
             multisampled,
             resolved,
             depth,
+            single_depth,
         } = &self.targets;
-        let depth_store = match keep_depth {
+        let depth_store = match keep_depth && single_depth.is_none() {
             true => wgpu::StoreOp::Store,
             false => wgpu::StoreOp::Discard,
         };
@@ -101,40 +103,52 @@ impl Scene {
             gpu.count_draws(actors.draw_discs(&mut pass));
         }
         gpu.count_draws(actors.draw(&mut pass, Layer::Translucent));
+        drop(pass);
+        if let Some(single) = single_depth.as_ref().filter(|_| keep_depth) {
+            let opaque = |alpha| alpha == AlphaMode::Opaque;
+            self.draw_depth(gpu, encoder, room, Some(actors), single, opaque);
+        }
     }
 
+    /// The depth of the room's draws in view whose alpha mode `covers`
+    /// keeps and, if given, of the actors' opaque parts, into a
+    /// single-sample `depth` cleared to 1.
     pub fn draw_depth(
         &self,
+        gpu: &Gpu,
         encoder: &mut wgpu::CommandEncoder,
         room: Option<&Room>,
+        actors: Option<&Actors>,
         depth: &wgpu::TextureView,
+        covers: impl Fn(AlphaMode) -> bool,
     ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("depth only"),
             depth_stencil_attachment: Some(depth_attachment(depth, wgpu::StoreOp::Store)),
+            timestamp_writes: gpu.pass("depth only"),
             ..Default::default()
         });
-        let Some(room) = room else {
-            return;
-        };
-        let covering = || {
-            (self.order.iter())
-                .map(|&(_, _, i)| i as usize)
-                .filter(|&i| room.draws[i].kind.alpha != AlphaMode::Additive)
-        };
-        if covering().next().is_none() {
-            return;
-        }
         pass.set_bind_group(0, &self.frame_group, &[]);
-        room.bind_meshes(&mut pass);
-        let mut current = None;
-        for i in covering() {
-            let double_sided = room.draws[i].kind.double_sided;
-            if current != Some(double_sided) {
-                pass.set_pipeline(&self.depth_only[double_sided as usize]);
-                current = Some(double_sided);
+        if let Some(room) = room {
+            let covering = (self.order.iter())
+                .map(|&(_, _, i)| i as usize)
+                .filter(|&i| covers(room.draws[i].kind.alpha));
+            let mut current = None;
+            for i in covering {
+                if current.is_none() {
+                    room.bind_meshes(&mut pass);
+                }
+                let double_sided = room.draws[i].kind.double_sided;
+                if current != Some(double_sided) {
+                    pass.set_pipeline(&self.depth_only[double_sided as usize]);
+                    current = Some(double_sided);
+                }
+                room.draw(&mut pass, i);
+                gpu.count_draws(1);
             }
-            room.draw(&mut pass, i);
+        }
+        if let Some(actors) = actors {
+            gpu.count_draws(actors.draw_depth(&mut pass));
         }
     }
 }
