@@ -411,15 +411,15 @@ fn effects_turned_off_draw_no_passes() {
     // The estimate, then its two-pass blur.
     let ao = 1 + 2;
     let composite = 1;
-    // Bright and blurred at 1/4, in two passes; then each smaller level
-    // reduced and blurred in `blur` passes; then the 1/2 and 1/4 levels
+    // Bright and blurred at 1/4 in two passes, then each smaller level
+    // reduced and blurred in `per_level` passes; the 1/2 and 1/4 levels
     // blurred in `blur` passes each.
-    for (one_pass_max, blur) in [(0, 2), (u32::MAX, 1)] {
+    for (one_pass_max, per_level, blur) in [(0, 3, 2), (u32::MAX, 1, 1)] {
         let quality = Quality {
             blur_one_pass_max_texels: one_pass_max,
             ..Quality::high()
         };
-        let bloom = 2 + (1 + blur) * (levels - 1);
+        let bloom = 2 + per_level * (levels - 1);
         let tilt = 2 * blur;
         let passes = |tilt, bloom, ao| post_passes(quality.clone(), tilt, bloom, ao);
         assert_eq!(passes(0.0, 0.0, 0.0), composite);

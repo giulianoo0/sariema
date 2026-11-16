@@ -91,6 +91,8 @@ struct Stages {
     downsample: wgpu::RenderPipeline,
     /// Both axes in one pass.
     blur: wgpu::RenderPipeline,
+    /// Both axes in one pass, of the level above reduced.
+    reduce_blur: wgpu::RenderPipeline,
     /// Horizontal, then vertical.
     axes: [wgpu::RenderPipeline; 2],
     /// The horizontal blur keeping only the light past the bloom threshold.
@@ -344,8 +346,12 @@ impl Stages {
                 ],
             ),
         };
-        let blur_pipeline = |axes: u32, bright: bool| {
-            let constants = [("AXES", axes as f64), ("BRIGHT", bright as u8 as f64)];
+        let blur_pipeline = |axes: u32, bright: bool, reduce: bool| {
+            let constants = [
+                ("AXES", axes as f64),
+                ("BRIGHT", bright as u8 as f64),
+                ("REDUCE", reduce as u8 as f64),
+            ];
             pipeline(gpu, &layouts.blur, &blur, "fs", &constants, HDR_FORMAT)
         };
         let uniform_buffer = |label, size: usize| {
@@ -385,9 +391,13 @@ impl Stages {
                 VIEW_DEPTH_FORMAT,
             ),
             downsample: pipeline(gpu, &layouts.downsample, &downsample, "fs", &[], HDR_FORMAT),
-            blur: blur_pipeline(0, false),
-            axes: [blur_pipeline(1, false), blur_pipeline(2, false)],
-            bright_blur: blur_pipeline(1, true),
+            blur: blur_pipeline(0, false, false),
+            reduce_blur: blur_pipeline(0, false, true),
+            axes: [
+                blur_pipeline(1, false, false),
+                blur_pipeline(2, false, false),
+            ],
+            bright_blur: blur_pipeline(1, true, false),
             blur_one_pass_max_texels: quality.blur_one_pass_max_texels,
             composite: pipeline(
                 gpu,
@@ -427,7 +437,7 @@ impl Stages {
             .enumerate()
             .map(|(k, level)| {
                 let scratch = &t.scratch[k];
-                if self.one_pass(t.sizes[k]) {
+                if self.one_pass(texels(t.sizes[k])) {
                     tilt.push(self.blur(gpu, "tilt", &self.blur, level, scratch));
                     scratch.clone()
                 } else {
@@ -467,8 +477,8 @@ impl Stages {
         }
     }
 
-    fn one_pass(&self, (width, height): (u32, u32)) -> bool {
-        width as u64 * height as u64 <= self.blur_one_pass_max_texels as u64
+    fn one_pass(&self, texels: u64) -> bool {
+        texels <= self.blur_one_pass_max_texels as u64
     }
 
     fn bloom_passes(&self, gpu: &Gpu, t: &Targets) -> Vec<Pass> {
@@ -485,9 +495,8 @@ impl Stages {
             let (above, target) = (level(k - 1), level(k));
             let k = k as usize + 1;
             let scratch = &t.scratch[k];
-            if self.one_pass(t.sizes[k]) {
-                passes.push(self.reduce(gpu, &above, scratch));
-                passes.push(self.blur(gpu, "bloom", &self.blur, scratch, &target));
+            if self.one_pass(4 * texels(t.sizes[k])) {
+                passes.push(self.blur(gpu, "bloom", &self.reduce_blur, &above, &target));
             } else {
                 passes.push(self.reduce(gpu, &above, &target));
                 let first = &self.axes[0];
@@ -610,6 +619,10 @@ impl Targets {
             bloom,
         }
     }
+}
+
+fn texels((width, height): (u32, u32)) -> u64 {
+    width as u64 * height as u64
 }
 
 /// Binds `resources` to bindings 0, 1, 2…
