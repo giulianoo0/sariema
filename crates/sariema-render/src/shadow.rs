@@ -14,6 +14,7 @@ use sariema_format::{Light, LightKind, Sun};
 
 use crate::actors::Actors;
 use crate::cluster::{priority, reach, spot_axis};
+use crate::cull;
 use crate::resources::{DrawItem, Room, strided};
 use crate::scene::{DEPTH_FORMAT, depth_state, vertex_layout};
 use crate::{Gpu, Quality};
@@ -510,9 +511,11 @@ impl Shadows {
         &self.assigned
     }
 
-    /// Whether a slot of this frame holds actors within `min..max`.
-    pub fn maps(&self, lights: &[Light], bounds: (Vec3, Vec3)) -> bool {
-        (self.slots.iter()).any(|s| s.actors && s.reaches(lights, bounds))
+    /// Whether a slot of this frame that holds actors has `min..max` within
+    /// its map's view.
+    pub fn maps(&self, (min, max): (Vec3, Vec3)) -> bool {
+        (self.slots.iter())
+            .any(|s| s.actors && cull::box_visible(&cull::planes(s.view_proj), min, max))
     }
 
     /// Draws the slots [`Shadows::assign`] found stale.

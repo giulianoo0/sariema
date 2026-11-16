@@ -321,8 +321,7 @@ impl Renderer {
         let mut stats = self
             .scene
             .prepare(&self.gpu, room, camera, time_s, &self.visible, shadows);
-        let lights = room.map_or(&[][..], |r| &r.lights[..]);
-        let actor_stats = (self.actors).prepare(camera, |b| self.shadows.maps(lights, b));
+        let actor_stats = (self.actors).prepare(camera, |b| self.shadows.maps(b));
         self.actors.forget_moves();
         stats.actors_drawn = actor_stats.drawn;
         stats.actors_culled = actor_stats.culled;

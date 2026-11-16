@@ -9,6 +9,7 @@ use sariema_core::{Camera, room_camera};
 use sariema_format::actor::ActorPack;
 use sariema_format::actor::demo::{demo_arm, demo_face};
 use sariema_format::demo::demo_room;
+use sariema_format::{LightKind, Mobility, RoomPack, Sun};
 use sariema_render::{
     ActorId, ActorState, GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, RenderError,
     compare_images,
@@ -51,21 +52,35 @@ fn arm_place() -> Mat4 {
 
 /// The demo room with the arm posed at `time` into `bend`.
 fn arm_scene(quality: Quality, time: f32) -> (Headless, ActorId) {
+    arm_in(&demo_room(), quality, arm_place(), time)
+}
+
+/// `room` with the arm placed by `place` and posed at `time` into `bend`.
+fn arm_in(room: &RoomPack, quality: Quality, place: Mat4, time: f32) -> (Headless, ActorId) {
     let mut h = Headless::new(W, H, quality).unwrap();
     let pack = demo_arm();
     let renderer = h.renderer();
-    renderer.load_room(&demo_room()).unwrap();
+    renderer.load_room(room).unwrap();
     let model = renderer.load_actor(&pack).unwrap();
     let arm = renderer.spawn_actor(model).unwrap();
     let palette = palette(&pack, "bend", time);
     let state = ActorState {
-        model: arm_place(),
+        model: place,
         palette: &palette,
         faces: &[],
         visible: true,
     };
     renderer.set_actor(arm, &state).unwrap();
     (h, arm)
+}
+
+/// Whether the arm's disc changes the frame, that is, whether it is drawn.
+fn disc_drawn(room: &RoomPack, quality: Quality, place: Mat4) -> bool {
+    let (mut h, arm) = arm_in(room, quality, place, 0.0);
+    let with = h.render(&camera(), 0.0);
+    h.renderer().set_actor_disc(arm, None).unwrap();
+    let without = h.render(&camera(), 0.0);
+    compare_images(&with, &without).unwrap().max_channel_delta > 0
 }
 
 fn matches_golden(image: &RgbaImage, name: &str) {
@@ -206,6 +221,39 @@ fn an_actor_in_a_shadow_slot_casts_into_it_and_gets_no_disc() {
     let no_shadow = plain.render(&camera(), 0.0);
     let d = compare_images(&with, &no_shadow).unwrap();
     assert!(d.differing_pixels_ratio > 0.001, "{d:?}");
+}
+
+#[test]
+fn an_actor_outside_the_suns_map_gets_a_disc() {
+    let mut room = demo_room();
+    room.lights[0].casts_shadow = false;
+    room.sun = Some(Sun {
+        direction: [0.2, 1.0, 0.1],
+        color: [1.0, 0.95, 0.9],
+        intensity: 2.0,
+        casts_shadow: true,
+        mobility: Mobility::Static,
+    });
+    let medium = Quality {
+        actor_shadow_slots: 1,
+        ..Quality::high()
+    };
+    // The sun's map is fitted to the boxes; 8 m along x the arm's bounds
+    // leave it even with its widest clip.
+    let beside =
+        Mat4::from_translation(Vec3::new(8.0, 0.0, 0.0)) * Mat4::from_scale(Vec3::splat(1.5));
+    assert!(!disc_drawn(&room, medium.clone(), arm_place()));
+    assert!(disc_drawn(&room, medium, beside));
+}
+
+#[test]
+fn an_actor_within_a_spots_range_but_outside_its_cone_gets_a_disc() {
+    let mut room = demo_room();
+    room.lights[0].kind = LightKind::Spot {
+        target: [-2.5, 0.0, -1.0],
+        cone_deg: 10.0,
+    };
+    assert!(disc_drawn(&room, Quality::high(), arm_place()));
 }
 
 #[test]
