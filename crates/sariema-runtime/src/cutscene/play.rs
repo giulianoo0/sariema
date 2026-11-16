@@ -100,8 +100,12 @@ struct List {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Placing {
     Done,
-    /// Waiting a step for a teleport the collision module carries out.
-    Settling,
+    /// Waiting, once, for a teleport the collision module carries out:
+    /// through the step it began in (`fresh`), then placed from wherever
+    /// the actor stands.
+    Settling {
+        fresh: bool,
+    },
     Easing,
     Walking {
         since: u64,
@@ -362,27 +366,29 @@ fn begin_placing(s: &mut State, cutscene: &Cutscene, run: &mut Run) {
     let settings = s.settings.cutscene.clone();
     for i in 0..cutscene.roles.len() {
         if cutscene.roles[i].start.is_some() {
-            run.placing[i] = begin_role(s, cutscene, run, i, &settings);
+            run.placing[i] = begin_role(s, cutscene, run, i, &settings, false);
         }
     }
 }
 
 /// Starts bringing role `i` to its start. A role a collision module has
-/// still to teleport this step waits for the next, so it is judged from
-/// where that teleport lands, or from where it stood if refused.
+/// still to teleport this step waits for the next, once (`settled` is then
+/// true), so it is judged from where that teleport lands, or from where it
+/// stood if refused, even when the game keeps teleporting it.
 fn begin_role(
     s: &mut State,
     cutscene: &Cutscene,
     run: &mut Run,
     i: usize,
     settings: &CutsceneSettings,
+    settled: bool,
 ) -> Placing {
     let Some(Place { position, yaw }) = cutscene.roles[i].start else {
         return Placing::Done;
     };
     let e = run.roles[i];
-    if teleporting(s, e) {
-        return Placing::Settling;
+    if !settled && teleporting(s, e) {
+        return Placing::Settling { fresh: true };
     }
     let to = Vec3::from_array(position);
     let mut ctx = ctx!(s, cutscene, run, false);
@@ -450,9 +456,10 @@ fn place_step(s: &mut State, cutscene: &Cutscene, run: &mut Run) -> bool {
         let yaw = cutscene.roles[i].start.map_or(0.0, |p| p.yaw);
         let easing = (0..3).any(|k| s.tweens.active(TWEENS + 3 * i as u32 + k));
         let next = match run.placing[i] {
-            Placing::Settling => {
+            Placing::Settling { fresh: true } => Placing::Settling { fresh: false },
+            Placing::Settling { fresh: false } => {
                 let settings = s.settings.cutscene.clone();
-                begin_role(s, cutscene, run, i, &settings)
+                begin_role(s, cutscene, run, i, &settings, true)
             }
             Placing::Easing if easing => Placing::Easing,
             Placing::Walking { since } if !walked(s, e, since) => Placing::Walking { since },

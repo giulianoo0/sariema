@@ -246,3 +246,57 @@ fn a_role_teleported_as_its_cutscene_starts_is_placed_from_where_it_landed() {
         "placed at {placed}, not {spot}"
     );
 }
+
+/// A game that teleports a role on every tick of its cutscene does not
+/// hold the placement forever: the role waits for the collision module
+/// once, then is placed even though more teleports keep coming.
+#[test]
+fn a_role_the_game_teleports_every_tick_is_still_placed() {
+    let logic = native(move |n, _, out| {
+        if n == 0 {
+            spawn_hero(out, START, 0.0);
+            return;
+        }
+        if n >= 3 {
+            send(
+                out,
+                Command::Teleport {
+                    entity: entity(0),
+                    position: START,
+                    yaw: 0.0,
+                    force: true,
+                },
+            );
+        }
+        if n == 3 {
+            send(
+                out,
+                Command::CutsceneBind {
+                    role: name_id("hero"),
+                    entity: entity(0),
+                },
+            );
+            send(
+                out,
+                Command::CutscenePlay {
+                    cutscene: name_id("spot"),
+                },
+            );
+        }
+    });
+    let sim = Simulation::new(wired(), vec![compile_json(AT_SPOT).unwrap().0], logic, 1);
+    let mut engine = Engine::new(sim, common::assets(), EngineSettings::default()).unwrap();
+    let actions = Actions::for_settings(&engine.state().settings.input);
+    for _ in 0..5 {
+        engine.step(&actions);
+    }
+    assert!(engine.simulation().playing_cutscene().is_some());
+    while engine.simulation().playing_cutscene().is_some() && engine.steps() < 600 {
+        engine.step(&actions);
+    }
+    assert!(
+        engine.simulation().playing_cutscene().is_none(),
+        "the cutscene still places its role at step {}",
+        engine.steps()
+    );
+}
