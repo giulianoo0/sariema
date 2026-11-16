@@ -54,8 +54,9 @@ struct Walk {
     to: [f32; 3],
     /// The step the game switches to the hall at, and how.
     switch: Option<(u64, RoomTransition)>,
-    /// The host builds the hall's collision world off the step.
-    take_jobs: bool,
+    /// The host builds the hall's collision world off the step, this many
+    /// grid columns at a time.
+    take_jobs: Option<usize>,
 }
 
 /// The hero walking from `from` to `to`: its position at every step, the
@@ -106,10 +107,23 @@ fn walk(w: Walk) -> (Vec<Vec3>, u64, Option<u64>) {
     let mut path = Vec::new();
     let mut switched = None;
     for n in 0..300 {
-        if take_jobs && n == 1 {
+        if let Some(columns) = take_jobs
+            && n == 1
+        {
             let wanted = engine.wanted_rooms();
-            for job in engine.world_jobs(&wanted) {
-                engine.install_world(job.build().unwrap());
+            for mut job in engine.world_jobs(&wanted) {
+                let mut shares = 1;
+                let built = loop {
+                    if let Some(built) = job.advance(columns).unwrap() {
+                        break built;
+                    }
+                    shares += 1;
+                };
+                assert!(
+                    columns == usize::MAX || shares > 10,
+                    "{shares} shares of {columns} columns"
+                );
+                engine.install_world(built);
             }
             assert!(
                 engine.world_ready(1),
@@ -135,7 +149,7 @@ fn the_hero_walks_on_into_the_next_room_at_its_speed() {
         from: ALONG.0,
         to: ALONG.1,
         switch: Some((SWITCH_AT, RoomTransition::Continuous)),
-        take_jobs: false,
+        take_jobs: None,
     });
     assert_eq!(switched, Some(SWITCH_AT));
     let step = |k: usize| path[k + 1].distance(path[k]);
@@ -154,7 +168,7 @@ fn the_hero_walks_on_into_the_next_room_at_its_speed() {
         from: ALONG.0,
         to: ALONG.1,
         switch: None,
-        take_jobs: false,
+        take_jobs: None,
     });
     let (end, alone) = (*path.last().unwrap(), *stay.last().unwrap());
     assert!(
@@ -175,7 +189,7 @@ fn the_next_rooms_collision_moves_the_hero() {
             from: through.0,
             to: through.1,
             switch,
-            take_jobs: false,
+            take_jobs: None,
         })
         .0
     };
@@ -188,7 +202,7 @@ fn the_next_rooms_collision_moves_the_hero() {
 }
 
 #[test]
-fn a_world_built_off_the_step_runs_as_one_built_in_it() {
+fn a_world_built_off_the_step_whole_or_in_shares_runs_as_one_built_in_it() {
     let run = |take_jobs| {
         walk(Walk {
             from: ALONG.0,
@@ -197,10 +211,46 @@ fn a_world_built_off_the_step_runs_as_one_built_in_it() {
             take_jobs,
         })
     };
-    let (in_step, hash_in_step, _) = run(false);
-    let (off_step, hash_off_step, _) = run(true);
-    assert_eq!(in_step, off_step);
-    assert_eq!(hash_in_step, hash_off_step);
+    let (in_step, hash_in_step, _) = run(None);
+    for columns in [usize::MAX, 500] {
+        let (off_step, hash_off_step, _) = run(Some(columns));
+        assert_eq!(in_step, off_step);
+        assert_eq!(hash_in_step, hash_off_step);
+    }
+}
+
+#[test]
+fn a_switch_before_the_world_is_built_leaves_its_grids_for_after_the_step() {
+    let logic = native(|n, _, out| {
+        if n == 0 {
+            spawn_hero(out, ALONG.0, -90.0);
+        }
+        if n == 5 {
+            send(
+                out,
+                Command::RoomSwitch {
+                    room: name_id("hall"),
+                    transition: RoomTransition::Cut,
+                    duration: 0.0,
+                },
+            );
+        }
+    });
+    let mut engine = two_rooms(logic);
+    let actions = Actions::for_settings(&engine.state().settings.input);
+    for _ in 0..10 {
+        engine.step(&actions);
+    }
+    assert_eq!(engine.state().scenery.active(), 1);
+    let mut shares = 0;
+    while engine.grow_grids(500) {
+        shares += 1;
+    }
+    assert!(
+        shares >= 5,
+        "the hall's grid is built after the switch: {shares}"
+    );
+    assert!(!engine.grow_grids(500), "nothing left");
 }
 
 #[test]

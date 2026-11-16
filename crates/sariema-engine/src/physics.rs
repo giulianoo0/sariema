@@ -78,6 +78,7 @@ pub struct Physics {
     pub world: World,
     pack: Arc<CollisionPack>,
     bodies: Vec<(u32, ActorCollider)>,
+    colliders: Vec<ActorCollider>,
     /// By entity slot.
     actors: Vec<Option<Mapped>>,
     /// The entity each collision actor stands for; NONE while it waits in
@@ -108,6 +109,18 @@ impl Physics {
         physics.step_seconds = STEP_SECONDS;
         physics.controller.max_yaw_speed = turn_rate.to_radians();
         let world = World::from_pack(physics, &pack).map_err(|e| e.to_string())?;
+        let bodies: Vec<(u32, ActorCollider)> = (pack.actors.iter())
+            .map(|b| (name_id(&b.name), actor_collider(b)))
+            .collect();
+        let mut colliders: Vec<ActorCollider> = Vec::new();
+        for (_, collider) in &bodies {
+            if !colliders.contains(collider) {
+                colliders.push(*collider);
+            }
+        }
+        if colliders.is_empty() {
+            colliders.push(ActorCollider::default());
+        }
         let longest = |n: fn(&Traversal) -> usize| pack.traversals.iter().map(n).max();
         let spare = match (
             longest(|t| t.points.len() + 1),
@@ -118,11 +131,8 @@ impl Physics {
         };
         Ok(Physics {
             world,
-            bodies: pack
-                .actors
-                .iter()
-                .map(|b| (name_id(&b.name), actor_collider(b)))
-                .collect(),
+            bodies,
+            colliders,
             triggers: pack.triggers.iter().map(|t| name_id(&t.name)).collect(),
             switched: vec![Entity::NONE; pack.colliders.len()],
             pack,
@@ -137,6 +147,12 @@ impl Physics {
             contact_blend: settings.contact_blend,
             max_turn: turn_rate * STEP_SECONDS,
         })
+    }
+
+    /// The colliders actors take in this world, each needing its walkable
+    /// grid: the bodies', or the default one when there is none.
+    pub fn colliders(&self) -> &[ActorCollider] {
+        &self.colliders
     }
 
     pub fn step(&mut self, s: &mut State, anim: &mut Animation) {
@@ -320,7 +336,6 @@ impl Physics {
                 ..ActorDesc::default()
             })
             .expect("bodies from a valid collision pack are valid");
-        self.world.prepare_paths(id);
         self.owners.push(Entity::NONE);
         id
     }

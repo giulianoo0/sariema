@@ -63,12 +63,12 @@ fn counted(f: impl FnOnce()) -> u64 {
 const STEPS: u64 = 1200;
 
 /// Every step of the climb that allocates, with its count; the others
-/// allocate nothing. Step 0 spawns the hero, whose body builds its walkable
-/// grid; 186 starts the cutscene, which plans the hero's walk; 340 shows
+/// allocate nothing. Step 0 spawns the hero, whose walkable grid the world
+/// built at load; 186 starts the cutscene, which plans the hero's walk; 340 shows
 /// its line, which lays the HUD out again. The rest grow a step buffer to
 /// a size it had not reached. `docs/engine.md` lists them by site.
 const PINNED: &[(u64, u64)] = &[
-    (0, 74),
+    (0, 42),
     (20, 2),
     (30, 5),
     (31, 2),

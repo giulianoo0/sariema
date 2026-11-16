@@ -3,14 +3,17 @@
 //! The rooms of a game pack on the engine's side: a collision world for
 //! each, built when the room is wanted and kept for the rest of the run, so
 //! a room left and entered again collides as the game left it. A world is
-//! built off the step by whoever takes its [`WorldJob`] (a thread, or an
-//! idle moment of the host's frame); a switch to a room whose world is not
-//! in yet builds it in the step. Either way the world is the same, so the
-//! run is too.
+//! built off the step by whoever takes its [`WorldJob`]: a thread builds it
+//! whole, a host without threads a share of its walkable grids each frame.
+//! A switch to a room whose world is not in yet builds the world in the step
+//! and leaves its grids to [`crate::Engine::grow_grids`], or to the first
+//! path search that needs one. Either way the world is the same, so the run
+//! is too.
 
 use std::sync::Arc;
 
 use sariema_format::collision::CollisionPack;
+use sariema_physics::{ActorCollider, GridBuild};
 use sariema_runtime::scenery::RoomRequest;
 use sariema_runtime::state::State;
 
@@ -33,15 +36,62 @@ pub struct WorldJob {
     pack: Arc<CollisionPack>,
     settings: EngineSettings,
     turn_rate: f32,
+    physics: Option<Box<Physics>>,
+    /// Colliders whose walkable grid is still to start, the next last.
+    grids: Vec<ActorCollider>,
+    grid: Option<GridBuild>,
 }
 
 impl WorldJob {
-    pub fn build(self) -> Result<BuiltWorld, String> {
-        let physics = Physics::new(self.pack, &self.settings, self.turn_rate)?;
-        Ok(BuiltWorld {
-            room: self.room,
-            physics: Box::new(physics),
-        })
+    fn new(room: usize, pack: Arc<CollisionPack>, rooms: &Rooms) -> WorldJob {
+        WorldJob {
+            room,
+            pack,
+            settings: rooms.settings.clone(),
+            turn_rate: rooms.turn_rate,
+            physics: None,
+            grids: Vec::new(),
+            grid: None,
+        }
+    }
+
+    pub fn build(mut self) -> Result<BuiltWorld, String> {
+        loop {
+            if let Some(built) = self.advance(usize::MAX)? {
+                return Ok(built);
+            }
+        }
+    }
+
+    /// Builds a share of the world: the world itself, then its walkable
+    /// grids, `columns` columns at most a call. Gives the world once all of
+    /// it is built, after which the job is spent.
+    pub fn advance(&mut self, columns: usize) -> Result<Option<BuiltWorld>, String> {
+        let Some(physics) = &mut self.physics else {
+            let physics = Physics::new(self.pack.clone(), &self.settings, self.turn_rate)?;
+            self.grids = physics.colliders().iter().rev().copied().collect();
+            self.physics = Some(Box::new(physics));
+            return Ok(None);
+        };
+        if self.grid.is_none() {
+            let grids = &mut self.grids;
+            self.grid =
+                std::iter::from_fn(|| grids.pop()).find_map(|c| physics.world.start_grid(c));
+        }
+        match &mut self.grid {
+            Some(grid) => {
+                if physics.world.grow_grid(grid, columns)
+                    && let Some(grid) = self.grid.take()
+                {
+                    physics.world.finish_grid(grid);
+                }
+                Ok(None)
+            }
+            None => Ok(self.physics.take().map(|physics| BuiltWorld {
+                room: self.room,
+                physics,
+            })),
+        }
     }
 }
 
@@ -59,6 +109,8 @@ pub(crate) struct Rooms {
     active: usize,
     settings: EngineSettings,
     turn_rate: f32,
+    /// A grid of a built world being built, and the world's room.
+    growing: Option<(usize, GridBuild)>,
 }
 
 impl Rooms {
@@ -67,23 +119,26 @@ impl Rooms {
         settings: &EngineSettings,
         turn_rate: f32,
     ) -> Result<Rooms, String> {
-        let mut worlds: Vec<World> = (assets.iter())
+        let worlds: Vec<World> = (assets.iter())
             .map(|r| match &r.collision {
                 Some(pack) => World::Waiting(pack.clone()),
                 None => World::Bare,
             })
             .collect();
-        if let Some(World::Waiting(pack)) = worlds.first() {
-            worlds[0] = World::Built(Box::new(Physics::new(pack.clone(), settings, turn_rate)?));
-        }
-        Ok(Rooms {
+        let mut rooms = Rooms {
             out: vec![false; assets.len()],
             assets,
             worlds,
             active: 0,
             settings: settings.clone(),
             turn_rate,
-        })
+            growing: None,
+        };
+        if let Some(World::Waiting(pack)) = rooms.worlds.first() {
+            let built = WorldJob::new(0, pack.clone(), &rooms).build()?;
+            rooms.install(built);
+        }
+        Ok(rooms)
     }
 
     pub fn active(&self) -> Option<&Physics> {
@@ -135,18 +190,40 @@ impl Rooms {
         }
     }
 
+    /// Builds up to `columns` columns of a grid a built world lacks, the
+    /// active one's first; whether any is left.
+    pub fn grow_grids(&mut self, columns: usize) -> bool {
+        if self.growing.is_none() {
+            let worlds = &self.worlds;
+            let mut order = std::iter::once(self.active).chain(0..worlds.len());
+            self.growing = order.find_map(|r| match &worlds[r] {
+                World::Built(p) => (p.colliders().iter())
+                    .find_map(|&c| p.world.start_grid(c))
+                    .map(|grid| (r, grid)),
+                _ => None,
+            });
+        }
+        let Some((room, grid)) = &mut self.growing else {
+            return false;
+        };
+        let World::Built(physics) = &mut self.worlds[*room] else {
+            unreachable!("only a built world grows a grid");
+        };
+        if physics.world.grow_grid(grid, columns)
+            && let Some((_, grid)) = self.growing.take()
+        {
+            physics.world.finish_grid(grid);
+        }
+        true
+    }
+
     /// Jobs for the worlds of `rooms` not built and not handed out yet.
     pub fn jobs(&mut self, rooms: &[usize]) -> Vec<WorldJob> {
         let mut jobs = Vec::new();
         for &room in rooms {
             if let (World::Waiting(pack), false) = (&self.worlds[room], self.out[room]) {
                 self.out[room] = true;
-                jobs.push(WorldJob {
-                    room,
-                    pack: pack.clone(),
-                    settings: self.settings.clone(),
-                    turn_rate: self.turn_rate,
-                });
+                jobs.push(WorldJob::new(room, pack.clone(), self));
             }
         }
         jobs
@@ -161,5 +238,29 @@ impl Rooms {
 
     pub fn built(&self, room: usize) -> bool {
         matches!(self.worlds.get(room), Some(World::Built(_)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use sariema_import::{RoomSource, build_collision};
+
+    use super::*;
+
+    #[test]
+    fn a_world_is_built_with_the_walkable_grid_of_each_body() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/collision");
+        let text = std::fs::read_to_string(root.join("rooms/sill.json")).unwrap();
+        let source = RoomSource::from_json(&text).unwrap();
+        let pack = build_collision(&source, &root).unwrap().unwrap();
+        let rooms = Rooms::new(Vec::new(), &EngineSettings::default(), 360.0).unwrap();
+        let built = WorldJob::new(0, Arc::new(pack), &rooms).build().unwrap();
+        assert_eq!(
+            built.physics.world.grids(),
+            built.physics.colliders().len(),
+            "an actor entering the world, at a switch, finds its grid built"
+        );
     }
 }

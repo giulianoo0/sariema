@@ -350,6 +350,14 @@ impl<L: Logic> Engine<L> {
         self.rooms.jobs(rooms)
     }
 
+    /// Builds up to `columns` columns of the walkable grids a world in
+    /// lacks: one a switch built in the step, which leaves them for later.
+    /// Whether any is left. An actor's path search that needs a grid
+    /// before builds it whole.
+    pub fn grow_grids(&mut self, columns: usize) -> bool {
+        self.rooms.grow_grids(columns)
+    }
+
     pub fn install_world(&mut self, built: BuiltWorld) {
         self.rooms.install(built);
     }
