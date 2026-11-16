@@ -8,29 +8,15 @@ mod common;
 
 use glam::Vec3;
 use sariema_engine::{Engine, EngineSettings, RoomAssets};
-use sariema_format::collision::{ActorBody, Collider, CollisionPack, Shape};
+use sariema_format::collision::CollisionPack;
 use sariema_format::script::Command;
 use sariema_runtime::game::parse_settings;
 use sariema_runtime::input::Actions;
 use sariema_runtime::sim::Simulation;
 
-use common::{assets, entity, native, send, spawn_hero};
+use common::{assets, block, collision, entity, native, send, spawn_hero};
 
 const RISER: f32 = 0.25;
-
-fn block(name: &str, min: [f32; 3], max: [f32; 3]) -> Collider {
-    let centre = |k: usize| (min[k] + max[k]) * 0.5;
-    let half = |k: usize| (max[k] - min[k]) * 0.5;
-    Collider {
-        name: name.into(),
-        shape: Shape::Box {
-            center: [centre(0), centre(1), centre(2)],
-            half_extents: [half(0), half(1), half(2)],
-            rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-        },
-        enabled: true,
-    }
-}
 
 /// A floor at height 0, then three risers up to a landing at 0.75 m,
 /// climbing along +x from x 2 with 0.6 m treads.
@@ -44,23 +30,7 @@ fn stairs() -> CollisionPack {
             [12.0, RISER * k as f32, 2.0],
         ));
     }
-    CollisionPack {
-        room: "stairs".into(),
-        colliders,
-        triggers: Vec::new(),
-        actors: vec![ActorBody {
-            name: "hero".into(),
-            radius: 0.3,
-            height: 1.0,
-            head: None,
-            visual_bounds: None,
-        }],
-        spots: Vec::new(),
-        routes: Vec::new(),
-        traversals: Vec::new(),
-        nav_bounds: None,
-        hinges: Vec::new(),
-    }
+    collision("stairs", colliders)
 }
 
 /// Where a hero walking +x at 1.5 m/s for four seconds ends, under the

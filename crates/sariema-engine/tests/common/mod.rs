@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use sariema_engine::{Assets, Engine, EngineSettings, RoomAssets};
+use sariema_format::collision::{ActorBody, Collider, CollisionPack, Shape};
 use sariema_format::script::{Command, Entity, Event, Hud, records};
 use sariema_import::{ActorSource, RoomSource, build_actor, build_collision};
 use sariema_runtime::cutscene::author::compile_json;
@@ -116,4 +117,41 @@ pub fn spawn_hero(out: &mut Vec<u8>, at: [f32; 3], yaw: f32) {
             yaw,
         },
     );
+}
+
+/// An axis-aligned box collider from its corners.
+pub fn block(name: &str, min: [f32; 3], max: [f32; 3]) -> Collider {
+    let centre = |k: usize| (min[k] + max[k]) * 0.5;
+    let half = |k: usize| (max[k] - min[k]) * 0.5;
+    Collider {
+        name: name.into(),
+        shape: Shape::Box {
+            center: [centre(0), centre(1), centre(2)],
+            half_extents: [half(0), half(1), half(2)],
+            rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        },
+        enabled: true,
+    }
+}
+
+/// A collision pack of `colliders` whose `hero` body is a 0.3 m by 1 m
+/// capsule.
+pub fn collision(room: &str, colliders: Vec<Collider>) -> CollisionPack {
+    CollisionPack {
+        room: room.into(),
+        colliders,
+        triggers: Vec::new(),
+        actors: vec![ActorBody {
+            name: "hero".into(),
+            radius: 0.3,
+            height: 1.0,
+            head: None,
+            visual_bounds: None,
+        }],
+        spots: Vec::new(),
+        routes: Vec::new(),
+        traversals: Vec::new(),
+        nav_bounds: None,
+        hinges: Vec::new(),
+    }
 }

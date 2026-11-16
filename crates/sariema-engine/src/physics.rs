@@ -425,6 +425,10 @@ impl Physics {
                 actor: id,
                 speed: turn_rate.map(f32::to_radians),
             });
+            self.world.apply(Intent::SetSolid {
+                actor: id,
+                solid: s.motion.get(entity).is_none_or(|m| m.body),
+            });
             self.owners[id.0 as usize] = entity;
             if self.actors.len() <= i {
                 self.actors.resize_with(i + 1, || None);
@@ -539,6 +543,14 @@ impl Physics {
                 }
             }
             PhysicsIntent::Collider { entity, enabled } => {
+                if let Some(m) = self.mapped(entity) {
+                    let id = m.id;
+                    self.world.apply(Intent::SetSolid {
+                        actor: id,
+                        solid: enabled,
+                    });
+                    return;
+                }
                 let asset = s.world.node(entity).map_or(0, |n| n.asset);
                 if let Some(c) = self
                     .pack
