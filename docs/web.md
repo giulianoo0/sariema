@@ -32,7 +32,11 @@ page (JS)                                   engine (wasm, crates/sariema-web)
   hidden page pauses and does not catch up the time it was away.
 - **Input** reaches the engine as `InputEvent`s in physical pixels, queued
   and delivered on step boundaries: pointers to the UI, Tab and Shift+Tab
-  to move focus, Enter and Space to activate.
+  to move focus, Enter and Space to activate. Keys are the engine's only
+  while nothing else on the page has the focus (the event's target is the
+  page or the canvas), so a page's own inputs, text areas and buttons keep
+  their typing and Tab; a key released elsewhere still reaches the engine,
+  so none stays held.
 - **Game runtime seam.** `sariema_web::game::Game` is what a game's logic
   implements: `step(step_s, input)` once per fixed step, with that step's
   input. `Stage::set_game` installs it. The game runtime compiles to its
@@ -85,12 +89,13 @@ brackets.
 | `shadows` | true | false draws no shadow maps |
 | `ambientOcclusion` (`ambient_occlusion`) | true | false turns SSAO off |
 | `step.step_s`, `step.max_steps_per_frame` | 1/60, 4 | the fixed step |
-| `audio.lead_s`, `audio.block_frames` | 0.1, 1024 | how far the mixer runs ahead, in blocks of this many frames |
+| `audio.lead_s`, `audio.block_frames` | 0.1, 1024 | how far the mixer runs ahead (at least two blocks), in blocks of this many frames (whole 128-frame quanta) |
+| `dataTextureWidth` (`data_texture_width`) | the tier's, 1024 | texels per row of the downlevel path's light, cluster and shadow tables |
+| `actorUniformRows` (`actor_uniform_rows`) | the tier's, 1024 | rows of one actor's uniform record on the downlevel path (1024 = 16 KiB) |
 
-The downlevel path's sizes are `Quality` fields with defaults, clamped to
-the device: `data_texture_width` (1024 texels) and `actor_uniform_rows`
-(1024 rows, at most `max_uniform_buffer_binding_size` / 16). The light and
-cluster budgets are the tier's, held to what the data textures fit.
+The renderer clamps the downlevel sizes to the device: `actor_uniform_rows`
+to `max_uniform_buffer_binding_size` / 16, and the light and cluster
+budgets, which are the tier's, to what the data textures fit.
 
 ## Textures
 
@@ -121,9 +126,12 @@ Load times are in [Numbers](#numbers).
 
 The mixer (`sariema-audio`, `Feeding::Manual`) runs on the page's main
 thread; an AudioWorklet (`audio-worklet.js`) plays the interleaved stereo
-blocks posted to it and reports the frames it has played every 1024
-frames. Each report asks the engine for the blocks that keep `lead_s`
-mixed ahead. There is no `SharedArrayBuffer`, so the page needs no
+blocks posted to it and reports the frames it has played once per block
+(`audio.block_frames`, passed to it when it is made). Each report asks the
+engine for the blocks that keep `lead_s` mixed ahead; the lead is at least
+two blocks, so the next block is already queued when one is reported. A
+new sound bank flushes what the old one queued and counts frames afresh,
+so the lead holds however many banks are loaded. There is no `SharedArrayBuffer`, so the page needs no
 cross-origin isolation; streamed music is decoded on the main thread by the
 stage's steps. A sound played now is heard about `lead_s` later.
 
@@ -147,11 +155,15 @@ sariema.on("lost", () => console.log("rebuilding"));
 ```
 
 `start()` / `stop()` run and stop the frame loop, or `frame(now)` runs one
-frame from a loop the page already has; `capture()` reads a frame back; `bench(n)` times n draws; `stats()` gives the last frame's passes,
-draws, uploads and steps; `destroy()` lets go of the GPU and audio. On a
-lost WebGL context or WebGPU device the package makes a new engine on the
-same canvas and replays every load in order, emitting `lost` and
-`restored`.
+frame from a loop the page already has; `capture()` reads a frame back;
+`bench(n)` times n draws; `stats()` gives the last frame's passes, draws,
+uploads and steps; `destroy()` lets go of the GPU and audio. On a lost
+WebGL context or WebGPU device the package makes a new engine on the same
+canvas and replays every load in order, emitting `lost` and `restored`, or
+`error` if the rebuild fails (for instance a pack that can no longer be
+fetched). Packs are fetched as they stream in; a Content-Length is only a
+size hint, since a compressed response from another origin shows its
+compressed length and hides its encoding.
 
 ## Build, test, measure, serve
 
@@ -176,10 +188,15 @@ npm test           # test/run.mjs, about 20 s
 and in Chromium with WebGPU, Chromium with WebGPU hidden (WebGL2), WebKit
 with WebGPU and WebKit with WebGPU hidden: draws the demo room with and
 without occlusion and the posed arm and compares each with the native
-golden, loads the game folder, plays a sound through the worklet and checks
-its samples arrive, loses and restores the context or device and compares
-again, taps a UI button, runs the probe page, and remounts without
-compressed textures to check the RGBA8 packs load. The tolerance is the
+golden, loads the game folder, and loads it again gzipped from another
+origin; plays a sound through the worklet and checks its samples arrive
+without underruns, loads a second sound bank and checks the lead holds,
+and plays with an 18 ms lead in 128-frame blocks; loses and restores the
+context or device and compares again; taps a UI button; types into a page
+input, which keeps its keys while the engine takes keys sent to the page;
+checks a rebuild that cannot fetch its room emits `error`; runs the probe
+page; and remounts without compressed textures to check the RGBA8 packs
+load. The tolerance is the
 goldens' own: no channel more than 6 apart, or at most 0.5% of pixels.
 `SARIEMA_BROWSERS=chromium-webgl2,webkit-webgpu` picks configurations;
 `SARIEMA_GAME_PACKS=<dir>` adds every room pack in `<dir>`, compared with a
@@ -258,10 +275,10 @@ codegen unit, `panic = "abort"`, then `wasm-opt -Oz`):
 
 | Stage | Bytes |
 |---|---|
-| wasm-bindgen output | 6,697,772 |
-| after wasm-opt | 4,038,837 |
-| gzip -9 | 1,643,419 |
-| brotli 11 | 1,243,115 |
+| wasm-bindgen output | 6,699,337 |
+| after wasm-opt | 4,040,137 |
+| gzip -9 | 1,644,544 |
+| brotli 11 | 1,243,013 |
 
 **Time to first frame** of an Origem room at the medium look, a phone-sized
 page (844×390 at pixel ratio 3, drawn at 1266×585), served over loopback
@@ -292,40 +309,72 @@ Over a network the fetch dominates: a phone downloads the brotli sizes in
 [Textures](#textures).
 
 **Frame time against three.js.** The Origem rooms in one Chromium
-session (WebGL2 for three.js, as the game ships), interleaved, three
+session (three.js on WebGL2, as the game ships), interleaved, three
 repetitions of 300 frames, medians; load average 6.3–14.7. three.js's side
 is the perf lane's render-only burst of the game (the render call alone,
-no tick, characters hidden). The engine's side is a burst of draws read
-back once at the end. "lfl" is the perf lane's like for like (no MSAA,
-shadows or occlusion, its `one-s11`/`one-s12` packs); "medium" is the
-engine's own look. Wall is per frame including the GPU; CPU is the
-JavaScript and wasm time of a frame. Milliseconds:
+no tick, characters hidden), 6 passes. The engine's side is a burst of
+draws read back once at the end. "lfl" is the perf lane's like for like
+(no MSAA, shadows or occlusion, its `one-s11`/`one-s12` packs), the fair
+comparison; "medium" is the engine's own look, with MSAA, shadows,
+occlusion and bloom. Wall per frame including the GPU, in milliseconds,
+± the spread (largest − smallest) of the three repetitions, and in
+brackets the engine's time over three.js's; ≈ marks a difference no larger
+than the two spreads added, which this run cannot tell from noise:
 
-| Buffer | Room | three.js: wall / CPU | Look | WebGPU: wall / burst CPU / paced CPU / passes | WebGL2: wall / burst CPU / paced CPU / passes |
+| Buffer | Room | Look | three.js | WebGPU | WebGL2 | Passes |
+|---|---|---|---|---|---|---|
+| 1920×1080 | s11 | lfl | 1.55 ±0.18 | 0.98 ±0.05 (0.63×) | 1.21 ±0.11 (0.78×) | 13 / 13 |
+| 1920×1080 | s11 | medium | ″ | 1.41 ±0.51 (≈) | 2.10 ±0.09 (1.35×) | 16 / 17 |
+| 1920×1080 | s12 | lfl | 1.22 ±0.01 | 0.86 ±0.53 (≈) | 1.04 ±0.09 (0.85×) | 13 / 13 |
+| 1920×1080 | s12 | medium | ″ | 1.47 ±0.34 (≈) | 2.61 ±0.16 (2.14×) | 16 / 17 |
+| 1920×1080 | s5 | lfl | 0.84 ±0.05 | 0.95 ±0.04 (1.14×) | 1.61 ±0.13 (1.92×) | 9 / 9 |
+| 1920×1080 | s5 | medium | ″ | 1.85 ±0.48 (2.21×) | 3.05 ±0.46 (3.64×) | 13 / 14 |
+| 1266×585 | s11 | lfl | 0.57 ±0.00 | 0.55 ±0.16 (≈) | 0.53 ±0.01 (0.93×) | 13 / 13 |
+| 1266×585 | s11 | medium | ″ | 0.66 ±0.02 (1.17×) | 0.82 ±0.06 (1.44×) | 16 / 17 |
+| 1266×585 | s12 | lfl | 0.45 ±0.00 | 0.68 ±0.16 (1.53×) | 0.53 ±0.00 (1.19×) | 13 / 13 |
+| 1266×585 | s12 | medium | ″ | 0.66 ±0.02 (1.47×) | 0.96 ±0.07 (2.15×) | 16 / 17 |
+| 1266×585 | s5 | lfl | 0.35 ±0.00 | 0.42 ±0.00 (1.19×) | 0.65 ±0.01 (1.85×) | 9 / 9 |
+| 1266×585 | s5 | medium | ″ | 0.59 ±0.19 (1.69×) | 1.14 ±0.02 (3.26×) | 13 / 14 |
+
+The earlier full run (load 7.2–10.5) gives the same verdict in every
+cell but one, noted below; ranges cover both runs.
+
+- **WebGPU, like for like,** is faster than three.js in s11 at 1080p (by 0.58 ms here,
+  0.25 ms in the earlier run). It is within the noise in s12 at 1080p (here
+  −0.36 ms on a 0.53 ms spread, earlier +0.07 ms) and in s11 at phone size.
+  It is slower in s5 at both sizes (1.1–1.2×, 0.06–0.11 ms) and in s12 at
+  phone size (1.2–1.5×, 0.10–0.23 ms).
+- **WebGL2, like for like,** the backend three.js uses and the only one
+  in WebViews without WebGPU (iOS before 26), is faster in s11 and s12 at
+  1080p (0.74–0.86×) and in s11 at phone size (0.93×). It loses in s5,
+  1.8–1.9× at both sizes (+0.73–0.77 ms at 1080p, +0.29–0.30 ms at phone
+  size), and in s12 at phone size (1.2×, +0.07–0.09 ms).
+- **The medium look** costs 1.2–2.3× three.js on WebGPU, except s11 and
+  s12 at 1080p, which are within the noise (the earlier run put s12 at
+  1.18×, the one verdict that differs), and 1.3–3.6× on WebGL2.
+  WebGL2 takes 1.2–1.9× WebGPU's wall at that look. One known part is the
+  extra depth pass; WebGL2 has no pass timing to split the rest.
+
+WebGL2 is therefore the next performance round's target: the like-for-like
+losses in s5 and in s12 at phone size, and the medium look's 1.3–3.6×.
+
+CPU per frame, milliseconds (three.js's is the JavaScript of its render
+call; the engine's is JavaScript and wasm):
+
+| Buffer | Room | Look | three.js JS | WebGPU burst / paced | WebGL2 burst / paced |
 |---|---|---|---|---|---|
-| 1920×1080 | s5 | 0.84 / 0.12 | lfl | 0.95 / 0.06 / 0.2 / 9 | 1.61 / 0.47 / 0.3 / 9 |
-| 1920×1080 | s5 | | medium | 1.85 / 0.06 / 0.2 / 13 | 3.05 / 1.63 / 0.4 / 14 |
-| 1920×1080 | s11 | 1.55 / 0.06 | lfl | 0.98 / 0.06 / 0.2 / 13 | 1.21 / 0.56 / 0.3 / 13 |
-| 1920×1080 | s11 | | medium | 1.41 / 0.06 / 0.2 / 16 | 2.10 / 1.34 / 0.4 / 17 |
-| 1920×1080 | s12 | 1.22 / 0.09 | lfl | 0.86 / 0.06 / 0.2 / 13 | 1.04 / 0.49 / 0.4 / 13 |
-| 1920×1080 | s12 | | medium | 1.47 / 0.08 / 0.2 / 16 | 2.61 / 1.77 / 0.4 / 17 |
-| 1266×585 | s5 | 0.35 / 0.12 | lfl | 0.42 / 0.07 / 0.2 / 9 | 0.65 / 0.20 / 0.4 / 9 |
-| 1266×585 | s5 | | medium | 0.59 / 0.06 / 0.2 / 13 | 1.14 / 0.63 / 0.4 / 14 |
-| 1266×585 | s11 | 0.57 / 0.07 | lfl | 0.55 / 0.07 / 0.2 / 13 | 0.53 / 0.27 / 0.4 / 13 |
-| 1266×585 | s11 | | medium | 0.66 / 0.07 / 0.2 / 16 | 0.82 / 0.55 / 0.4 / 17 |
-| 1266×585 | s12 | 0.45 / 0.07 | lfl | 0.68 / 0.07 / 0.2 / 13 | 0.53 / 0.27 / 0.3 / 13 |
-| 1266×585 | s12 | | medium | 0.66 / 0.07 / 0.2 / 16 | 0.96 / 0.68 / 0.4 / 17 |
-
-The median spread of a cell across its repetitions is 0.07 ms; the
-largest, 0.53 ms, is in the WebGPU 1080p cells, where an earlier full run
-(load 7.2–10.5) gave s11 and s12 lfl 1.27 and 1.25 and agrees with this
-one elsewhere within 0.1. In short: on WebGPU the like-for-like frame is
-within 0.25 ms of three.js's render in every cell and 0.4–0.6 ms faster in
-the textured rooms (s11, s12) at 1080p; the medium look, with MSAA,
-shadows, occlusion and its own packs, costs 0.4–0.9 ms more at 1080p.
-WebGL2 takes 1.2–1.9 times WebGPU's wall at the medium look. One known
-part is the extra depth pass; WebGL2 has no pass timing to split the
-rest.
+| 1920×1080 | s11 | lfl | 0.06 | 0.06 / 0.2 | 0.56 / 0.3 |
+| 1920×1080 | s11 | medium | 0.06 | 0.06 / 0.2 | 1.34 / 0.4 |
+| 1920×1080 | s12 | lfl | 0.09 | 0.06 / 0.2 | 0.49 / 0.4 |
+| 1920×1080 | s12 | medium | 0.09 | 0.08 / 0.2 | 1.77 / 0.4 |
+| 1920×1080 | s5 | lfl | 0.12 | 0.06 / 0.2 | 0.47 / 0.3 |
+| 1920×1080 | s5 | medium | 0.12 | 0.06 / 0.2 | 1.63 / 0.4 |
+| 1266×585 | s11 | lfl | 0.07 | 0.07 / 0.2 | 0.27 / 0.4 |
+| 1266×585 | s11 | medium | 0.07 | 0.07 / 0.2 | 0.55 / 0.4 |
+| 1266×585 | s12 | lfl | 0.07 | 0.07 / 0.2 | 0.27 / 0.3 |
+| 1266×585 | s12 | medium | 0.07 | 0.07 / 0.2 | 0.68 / 0.4 |
+| 1266×585 | s5 | lfl | 0.12 | 0.07 / 0.2 | 0.20 / 0.4 |
+| 1266×585 | s5 | medium | 0.12 | 0.06 / 0.2 | 0.63 / 0.4 |
 
 Burst CPU on WebGL2 counts the waits for command buffers that a 300-draw
 burst runs into, so the paced CPU, a median over 120 frames drawn from
@@ -336,8 +385,8 @@ WebGL2. Reproduce one cell with `test/bench.mjs` (above); the comparison
 itself needs the game's sources and runs locally only.
 
 **Size or speed.** `npm run build -- --speed` (opt-level 3, `wasm-opt
--O3`) gives 4,831,327 bytes (1,374,445 brotli) against 4,038,837
-(1,243,115). Interleaved in one session, three repetitions, its wall time
+-O3`) gave 4,831,327 bytes (1,374,445 brotli) against the size build's
+4,038,837 (1,243,115), both at the same commit. Interleaved in one session, three repetitions, its wall time
 per frame was within each pair's own spread of the size build's on every
 room and backend tried (s5 lfl, s11 and s12 medium, both backends), so the
 size build is the default.
@@ -359,5 +408,9 @@ size build is the default.
   vertex, and picks a compressed texture format per device from the
   extensions it finds (`KTX2Loader`). The lights and shadows tables as
   texture rows read by index, indices baked per mesh, and the per-device
-  pack variant come from there; the transcoding step does not (see the
-  ruling in the web lane's report).
+  pack variant come from there. Its transcoding step does not: a room
+  ships as two packs, ASTC and RGBA8, and the page fetches the one the
+  device samples, so the loader stays a plain fetch and the `.wasm` holds
+  no Basis transcoder. The cost is disk on the host (the RGBA8 base-s11 is
+  61 MB raw, 9.6 MB brotli) and, on a GPU without ASTC, four times the
+  texture memory; BC and ETC2 variants are not built.
