@@ -14,10 +14,11 @@ use serde_json::Value;
 
 use crate::ImportError;
 
-const SUPPORTED_EXTENSIONS: [&str; 5] = [
+const SUPPORTED_EXTENSIONS: [&str; 6] = [
     "EXT_meshopt_compression",
     "KHR_mesh_quantization",
     "KHR_texture_transform",
+    "KHR_texture_basisu",
     "KHR_materials_emissive_strength",
     "KHR_materials_unlit",
 ];
@@ -484,11 +485,35 @@ struct Accessor {
 pub struct Image {
     pub name: Option<String>,
     pub buffer_view: Option<usize>,
+    pub mime_type: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct Texture {
     pub source: Option<usize>,
+    #[serde(default)]
+    pub extensions: TextureExtensions,
+}
+
+impl Texture {
+    /// The image it samples: its own, a PNG or JPEG kept beside a
+    /// Basis Universal one for readers without it, or else the KTX2 image
+    /// of `KHR_texture_basisu`.
+    pub fn image(&self) -> Option<usize> {
+        self.source
+            .or(self.extensions.basisu.as_ref().map(|b| b.source))
+    }
+}
+
+#[derive(Deserialize, Default)]
+pub struct TextureExtensions {
+    #[serde(rename = "KHR_texture_basisu")]
+    pub basisu: Option<Basisu>,
+}
+
+#[derive(Deserialize)]
+pub struct Basisu {
+    pub source: usize,
 }
 
 #[derive(Deserialize)]

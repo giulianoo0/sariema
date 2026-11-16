@@ -1,6 +1,6 @@
 ---
 name: sariema-actors
-description: Use when bringing an animated character or prop into the Sariema engine, writing or fixing an actor description, when `sariema build --actor` fails with E_ACTOR_NAME, E_GLTF_EXTENSION or E_SCHEMA, or when an actor's motion, face, held prop, shadow or foot speed looks wrong and needs checking without video.
+description: Use when bringing an animated character or prop into the Sariema engine, writing or fixing an actor description, when `sariema build --actor` fails with E_ACTOR_NAME, E_GLTF_EXTENSION or E_SCHEMA (a KTX2 texture included), or when an actor's motion, face, held prop, shadow or foot speed looks wrong and needs checking without video.
 ---
 
 # Sariema actors
@@ -21,6 +21,9 @@ Every command below runs from the repository root as written; `sariema` is
 # Build and inspect (joints, clips with durations, loops and ground speed, parts, sockets, faces)
 sariema build examples/demo --actor arm -o arm.srmk --json
 sariema inspect arm.srmk --json
+
+# Textures as RGBA8, to tell a texture's own loss from ASTC's
+sariema build examples/demo --actor arm --textures rgba8 -o arm-rgba8.srmk --json
 
 # A room to stand in
 sariema build examples/demo --room demo -o demo.srma
@@ -61,8 +64,13 @@ The JSON of `run` gives `actors_drawn`, `actors_culled`,
   may need to be negative (Pain's is `[0.25, -0.25]`, Lumo's
   `[0.25, 0.25]`): check the offsets against the game's own
   (`origin + (c % columns, c / columns) × step`).
-- **Textures**: build from the source GLB. gltfpack's `-tc` output uses
-  `KHR_texture_basisu`, which is refused (`E_GLTF_EXTENSION`).
+- **Textures**: PNG, JPEG, or KTX2 through `KHR_texture_basisu` (ETC1S or
+  UASTC, what gltfpack `-tc`/`-tu` writes). Prefer the PNG source: an
+  ETC1S texture re-encoded to ASTC loses twice. A broken or unread KTX2
+  fails with `E_SCHEMA` naming the image (`docs/actors.md`, Basis
+  Universal textures).
+- **gltfpack output**: give it `-kn -ke`, or part names and extras are
+  dropped and a part meant to start hidden shows.
 - **Feet**: list the foot joints in `feet` when their names lack `foot`, or
   ground speeds come out wrong.
 
@@ -88,4 +96,5 @@ The JSON of `run` gives `actors_drawn`, `actors_culled`,
 | huge disc shadow or culling box | a clip (a fall) moves far; bounds hold every clip | expected; the disc comes from the bind pose height |
 | no shadow from an actor | `Quality::actor_shadow_slots` is 0 or the room has no shadowed light reaching it | a disc is drawn instead; raise the setting |
 | feet slide | the game moves the actor faster than the clip's stride | move at the clip's ground speed, or scale the clip's speed |
+| parts named `""`, a hidden part shows | the GLB went through gltfpack without `-kn -ke` | rebuild it with them, or from the source GLB |
 | prop floats beside the hand | wrong socket, or the socket's offset is in another space | `inspect` the sockets; offsets are in the joint's space |

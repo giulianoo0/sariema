@@ -16,7 +16,7 @@ use sariema_format::{AlphaMode, Material, Mesh, Shading, Vertex};
 use serde_json::Value;
 
 use crate::gltf::{self, Gltf, invalid};
-use crate::{ImportError, read};
+use crate::{ImportError, decode_ktx2, read};
 
 const TRIANGLES: u32 = 4;
 
@@ -129,9 +129,14 @@ pub(crate) fn image(
     let view = source
         .buffer_view
         .ok_or_else(|| invalid(format!("image {index} is not stored in the GLB")))?;
-    let rgba = image::load_from_memory(gltf.view(view)?)
-        .map_err(|e| invalid(format!("image {index}: {e}")))?
-        .into_rgba8();
+    let bytes = gltf.view(view)?;
+    let rgba = if source.mime_type.as_deref() == Some("image/ktx2") {
+        decode_ktx2(bytes).map_err(|e| invalid(format!("image {index}: {e}")))?
+    } else {
+        image::load_from_memory(bytes)
+            .map_err(|e| invalid(format!("image {index}: {e}")))?
+            .into_rgba8()
+    };
     Ok(KitImage {
         name: source.name.clone().unwrap_or_default(),
         rgba,
@@ -232,7 +237,7 @@ fn texture(
     let image = doc
         .textures
         .get(info.index)
-        .and_then(|t| t.source)
+        .and_then(gltf::Texture::image)
         .filter(|&i| i < doc.images.len())
         .ok_or_else(|| invalid(format!("material {material}: missing texture image")))?;
     Ok(Some((image as u32, (transform.offset, transform.scale))))

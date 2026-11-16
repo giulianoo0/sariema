@@ -654,4 +654,5 @@ size build is the default.
   device samples, so the loader stays a plain fetch and the `.wasm` holds
   no Basis transcoder. The cost is disk on the host (the RGBA8 base-s11 is
   61 MB raw, 9.6 MB brotli) and, on a GPU without ASTC, four times the
-  texture memory; BC and ETC2 variants are not built.
+  texture memory; BC and ETC2 variants are not built. A KTX2 texture in a
+  source GLB is decoded at build, by the importer (`docs/actors.md`).
