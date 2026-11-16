@@ -42,6 +42,7 @@ Docs:
 - [docs/actors.md](docs/actors.md) — actor packs, skeletal animation and skinned drawing.
 - [docs/audio.md](docs/audio.md) — sound banks, the mixer and `sariema audio`.
 - [docs/ui.md](docs/ui.md) — the in-engine UI and `sariema ui render`.
+- [docs/fx.md](docs/fx.md) — particles: effects, emitters and their one draw (`examples/guide`).
 - [docs/performance.md](docs/performance.md) — `sariema bench` and what a frame costs.
 - [docs/engine.md](docs/engine.md) — the order of a step and every hand-off between the modules.
 - [docs/game-api.md](docs/game-api.md) — the game module, the step, commands and events.

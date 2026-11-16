@@ -1,0 +1,448 @@
+{
+ "celula": 1.5,
+ "comodos": {
+  "a": {
+   "sw_celulas": [
+    0,
+    0
+   ],
+   "n_celulas": [
+    4,
+    4
+   ],
+   "camera": null,
+   "pitch": 50,
+   "instancias": [
+    {
+     "peca": "caixa",
+     "x": 0.5,
+     "y": 0.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 0.5,
+     "y": 1.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 0.5,
+     "y": 2.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 0.5,
+     "y": 3.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 0.5,
+     "y": 4.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 0.5,
+     "y": 5.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 1.5,
+     "y": 0.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 1.5,
+     "y": 1.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 1.5,
+     "y": 2.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 1.5,
+     "y": 3.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 1.5,
+     "y": 4.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 1.5,
+     "y": 5.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 2.5,
+     "y": 0.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 2.5,
+     "y": 1.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 2.5,
+     "y": 2.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 2.5,
+     "y": 3.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 2.5,
+     "y": 4.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 2.5,
+     "y": 5.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 3.5,
+     "y": 0.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 3.5,
+     "y": 1.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 3.5,
+     "y": 2.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 3.5,
+     "y": 3.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 3.5,
+     "y": 4.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 3.5,
+     "y": 5.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 4.5,
+     "y": 0.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 4.5,
+     "y": 1.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 4.5,
+     "y": 2.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 4.5,
+     "y": 3.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 4.5,
+     "y": 4.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 4.5,
+     "y": 5.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 5.5,
+     "y": 0.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 5.5,
+     "y": 1.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 5.5,
+     "y": 2.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 5.5,
+     "y": 3.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 5.5,
+     "y": 4.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 5.5,
+     "y": 5.5,
+     "z": -0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 4.5,
+     "y": 4.5,
+     "z": 0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "caixa",
+     "x": 5.5,
+     "y": 4.5,
+     "z": 0.5,
+     "rz": 0,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    },
+    {
+     "peca": "mesa",
+     "x": 1.5,
+     "y": 1.5,
+     "z": 0.0,
+     "rz": 90,
+     "rot": null,
+     "estado": null,
+     "giros": null,
+     "escala": 1.0
+    }
+   ]
+  }
+ }
+}

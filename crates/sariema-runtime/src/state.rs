@@ -9,6 +9,7 @@ use crate::camera::Camera;
 use crate::clips::ClipClock;
 use crate::events::{EventQueue, Happening};
 use crate::follow::Followers;
+use crate::fx::Fx;
 use crate::hash::StateHasher;
 use crate::input::Input;
 use crate::motion::{Goal, Motion};
@@ -45,6 +46,8 @@ pub struct State {
     pub store: Store,
     pub tweens: Tweens,
     pub scenery: Scenery,
+    /// Particles: drawn, never hashed.
+    pub fx: Fx,
     pub followers: Followers,
     pub timers: Timers,
     pub zones: Zones,
@@ -76,6 +79,7 @@ impl State {
             store: Store::default(),
             tweens: Tweens::default(),
             scenery: Scenery::default(),
+            fx: Fx::new(&settings.fx),
             followers: Followers::default(),
             timers: Timers::default(),
             zones: Zones::default(),

@@ -111,6 +111,7 @@ pub enum Value<'a> {
     Vec3([f32; 3]),
     Str(&'a str),
     Bytes(&'a [u8]),
+    Points(PointList<'a>),
     /// A variant of a table enum, by name.
     Enum(&'static str),
 }
@@ -338,6 +339,97 @@ impl Wire for Bytes {
 
     fn value<'a>(v: Self::Ref<'a>) -> Value<'a> {
         Value::Bytes(v)
+    }
+}
+
+/// Points in metres: a `u32` count, then each point's three `f32`.
+pub enum Points {}
+
+/// The points of a [`Points`] field: a slice a game builds, or the bytes a
+/// batch holds, which may not be aligned for `f32`.
+#[derive(Clone, Copy)]
+pub enum PointList<'a> {
+    Slice(&'a [[f32; 3]]),
+    Wire(&'a [u8]),
+}
+
+impl<'a> PointList<'a> {
+    pub const EMPTY: PointList<'static> = PointList::Slice(&[]);
+
+    pub fn len(&self) -> usize {
+        match self {
+            PointList::Slice(s) => s.len(),
+            PointList::Wire(b) => b.len() / 12,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn get(&self, i: usize) -> Option<[f32; 3]> {
+        match self {
+            PointList::Slice(s) => s.get(i).copied(),
+            PointList::Wire(b) => {
+                let p = b.get(i * 12..i * 12 + 12)?;
+                let c = |k: usize| f32::from_le_bytes([p[k], p[k + 1], p[k + 2], p[k + 3]]);
+                Some([c(0), c(4), c(8)])
+            }
+        }
+    }
+
+    pub fn iter(self) -> impl Iterator<Item = [f32; 3]> + 'a {
+        (0..self.len()).filter_map(move |i| self.get(i))
+    }
+}
+
+impl PartialEq for PointList<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().zip(other.iter()).all(|(a, b)| a == b)
+    }
+}
+
+impl core::fmt::Debug for PointList<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+impl Wire for Points {
+    type Ref<'a> = PointList<'a>;
+    const NAME: &'static str = "Points";
+
+    fn read<'a>(r: &mut Reader<'a>) -> Result<PointList<'a>, WireError> {
+        let count = u32::read(r)? as usize;
+        let bytes = r.take_slice(count.checked_mul(12).ok_or(WireError::Truncated)?)?;
+        let points = PointList::Wire(bytes);
+        if points.iter().flatten().all(f32::is_finite) {
+            Ok(points)
+        } else {
+            Err(WireError::Invalid("Points"))
+        }
+    }
+
+    fn write(v: PointList<'_>, out: &mut impl Sink) {
+        u32::write(v.len() as u32, out);
+        v.iter().flatten().for_each(|c| f32::write(c, out));
+    }
+
+    fn size(v: PointList<'_>) -> usize {
+        4 + 12 * v.len()
+    }
+
+    fn sample(n: u32) -> PointList<'static> {
+        const PATHS: [&[[f32; 3]]; 3] = [
+            &[],
+            &[[1.0, 0.0, -2.0]],
+            &[[0.0; 3], [2.5, 0.5, -1.0], [4.0, 0.0, 3.0]],
+        ];
+        PointList::Slice(PATHS[n as usize % PATHS.len()])
+    }
+
+    fn value<'a>(v: Self::Ref<'a>) -> Value<'a> {
+        Value::Points(v)
     }
 }
 

@@ -271,6 +271,21 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "a group, piece, state or scene parameter the active room lacks",
     ),
     (
+        "E_FX_UNKNOWN",
+        Kind::Rejected,
+        "fx_start or fx_burst names an effect the settings' fx.effects lack",
+    ),
+    (
+        "E_FX_FULL",
+        Kind::Rejected,
+        "fx_start or fx_burst while every one of fx.emitters is in use",
+    ),
+    (
+        "E_FX_POINTS",
+        Kind::Rejected,
+        "fx_start with more points than fx.path_points",
+    ),
+    (
         "E_CUTSCENE_BUSY",
         Kind::Rejected,
         "cutscene_play while a cutscene plays",

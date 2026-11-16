@@ -8,6 +8,7 @@ use sariema_vm::VmSettings;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::camera::CameraSettings;
+use crate::fx::FxSettings;
 use crate::input::InputSettings;
 use crate::motion::MotionSettings;
 
@@ -24,6 +25,7 @@ pub struct Settings {
     pub input: InputSettings,
     pub cutscene: CutsceneSettings,
     pub vm: VmSettings,
+    pub fx: FxSettings,
 }
 
 impl Settings {
@@ -35,7 +37,7 @@ impl Settings {
                 "min_time_scale ({min}) and max_time_scale ({max}) must be positive, the minimum no larger than the maximum"
             ));
         }
-        Ok(())
+        self.fx.validate()
     }
 }
 
@@ -52,6 +54,7 @@ impl Default for Settings {
             input: InputSettings::default(),
             cutscene: CutsceneSettings::default(),
             vm: VmSettings::default(),
+            fx: FxSettings::default(),
         }
     }
 }
@@ -219,6 +222,22 @@ pub const DOCS: &[(&str, &str)] = &[
     ("vm.max_regions", "Bulk data regions a game may register."),
     ("vm.log_bytes_per_step", "Bytes of log text kept per tick."),
     ("vm.log_lines_per_step", "Log lines kept per tick."),
+    (
+        "fx.emitters",
+        "Particle emitters alive at once, bursts and fading ones included; one more is refused with E_FX_FULL.",
+    ),
+    (
+        "fx.pool",
+        "Particles one emitter keeps alive, unless its effect gives its own pool; the ones past it are not born.",
+    ),
+    (
+        "fx.path_points",
+        "Points an emitter's path may have; more are refused with E_FX_POINTS.",
+    ),
+    (
+        "fx.effects",
+        "The particle effects fx_start and fx_burst name: sprite, rate and puffs, life, size, speed, gravity, drag, drift, spin, colour keys, intensity and how additive; see docs/fx.md.",
+    ),
     (
         "vm.commands_bytes_per_step",
         "Bytes of commands one tick may submit; more stops the game with E_GAME_BUDGET.",

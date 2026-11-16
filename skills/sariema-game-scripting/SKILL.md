@@ -71,6 +71,7 @@ game!(Hello);
 | part of a room on or off | `RoomGroup { group, on }` (a sub-room); `PieceState { piece, state }` (0: as placed) |
 | a light or the look to change | `Tween { property: Property::Scene, var: id("<parameter>"), .. }` |
 | a room node or light to move | `ctx.spawn(Kind::RoomNode, id("<node>"))` or `Kind::Light`, then move the entity |
+| particles | define the effect in `game.settings.fx.effects`; `FxStart { emitter, effect, entity, position, points, seed }` (on a point, from an entity, or along `PointList::Slice(&[…])`), `FxStop { emitter, fade }`, `FxBurst { effect, entity, position, count, seed }`; seed from `ctx.rng()`. Fields: `docs/fx.md` |
 
 Test the logic natively with `sariema_sdk::testing::TestHost` (queue
 events, `Runner::run`, decode with `testing::commands`;
@@ -88,4 +89,7 @@ with `sariema run --headless … --json`.
 | `E_GAME_BUDGET` | heavy work in one tick | spread it over steps; bulk regions for many placements |
 | `state_hash` changed after a rebuild, same log | it covers the module's memory, which a rebuild moves | compare `world_hash` across builds, `state_hash` within one |
 | a press acted on twice | reading `Buffered` without `Consume` | send `Consume` once handled |
+| no particles, `rejected` with `E_FX_UNKNOWN` | the effect is not in `game.settings.fx.effects`, or the name differs | define it there; `id("<name>")` of the same name |
+| fewer particles than the rate gives | the pool is full: an emitter keeps at most `pool` alive | raise the effect's `pool` (or `fx.pool`), or shorten `life` |
+| sparkles that never stop after `FxStop` | a new `FxStart` of the same id each step | start once, stop once: a running emitter keeps going |
 | nothing in the module's log after a panic | no panic hook | `std::panic::set_hook(Box::new(\|i\| sariema_sdk::report_panic(i)))` under `#[cfg(target_arch = "wasm32")]` |

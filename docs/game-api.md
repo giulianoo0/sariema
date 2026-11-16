@@ -69,7 +69,8 @@ records: a little-endian `u16` opcode, then the fields its table entry lists,
 in order, with no padding. `f32` fields must be finite; `bool` is one byte,
 0 or 1; `Str` and `Bytes` are a `u32` length then the bytes, `Str` being
 UTF-8; an `Entity` is a slot index and a generation, `u32` each; `Vec3` is
-three `f32`; enums are one byte.
+three `f32`; `Points` is a `u32` count then three `f32` per point (the SDK
+takes a `PointList::Slice(&[[x, y, z], …])`); enums are one byte.
 
 A command batch that does not decode stops the game for good with
 `E_BATCH_TRUNCATED`, `E_BATCH_UNKNOWN` or `E_BATCH_INVALID`, naming the
@@ -396,6 +397,9 @@ without `--headless` the pack plays in a window.
   While a cutscene holds control the engine hides the HUD and brings it
   back, as the game last set it, once the cinema bars are gone; a root
   node in the group `cutscene` stays.
+- **Particles**: `fx_start`, `fx_stop` and `fx_burst` run emitters of the
+  effects the game defines in `fx.effects`, seeded by the command, simulated
+  on the step and drawn in one instanced draw; see [effects](fx.md).
 - **Screen**: `fade` to a colour, `letterbox`, and dialogue lines (`say`):
   an `auto` line ends after its duration, a `tap` line when the game sends
   `advance_line` (in a cutscene, on the `cutscene.advance_action` button);
@@ -433,6 +437,10 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `cutscene.start_blend_max` | 0.3 | Up to this distance an actor is eased into its start place; farther, it walks there. |
 | `cutscene.start_tolerance` | 0.02 | Metres from its declared start an actor may be and still start in place. |
 | `cutscene.start_walk_speed` | 1.5 | Metres per second of the walk to the start place. |
+| `fx.effects` | none | The particle effects fx_start and fx_burst name: sprite, rate and puffs, life, size, speed, gravity, drag, drift, spin, colour keys, intensity and how additive; see docs/fx.md. |
+| `fx.emitters` | 32 | Particle emitters alive at once, bursts and fading ones included; one more is refused with E_FX_FULL. |
+| `fx.path_points` | 32 | Points an emitter's path may have; more are refused with E_FX_POINTS. |
+| `fx.pool` | 64 | Particles one emitter keeps alive, unless its effect gives its own pool; the ones past it are not born. |
 | `input.axes` | the input table above | Move axes: name, keys for up, down, left and right, an optional stick, whether the touch joystick drives it, and a dead zone. |
 | `input.buffer_steps` | 6 | Steps a button press stays buffered for the game to consume. |
 | `input.buttons` | the input table above | Buttons: name, keys and gamepad buttons. |

@@ -14,7 +14,7 @@ use sariema_engine::Engine;
 use sariema_format::script::{Entity, GameAssets};
 use sariema_format::{RoomCamera, RoomPack};
 use sariema_render::ui::{UiBatch, UiInstance, UiTextureFormat};
-use sariema_render::{ActorId, ActorModel, ActorState, RenderError, Renderer};
+use sariema_render::{ActorId, ActorModel, ActorState, RenderError, Renderer, Sprite};
 use sariema_runtime::sim::Logic;
 
 /// Why a game cannot be drawn, with the stable code of the CLI's errors.
@@ -64,6 +64,9 @@ pub struct GameView {
     /// The start room's camera, for a game that set none in a room without
     /// one.
     camera: RoomCamera,
+    /// The runtime's particles at the frame's alpha, and as drawn.
+    particles: Vec<sariema_runtime::fx::Sprite>,
+    sprites: Vec<Sprite>,
 }
 
 /// The room a game pack starts in, decoded.
@@ -141,6 +144,8 @@ impl GameView {
             atlas: false,
             rooms,
             camera,
+            particles: Vec::new(),
+            sprites: Vec::new(),
         })
     }
 
@@ -203,6 +208,7 @@ impl GameView {
     ) -> Result<(), ViewError> {
         self.rooms.update(renderer, engine, alpha)?;
         self.pose(renderer, engine, alpha)?;
+        self.fx(renderer, engine, alpha);
         let camera = self.camera(engine, alpha, aspect);
         let time_s = engine.steps() as f32 * sariema_core::STEP_SECONDS;
         renderer.render(&camera, time_s, target);
@@ -250,6 +256,23 @@ impl GameView {
         }));
         let instances: &[UiInstance] = bytemuck::cast_slice(&list.quads);
         renderer.render_ui(target, instances, &self.batches);
+    }
+
+    /// The particles at `alpha`.
+    fn fx<L: Logic>(&mut self, renderer: &mut Renderer, engine: &Engine<L>, alpha: f32) {
+        self.particles.clear();
+        engine.state().fx.sprites(alpha, &mut self.particles);
+        self.sprites.clear();
+        self.sprites.extend(self.particles.iter().map(|p| Sprite {
+            position: p.position.into(),
+            size: p.size,
+            color: p.color,
+            rotation: p.rotation,
+            additive: p.additive,
+            shape: p.shape as u32,
+            flags: if p.flat { Sprite::FLAT } else { 0 },
+        }));
+        renderer.set_sprites(&self.sprites);
     }
 
     /// One drawn actor per animated entity, posed at `alpha`; an entity gone

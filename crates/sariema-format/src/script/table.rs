@@ -12,8 +12,8 @@
 
 use super::wire::{
     Advance, Anchor, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,
-    MessageSpec, Orientation, Property, Reader, RoomTransition, Sink, Str, Value, Vec3, Wire,
-    WireError,
+    MessageSpec, Orientation, PointList, Points, Property, Reader, RoomTransition, Sink, Str,
+    Value, Vec3, Wire, WireError,
 };
 
 batch_table! {
@@ -162,6 +162,20 @@ batch_table! {
         /// Shows `state` of a piece of the active room; state 0 is the look
         /// before any state.
         0x00B3 PieceState piece_state { piece: u32, state: u32 }
+
+        /// Starts emitter `emitter`, an id the game chooses, of the particle
+        /// effect named `effect` in the settings' `fx.effects`. Its particles
+        /// spawn at `position`, from `entity`'s placement when it is not
+        /// NONE, or anywhere along `points` (placed the same way) when there
+        /// are any. `seed` picks them: the same seed shows the same
+        /// particles on every host. An emitter of that id is replaced.
+        0x00C0 FxStart fx_start { emitter: u32, effect: u32, entity: Entity, position: Vec3, points: Points, seed: u32 }
+        /// Stops emitting; the particles alive fade out over `fade` seconds
+        /// unless their life ends first. An emitter not running is ignored.
+        0x00C1 FxStop fx_stop { emitter: u32, fade: f32 }
+        /// `count` particles of `effect` at once, placed as `fx_start`
+        /// places them.
+        0x00C2 FxBurst fx_burst { effect: u32, entity: Entity, position: Vec3, count: u32, seed: u32 }
 
         0x00A0 HostReady host_ready {}
         0x00A1 HostExit host_exit {}

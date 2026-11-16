@@ -10,6 +10,7 @@ use sariema_format::AlphaMode;
 use super::{Scene, Targets};
 use crate::actors::{Actors, Layer};
 use crate::resources::Room;
+use crate::sprites::Sprites;
 use crate::{Gpu, Stage, cull};
 
 impl Scene {
@@ -21,7 +22,7 @@ impl Scene {
         gpu: &Gpu,
         encoder: &mut wgpu::CommandEncoder,
         stage: &Stage,
-        actors: &Actors,
+        (actors, sprites): (&Actors, &Sprites),
         keep_depth: bool,
     ) {
         let Targets {
@@ -107,6 +108,7 @@ impl Scene {
             gpu.count_draws(actors.draw_discs(&mut pass));
         }
         gpu.count_draws(actors.draw(&mut pass, Layer::Translucent));
+        gpu.count_draws(sprites.draw(&mut pass));
         drop(pass);
         if let Some(single) = single_depth.as_ref().filter(|_| keep_depth) {
             let opaque = |alpha| alpha == AlphaMode::Opaque;

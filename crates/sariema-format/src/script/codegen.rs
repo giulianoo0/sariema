@@ -84,6 +84,7 @@ macro_rules! field_ref {
     (Str, $l:lifetime) => { &$l str };
     (Bytes, $l:lifetime) => { &$l [u8] };
     (Vec3, $l:lifetime) => { [f32; 3] };
+    (Points, $l:lifetime) => { PointList<$l> };
     ($t:ident, $l:lifetime) => { $t };
 }
 

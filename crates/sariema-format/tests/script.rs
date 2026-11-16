@@ -74,7 +74,7 @@ fn specs_match_the_decoder() {
             for field in spec.fields {
                 let known = [
                     "u8", "u16", "u32", "u64", "i32", "f32", "bool", "Entity", "Vec3", "Str",
-                    "Bytes",
+                    "Bytes", "Points",
                 ];
                 assert!(
                     known.contains(&field.ty) || ENUMS.iter().any(|e| e.name == field.ty),

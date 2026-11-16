@@ -244,6 +244,7 @@ impl GameHost {
             "state_hash": hex(self.engine.simulation().state_hash()),
             "physics_hash": hex(self.engine.physics().map_or(0, |p| p.world.state_hash())),
             "audio_hash": hex(self.engine.sound().map_or(0, |s| s.hash())),
+            "fx_hash": hex(self.engine.state().fx.hash()),
         })
     }
 

@@ -53,6 +53,8 @@ export interface GameHashes {
   state_hash: string;
   physics_hash: string;
   audio_hash: string;
+  /** The particles alive: the same on every host for the same replay. */
+  fx_hash: string;
 }
 
 export interface UiEvent {

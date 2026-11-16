@@ -81,6 +81,7 @@ fn field(value: Field<'_>) -> Value {
         Field::Vec3(v) => json!(v),
         Field::Str(s) => json!(s),
         Field::Bytes(b) => json!(b),
+        Field::Points(p) => json!(p.iter().collect::<Vec<_>>()),
         Field::Enum(name) => json!(name),
     }
 }
@@ -214,6 +215,7 @@ pub fn run(path: &Path, run: &RunArgs) -> Result<Done, Failure> {
     let sim = engine.simulation();
     let state_hash = hex(sim.state_hash());
     let world_hash = hex(sim.state().world_hash());
+    let fx_hash = hex(sim.state().fx.hash());
     let memory = sim.logic().vm().memory().len();
     let playing = sim.playing_cutscene();
     Ok(Done {
@@ -224,6 +226,7 @@ pub fn run(path: &Path, run: &RunArgs) -> Result<Done, Failure> {
             "physics_hash": physics_hash,
             "audio_hash": audio_hash,
             "world_hash": world_hash,
+            "fx_hash": fx_hash,
             "events": events,
             "host": host,
             "log": logs,
