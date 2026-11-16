@@ -1,0 +1,112 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/*
+ * Sariema's palette and roles (docs/brand.md). Text pairs clear WCAG AA:
+ * the ratios are in the brand doc. f.UI's tokens.css sets --primary and
+ * --focus under :root:root:root, so the role overrides need four.
+ */
+
+:root {
+  --sr-barro: #b4532a;
+  --sr-sol: #e3a23b;
+  --sr-mandacaru: #4f6b3a;
+  --sr-caatinga: #9aa284;
+  --sr-areia: #efe3cc;
+  --sr-ceu: #4c86b5;
+  --sr-noite: #1c1814;
+
+  --sr-bg: #fbf6ec;
+  --sr-surface: #f4ebda;
+  --sr-surface-2: #efe3cc;
+  --sr-card: #fffaf1;
+  --sr-line: #e3d5ba;
+  --sr-line-strong: #d3c19f;
+  --sr-text: #1c1814;
+  --sr-text-muted: #5e5446;
+  --sr-accent: #9c4422;
+  --sr-action: #b4532a;
+  --sr-action-hover: #9c4422;
+  --sr-on-action: #ffffff;
+  --sr-green: #4f6b3a;
+  --sr-sky: #2f6a99;
+  --sr-glow: rgb(227 162 59 / 0.32);
+  --sr-shadow: 0 1px 2px rgb(60 40 20 / 0.06), 0 8px 24px -12px rgb(60 40 20 / 0.18);
+}
+
+:root[data-theme="dark"] {
+  --sr-bg: #17130f;
+  --sr-surface: #1f1a15;
+  --sr-surface-2: #2a231c;
+  --sr-card: #211b16;
+  --sr-line: #352b22;
+  --sr-line-strong: #4a3d30;
+  --sr-text: #efe3cc;
+  --sr-text-muted: #b3a48a;
+  --sr-accent: #e3a23b;
+  --sr-action: #e3a23b;
+  --sr-action-hover: #edb45a;
+  --sr-on-action: #17130f;
+  --sr-green: #8fb06e;
+  --sr-sky: #7da6cc;
+  --sr-glow: rgb(227 162 59 / 0.2);
+  --sr-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -16px rgb(0 0 0 / 0.6);
+}
+
+:root:root:root:root {
+  --background: var(--sr-bg);
+  --surface: var(--sr-card);
+  --surface-2: var(--sr-surface-2);
+  --surface-3: var(--sr-surface-2);
+  --overlay: var(--sr-card);
+  --overlay-2: var(--sr-surface);
+  --overlay-3: var(--sr-surface-2);
+  --text: var(--sr-text);
+  --text-muted: var(--sr-text-muted);
+  --text-faint: var(--sr-text-muted);
+  --line: var(--sr-line);
+  --line-strong: var(--sr-line-strong);
+  --primary: var(--sr-accent);
+  --primary-hover: var(--sr-action-hover);
+  --on-primary: var(--sr-on-action);
+  --primary-soft: color-mix(in oklab, var(--sr-sol) 18%, var(--sr-bg));
+  --focus: var(--sr-action);
+  --button-primary-bg: var(--sr-action);
+  --button-primary-hover: var(--sr-action-hover);
+  --button-primary-ink: var(--sr-on-action);
+  --button-secondary-bg: var(--sr-surface-2);
+  --button-secondary-hover: color-mix(in oklab, var(--sr-surface-2), var(--sr-text) 8%);
+  --button-secondary-ink: var(--sr-text);
+  --field: color-mix(in oklab, var(--sr-text) 5%, transparent);
+  --glass: color-mix(in oklab, var(--sr-bg) 78%, transparent);
+}
+
+:root,
+.dark {
+  --color-fd-background: var(--sr-bg);
+  --color-fd-foreground: var(--sr-text);
+  --color-fd-muted: var(--sr-surface);
+  --color-fd-muted-foreground: var(--sr-text-muted);
+  --color-fd-popover: var(--sr-card);
+  --color-fd-popover-foreground: var(--sr-text);
+  --color-fd-card: var(--sr-card);
+  --color-fd-card-foreground: var(--sr-text);
+  --color-fd-border: var(--sr-line);
+  --color-fd-primary: var(--sr-accent);
+  --color-fd-primary-foreground: var(--sr-on-action);
+  --color-fd-secondary: var(--sr-surface);
+  --color-fd-secondary-foreground: var(--sr-text);
+  --color-fd-accent: var(--sr-surface-2);
+  --color-fd-accent-foreground: var(--sr-text);
+  --color-fd-ring: var(--sr-action);
+  --color-fd-overlay: rgb(28 24 20 / 0.24);
+}
+
+html {
+  background: var(--sr-bg);
+  color: var(--sr-text);
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--sr-sol) 38%, transparent);
+}

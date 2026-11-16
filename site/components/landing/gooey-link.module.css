@@ -1,0 +1,57 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.link {
+  display: inline-flex;
+  border-radius: var(--radius-md);
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.link:focus-visible {
+  box-shadow: 0 0 0 2px var(--sr-bg), 0 0 0 4px var(--sr-action);
+}
+
+.goo {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.goo > span:first-of-type {
+  height: 44px;
+  padding-inline: 20px;
+  font-size: 15px;
+}
+
+.drop {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--button-primary-bg);
+  color: var(--button-primary-ink);
+  transition:
+    transform var(--duration-spring-pop) var(--ease-spring-pop),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.link:hover .drop,
+.link:focus-visible .drop {
+  transform: translateX(-20px) scale(0.92);
+  background: var(--button-primary-hover);
+}
+
+.link:focus-visible .goo > span:first-of-type {
+  background: var(--button-primary-hover);
+}
+
+.link:active .goo > span:first-of-type {
+  scale: var(--press-scale);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drop {
+    transition: none;
+  }
+}

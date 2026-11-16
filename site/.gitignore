@@ -1,0 +1,12 @@
+node_modules/
+.next/
+.source/
+out/
+next-env.d.ts
+*.tsbuildinfo
+# f.UI is PolyForm Strict: scripts/fui.mjs fetches it, it is never committed.
+components/fui/
+public/icons/
+# Copied by scripts/engine.mjs from packages/sariema-web/dist and assets/brand.
+public/engine/
+public/brand/
