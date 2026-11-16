@@ -46,6 +46,7 @@ pub struct Mesh {
 pub enum Shading {
     Lit,
     Unlit,
+    /// Lit, then added over what is behind; blocks nothing.
     Additive,
 }
 

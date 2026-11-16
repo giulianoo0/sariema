@@ -518,7 +518,8 @@ fn mesh_pipeline(
     kind: Kind,
     quality: &Quality,
 ) -> wgpu::RenderPipeline {
-    let lit = matches!(kind, Kind::LitOpaque | Kind::LitBlend);
+    // three.js lights a standard material under additive blending too.
+    let lit = matches!(kind, Kind::LitOpaque | Kind::LitBlend | Kind::Additive);
     // The largest square grid within the tap count.
     let pcf_side = quality.shadow_pcf_taps.isqrt().max(1);
     let constants = [

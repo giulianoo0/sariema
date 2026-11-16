@@ -155,6 +155,25 @@ fn additive_draw_adds_light_and_hides_nothing() {
 }
 
 #[test]
+fn additive_surface_is_lit() {
+    // three.js lights a standard material under additive blending, so in the
+    // dark it adds only its emissive light, which here is none.
+    let mut room = demo_room();
+    room.materials[3].shading = Shading::Additive;
+    room.lights.clear();
+    room.sun = None;
+    room.ambient = Ambient { sh9: [[0.0; 3]; 9] };
+    let mut h = headless(Quality::high(), &room);
+    let with = h.render(&camera_of(&room), 0.0);
+    h.renderer().set_draw_visible("box_blue", false);
+    let without = h.render(&camera_of(&room), 0.0);
+    assert_eq!(
+        compare_images(&with, &without).unwrap().max_channel_delta,
+        0
+    );
+}
+
+#[test]
 fn blended_draw_shows_what_is_behind() {
     let mut room = demo_room();
     room.materials[2].alpha = AlphaMode::Blend;
