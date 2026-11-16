@@ -369,20 +369,47 @@ fn truncated_glb_is_error() {
     }
 }
 
+/// The reference assets live outside the repository, with their names in
+/// `$SARIEMA_REFERENCE_ASSETS/reference.json`. This test reads its `kit`:
+///
+/// ```json
+/// { "kit": { "path": "<glb, relative to the directory>", "triangles": 0,
+///            "materials": 0, "images": 0, "emissive_material": "<name>",
+///            "emissive_texture": 0,
+///            "piece": { "name": "<piece>", "triangles": 0,
+///                       "state": "<state>", "state_triangles": 0 } } }
+/// ```
 #[test]
-#[ignore = "needs the reference assets in SARIEMA_REFERENCE_ASSETS"]
-fn loads_real_house_kit() {
-    let root = std::env::var_os("SARIEMA_REFERENCE_ASSETS").expect(
-        "set SARIEMA_REFERENCE_ASSETS to the reference assets directory, the one holding casa/",
+#[ignore = "needs SARIEMA_REFERENCE_ASSETS with a reference.json"]
+fn loads_the_reference_kit() {
+    let root = PathBuf::from(
+        std::env::var_os("SARIEMA_REFERENCE_ASSETS")
+            .expect("set SARIEMA_REFERENCE_ASSETS to a directory holding reference.json"),
     );
-    let kit = load_kit(&Path::new(&root).join("casa/kit_casa_pain.opt.glb")).unwrap();
-    // The sum of `tris_visiveis` in the game's pecas.json.
-    assert_eq!(kit.triangles(), 45_400);
-    assert_eq!(kit.materials.len(), 7);
-    assert_eq!(kit.images.len(), 5);
-    let screens = kit.materials.iter().find(|m| m.name == "MI_casa_telas");
-    assert_eq!(screens.unwrap().emissive_texture, Some(1));
-    let portal = kit.piece("buraco_portal").unwrap();
-    assert_eq!(triangles(&portal.primitives), 0);
-    assert_eq!(triangles(state(portal, "aberto")), 1_602);
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join("reference.json")).unwrap()).unwrap();
+    let want = &manifest["kit"];
+    let count = |key: &str| want[key].as_u64().unwrap() as usize;
+    let kit = load_kit(&root.join(want["path"].as_str().unwrap())).unwrap();
+    assert_eq!(kit.triangles(), count("triangles"));
+    assert_eq!(kit.materials.len(), count("materials"));
+    assert_eq!(kit.images.len(), count("images"));
+    let emissive = kit
+        .materials
+        .iter()
+        .find(|m| m.name == want["emissive_material"].as_str().unwrap());
+    assert_eq!(
+        emissive.unwrap().emissive_texture,
+        Some(count("emissive_texture"))
+    );
+    let piece = &want["piece"];
+    let p = kit.piece(piece["name"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        triangles(&p.primitives),
+        piece["triangles"].as_u64().unwrap() as usize
+    );
+    assert_eq!(
+        triangles(state(p, piece["state"].as_str().unwrap())),
+        piece["state_triangles"].as_u64().unwrap() as usize
+    );
 }

@@ -603,76 +603,43 @@ fn result_survives_format_roundtrip() {
     assert_eq!(decode(&encode(&r)).unwrap(), r);
 }
 
+/// The reference assets live outside the repository, with their names in
+/// `$SARIEMA_REFERENCE_ASSETS/reference.json`. This test builds each of its
+/// `rooms`, paths relative to that directory, and checks the counts:
+///
+/// ```json
+/// { "rooms": [ { "kit": "<glb>", "montagem": "<placement json>",
+///                "luz": "<lighting json>", "show": ["<room>", "..."],
+///                "triangles": 0, "lights": 0 } ] }
+/// ```
+///
+/// `lights` may be left out. Pick rooms whose instances start in a state
+/// other than their first, so the count proves states are applied.
 #[test]
-#[ignore = "needs the reference assets in SARIEMA_REFERENCE_ASSETS"]
-fn builds_real_quintal() {
-    let root = std::env::var_os("SARIEMA_REFERENCE_ASSETS").expect(
-        "set SARIEMA_REFERENCE_ASSETS to the reference assets directory, the one holding casa/",
+#[ignore = "needs SARIEMA_REFERENCE_ASSETS with a reference.json"]
+fn builds_the_reference_rooms() {
+    let root = PathBuf::from(
+        std::env::var_os("SARIEMA_REFERENCE_ASSETS")
+            .expect("set SARIEMA_REFERENCE_ASSETS to a directory holding reference.json"),
     );
-    let sala = with(
-        sala_min(),
-        json!({
-            "kit": "casa/kit_casa_pain.opt.glb",
-            "montagem": "casa/montagem.json",
-            "luz": "casa/luz.json",
-            "show": ["quintal"]
-        }),
-    );
-    let r = build_in(&sala, Path::new(&root)).unwrap();
-    // montagem.json declares 41 instances and 13 218 triangles in the quintal.
-    assert_eq!(r.stats.triangles, 13_218);
-    assert_eq!(r.lights.len(), 2);
-}
-
-#[test]
-#[ignore = "needs the reference assets in SARIEMA_REFERENCE_ASSETS"]
-fn real_cozinha_shows_instance_states() {
-    let root = std::env::var_os("SARIEMA_REFERENCE_ASSETS").expect(
-        "set SARIEMA_REFERENCE_ASSETS to the reference assets directory, the one holding casa/",
-    );
-    let sala = with(
-        sala_min(),
-        json!({
-            "kit": "casa/kit_casa_pain.opt.glb",
-            "montagem": "casa/montagem.json",
-            "luz": "casa/luz.json",
-            "show": ["cozinha"]
-        }),
-    );
-    let r = build_in(&sala, Path::new(&root)).unwrap();
-    // montagem.json declares 10 302. Its geladeira_real is `aberta` and its
-    // pacote_batata `caido`; as they start, the cozinha would have 10 148.
-    assert_eq!(r.stats.triangles, 10_302);
-}
-
-#[test]
-#[ignore = "needs the reference assets in SARIEMA_REFERENCE_ASSETS"]
-fn builds_whole_tree_house() {
-    let root = std::env::var_os("SARIEMA_REFERENCE_ASSETS").expect(
-        "set SARIEMA_REFERENCE_ASSETS to the reference assets directory, the one holding arvore/",
-    );
-    let show = [
-        "quarto_janela",
-        "tunel_entrada",
-        "salao",
-        "tunel_1",
-        "tunel_2",
-        "cozinha",
-        "sala_estar",
-        "tunel_alto",
-        "sala_mila",
-    ];
-    let sala = with(
-        sala_min(),
-        json!({
-            "kit": "arvore/kit_casa_arvore.opt.glb",
-            "montagem": "arvore/montagem.json",
-            "luz": "arvore/luz.json",
-            "show": show
-        }),
-    );
-    let r = build_in(&sala, Path::new(&root)).unwrap();
-    // montagem.json declares 46 013 triangles over the nine rooms, and luz.json 21 lights.
-    assert_eq!(r.stats.triangles, 46_013);
-    assert_eq!(r.lights.len(), 21);
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(root.join("reference.json")).unwrap()).unwrap();
+    let rooms = manifest["rooms"].as_array().unwrap();
+    assert!(!rooms.is_empty(), "reference.json lists no rooms");
+    for room in rooms {
+        let sala = with(
+            sala_min(),
+            json!({ "kit": room["kit"], "montagem": room["montagem"], "luz": room["luz"], "show": room["show"] }),
+        );
+        let r = build_in(&sala, &root).unwrap();
+        assert_eq!(
+            r.stats.triangles as u64,
+            room["triangles"].as_u64().unwrap(),
+            "{}",
+            room["show"]
+        );
+        if let Some(lights) = room["lights"].as_u64() {
+            assert_eq!(r.lights.len() as u64, lights, "{}", room["show"]);
+        }
+    }
 }
