@@ -6,6 +6,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# The second interpreter, for the M1 measurement (examples/m1.rs).
+tinywasm = ["sariema-vm/tinywasm"]
+
 [dependencies]
 glam.workspace = true
 sariema-core = { path = "../sariema-core" }
@@ -17,3 +21,7 @@ serde_json.workspace = true
 [dev-dependencies]
 jsonschema.workspace = true
 wat.workspace = true
+
+[[example]]
+name = "m1"
+required-features = ["tinywasm"]

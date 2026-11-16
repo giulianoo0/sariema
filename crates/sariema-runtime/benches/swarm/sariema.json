@@ -1,0 +1,6 @@
+{
+  "name": "swarm",
+  "assets_root": ".",
+  "rooms": {},
+  "game": { "logic": "game", "toolchain": "1.100.0" }
+}

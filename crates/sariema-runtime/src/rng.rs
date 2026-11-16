@@ -37,6 +37,11 @@ impl Pcg32 {
         (self.next_u32() >> 8) as f32 * (1.0 / (1u32 << 24) as f32)
     }
 
+    /// Uniform in [lo, hi).
+    pub fn range(&mut self, lo: f32, hi: f32) -> f32 {
+        lo + (hi - lo) * self.next_f32()
+    }
+
     pub fn state(&self) -> (u64, u64) {
         (self.state, self.increment)
     }

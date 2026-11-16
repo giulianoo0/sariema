@@ -127,6 +127,10 @@ impl<L: Logic> Simulation<L> {
         &self.logic
     }
 
+    pub fn logic_mut(&mut self) -> &mut L {
+        &mut self.logic
+    }
+
     pub fn steps(&self) -> u64 {
         self.step
     }
