@@ -20,6 +20,7 @@ the `sariema` command-line tool.
   [docs/actors.md](docs/actors.md)).
 - `crates/sariema-cli` — the `sariema` tool: `build`, `inspect`, `run --headless`
   and `test`, each with `--json`. `examples/demo` is a project it can build.
+- [docs/performance.md](docs/performance.md) — `sariema bench` and what a frame costs.
 
 ```sh
 cargo test --workspace
