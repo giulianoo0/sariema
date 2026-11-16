@@ -135,9 +135,6 @@ pub struct MusicSettings {
     pub stinger_out_s: f32,
     /// Seconds the held track takes to return after the stinger. Default 1.0.
     pub stinger_return_s: f32,
-    /// Tracks that may still be fading out at once. Beyond it the quietest
-    /// is cut, and counted. Default 2.
-    pub fading_tracks: u32,
 }
 
 impl Default for MusicSettings {
@@ -148,7 +145,6 @@ impl Default for MusicSettings {
             curve: Curve::EqualPower,
             stinger_out_s: 0.13,
             stinger_return_s: 1.0,
-            fading_tracks: 2,
         }
     }
 }
