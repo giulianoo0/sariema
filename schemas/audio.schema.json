@@ -20,7 +20,7 @@
         "required": ["name"],
         "properties": {
           "name": { "type": "string", "minLength": 1 },
-          "gain_db": { "type": "number", "default": 0 },
+          "gain_db": { "type": "number", "maximum": 24, "default": 0 },
           "target_lufs": {
             "type": ["number", "null"],
             "description": "Integrated loudness every sound of the bus is brought to before its own gain_db. Null or absent plays sounds at the level they were measured."
@@ -38,7 +38,7 @@
         "properties": {
           "file": { "type": "string", "pattern": "\\.(mp3|ogg|oga|wav|wave|MP3|OGG|WAV)$" },
           "bus": { "type": "string", "minLength": 1 },
-          "gain_db": { "type": "number", "default": 0 },
+          "gain_db": { "type": "number", "maximum": 24, "default": 0 },
           "stream": {
             "type": "boolean",
             "default": false,

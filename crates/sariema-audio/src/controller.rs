@@ -220,7 +220,9 @@ impl Audio {
     ) -> Result<VoiceId, AudioError> {
         let def = self.def(sound)?;
         let looped = params.looped.unwrap_or(def.loop_points.is_some());
-        let (bus, gain) = (def.bus as u16, def.gain * params.gain);
+        let bus = def.bus as u16;
+        let gain = finite("gain", def.gain * params.gain)?;
+        let pan = finite("pan", params.pan)?;
         let src = self.src(sound, looped)?;
         let voice = self.voice_id();
         let play = Play {
@@ -229,7 +231,7 @@ impl Audio {
             src,
             bus,
             gain,
-            pan: params.pan,
+            pan,
             looped,
             fade_in: self.frames(params.fade_in_s),
             curve: Curve::Linear,
@@ -252,6 +254,8 @@ impl Audio {
         pan: f32,
         ramp_s: f32,
     ) -> Result<(), AudioError> {
+        let gain = finite("gain", gain)?;
+        let pan = finite("pan", pan)?;
         let ramp = self.frames(ramp_s);
         self.send(
             at,
@@ -275,7 +279,7 @@ impl Audio {
             return Err(AudioError::Settings(format!("there is no bus {bus}")));
         }
         let ramp = self.frames(ramp_s);
-        let gain = db_to_gain(gain_db);
+        let gain = finite("gain", db_to_gain(gain_db))?;
         self.send(
             at,
             Op::SetBus {
@@ -288,13 +292,8 @@ impl Audio {
 
     pub fn set_master(&mut self, at: u64, gain_db: f32, ramp_s: f32) -> Result<(), AudioError> {
         let ramp = self.frames(ramp_s);
-        self.send(
-            at,
-            Op::SetMaster {
-                gain: db_to_gain(gain_db),
-                ramp,
-            },
-        )
+        let gain = finite("gain", db_to_gain(gain_db))?;
+        self.send(at, Op::SetMaster { gain, ramp })
     }
 
     /// Makes `sound` the music, looping unless `looped` says otherwise. The
@@ -520,6 +519,12 @@ fn validate(settings: &MixerSettings, sounds: &[SoundDef]) -> Result<Vec<Duck>, 
         if settings.bus(&bus.name) != Some(i) {
             return bad(format!("two buses are called {}", bus.name));
         }
+        if !db_to_gain(bus.gain_db).is_finite() {
+            return bad(format!("bus {} has a gain of {} dB", bus.name, bus.gain_db));
+        }
+    }
+    if let Some(s) = sounds.iter().find(|s| !s.gain.is_finite()) {
+        return bad(format!("sound {} has a gain of {}", s.name, s.gain));
     }
     let bus = |name: &str| {
         settings
@@ -550,4 +555,12 @@ fn validate(settings: &MixerSettings, sounds: &[SoundDef]) -> Result<Vec<Duck>, 
         ));
     }
     Ok(ducks)
+}
+
+fn finite(what: &'static str, value: f32) -> Result<f32, AudioError> {
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(AudioError::NotFinite(what))
+    }
 }

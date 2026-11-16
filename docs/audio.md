@@ -159,7 +159,9 @@ master's integrated loudness; the cues applied and any steal, refusal,
 underrun or late command.
 
 New error codes: `E_AUDIO_DECODE`, `E_AUDIO_UNKNOWN_SOUND`,
-`E_AUDIO_NOT_LOADED`, `E_AUDIO_QUEUE_FULL`, `E_AUDIO_CHECK`. A bad bank gives
+`E_AUDIO_NOT_LOADED`, `E_AUDIO_QUEUE_FULL`, `E_AUDIO_CHECK`, and
+`E_AUDIO_NOT_FINITE` for a gain or pan that is NaN or infinite (the schemas
+cap `gain_db` at +24, so a description cannot ask for one). A bad bank gives
 the pack codes (`E_PACK_BAD_MAGIC`, `E_PACK_VERSION`, `E_PACK_TRUNCATED`,
 `E_SCHEMA`).
 

@@ -351,3 +351,52 @@ fn settings_naming_a_missing_bus_are_rejected() {
     let error = sariema_audio::Audio::new(settings, sounds, sariema_audio::Feeding::Manual).err();
     assert!(matches!(error, Some(AudioError::Settings(why)) if why.contains("dialogue")));
 }
+
+#[test]
+fn gains_and_pans_that_are_not_numbers_never_reach_the_mixer() {
+    let settings = MixerSettings {
+        voices: 2,
+        steal: Steal::Quietest,
+        ..quiet_settings()
+    };
+    let defs = vec![Def::mono("a", EFFECTS, vec![0.1; 9600])];
+    let (mut audio, mut mixer) = setup(settings, defs);
+    let a = audio.sound("a").unwrap();
+    let code = |r: Result<(), AudioError>| r.err().map(|e| e.code());
+    let refused = Some("E_AUDIO_NOT_FINITE");
+    for (gain, pan) in [(f32::NAN, 0.0), (f32::INFINITY, 0.0), (1.0, f32::NAN)] {
+        let params = PlayParams {
+            gain,
+            pan,
+            ..PlayParams::default()
+        };
+        assert_eq!(code(audio.play(0, a, params).map(drop)), refused);
+    }
+    audio.play(0, a, PlayParams::default()).unwrap();
+    let v = audio.play(0, a, PlayParams::default()).unwrap();
+    assert_eq!(
+        code(audio.set_voice(10, v, f32::INFINITY, 0.0, 0.0)),
+        refused
+    );
+    assert_eq!(code(audio.set_voice(10, v, 1.0, f32::NAN, 0.0)), refused);
+    assert_eq!(code(audio.set_bus(10, EFFECTS, 800.0, 0.0)), refused);
+    assert_eq!(code(audio.set_master(10, f32::NAN, 0.0)), refused);
+    audio.play(20, a, PlayParams::default()).unwrap();
+    render(&mut audio, &mut mixer, 4800, 480);
+    assert_eq!(audio.stats().steals, 1);
+
+    let mut loud = Def::mono("loud", EFFECTS, vec![0.1; 96]);
+    loud.gain = f32::INFINITY;
+    let error = sariema_audio::Audio::new(
+        quiet_settings(),
+        vec![loud.build()],
+        sariema_audio::Feeding::Manual,
+    )
+    .err();
+    assert!(matches!(error, Some(AudioError::Settings(why)) if why.contains("loud")));
+    let mut settings = quiet_settings();
+    settings.buses[MUSIC].gain_db = 800.0;
+    let error =
+        sariema_audio::Audio::new(settings, Vec::new(), sariema_audio::Feeding::Manual).err();
+    assert!(matches!(error, Some(AudioError::Settings(why)) if why.contains("music")));
+}

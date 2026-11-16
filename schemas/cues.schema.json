@@ -27,7 +27,7 @@
               "do": { "const": "play" },
               "sound": { "type": "string" },
               "id": { "type": "string", "description": "Name later stop and voice cues use." },
-              "gain_db": { "type": "number" },
+              "gain_db": { "type": "number", "maximum": 24 },
               "pan": { "type": "number", "minimum": -1, "maximum": 1 },
               "loop": { "type": "boolean", "description": "Default: when the sound has loop points." },
               "fade_in_s": { "type": "number", "minimum": 0 },
@@ -51,7 +51,7 @@
               "t": true,
               "do": { "const": "voice" },
               "id": { "type": "string" },
-              "gain_db": { "type": "number" },
+              "gain_db": { "type": "number", "maximum": 24 },
               "pan": { "type": "number", "minimum": -1, "maximum": 1 },
               "ramp_s": { "type": "number", "minimum": 0 }
             }
@@ -92,7 +92,7 @@
               "t": true,
               "do": { "const": "bus" },
               "bus": { "type": "string" },
-              "gain_db": { "type": "number" },
+              "gain_db": { "type": "number", "maximum": 24 },
               "ramp_s": { "type": "number", "minimum": 0 }
             }
           },
@@ -102,7 +102,7 @@
             "properties": {
               "t": true,
               "do": { "const": "master" },
-              "gain_db": { "type": "number" },
+              "gain_db": { "type": "number", "maximum": 24 },
               "ramp_s": { "type": "number", "minimum": 0 }
             }
           },

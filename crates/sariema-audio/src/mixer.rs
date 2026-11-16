@@ -480,9 +480,9 @@ impl Mixer {
                 Steal::Refuse => None,
                 Steal::Oldest => candidates.min_by_key(|(_, v)| (v.priority, v.started)),
                 Steal::Quietest => candidates.min_by(|(_, a), (_, b)| {
-                    (a.priority, a.level(t))
-                        .partial_cmp(&(b.priority, b.level(t)))
-                        .expect("levels are finite")
+                    a.priority
+                        .cmp(&b.priority)
+                        .then(a.level(t).total_cmp(&b.level(t)))
                 }),
             };
             let Some((victim, _)) = victim else {
@@ -504,7 +504,7 @@ impl Mixer {
                     .iter()
                     .enumerate()
                     .filter(|(_, v)| v.stopping)
-                    .min_by(|(_, a), (_, b)| a.level(t).partial_cmp(&b.level(t)).expect("finite"))
+                    .min_by(|(_, a), (_, b)| a.level(t).total_cmp(&b.level(t)))
                     .map(|(i, _)| i);
                 let Some(slot) = quietest else {
                     self.refuse(play.src);

@@ -63,6 +63,9 @@ pub enum AudioError {
     NotLoaded(String),
     /// More commands are waiting than `MixerSettings::commands`.
     QueueFull,
+    /// A gain or pan that is NaN or infinite, or a gain in dB too large for
+    /// an `f32`.
+    NotFinite(&'static str),
     Settings(String),
     Device(String),
 }
@@ -75,6 +78,7 @@ impl AudioError {
             AudioError::UnknownSound(_) => "E_AUDIO_UNKNOWN_SOUND",
             AudioError::NotLoaded(_) => "E_AUDIO_NOT_LOADED",
             AudioError::QueueFull => "E_AUDIO_QUEUE_FULL",
+            AudioError::NotFinite(_) => "E_AUDIO_NOT_FINITE",
             AudioError::Settings(_) => "E_SCHEMA",
             AudioError::Device(_) => "E_DEVICE",
         }
@@ -91,6 +95,7 @@ impl fmt::Display for AudioError {
                 write!(f, "{name} is loaded on demand and was not preloaded")
             }
             AudioError::QueueFull => write!(f, "the mixer's command queue is full"),
+            AudioError::NotFinite(what) => write!(f, "the {what} is not a finite number"),
             AudioError::Settings(why) => write!(f, "invalid audio settings: {why}"),
             AudioError::Device(why) => write!(f, "audio device: {why}"),
         }

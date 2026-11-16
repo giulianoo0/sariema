@@ -164,6 +164,26 @@ fn errors_carry_stable_codes() {
     ]);
     assert_eq!((code, bad["error"]["code"].as_str()), (1, Some("E_SCHEMA")));
 
+    for cue in [
+        r#"{"do": "play", "sound": "music", "gain_db": 800}"#,
+        r#"{"do": "voice", "id": "v", "gain_db": 800}"#,
+        r#"{"do": "bus", "bus": "music", "gain_db": 800}"#,
+        r#"{"do": "master", "gain_db": 800}"#,
+    ] {
+        let cue = cue.replacen('{', r#"{"t": 0, "#, 1);
+        fs::write(&cues, format!(r#"{{"duration_s": 1, "cues": [{cue}]}}"#)).unwrap();
+        let (_, loud) = sariema(&[
+            "audio",
+            "render",
+            arg(&bank),
+            "--cues",
+            arg(&cues),
+            "-o",
+            arg(&out),
+        ]);
+        assert_eq!(loud["error"]["code"], "E_SCHEMA", "{cue}");
+    }
+
     fs::write(
         &cues,
         r#"{"duration_s": 1, "cues": [{"t": 0, "do": "play", "sound": "line"}]}"#,
@@ -213,6 +233,15 @@ fn errors_carry_stable_codes() {
     fs::write(&room, text).unwrap();
     let (_, decode) = sariema(&["audio", "build", arg(dir), "-o", arg(&bank)]);
     assert_eq!(decode["error"]["code"], "E_AUDIO_DECODE");
+
+    for loud in [
+        r#"{"buses": [{"name": "music", "gain_db": 800}], "sounds": {}}"#,
+        r#"{"buses": [{"name": "music"}], "sounds": {"m": {"file": "music.wav", "bus": "music", "gain_db": 800}}}"#,
+    ] {
+        fs::write(&room, loud).unwrap();
+        let (_, schema) = sariema(&["audio", "build", arg(dir), "-o", arg(&bank)]);
+        assert_eq!(schema["error"]["code"], "E_SCHEMA", "{loud}");
+    }
 
     fs::write(
         dir.join("sariema.json"),
