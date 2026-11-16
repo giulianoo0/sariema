@@ -17,6 +17,7 @@ the `sariema` command-line tool.
   image comparison.
 - `crates/sariema-cli` — the `sariema` tool: `build`, `inspect`, `run --headless`
   and `test`, each with `--json`. `examples/demo` is a project it can build.
+- `crates/sariema-runtime`, `crates/sariema-vm`, `crates/sariema-sdk` — games: the fixed-step simulation with cutscenes, the sandboxed WebAssembly machine, and the SDK the logic is written with (`docs/game-api.md`, `examples/hello-game`).
 
 ```sh
 cargo test --workspace

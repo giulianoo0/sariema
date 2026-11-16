@@ -247,7 +247,20 @@ fn settings() -> Vec<Value> {
             leaf => out.push((prefix.to_string(), leaf.clone())),
         }
     }
-    let defaults = serde_json::to_value(Settings::default()).expect("settings serialize");
+    // Every float setting is an f32; print the shortest decimal that reads back as it.
+    fn shorten(value: &mut Value) {
+        match value {
+            Value::Number(n) if n.is_f64() => {
+                let short = (n.as_f64().unwrap_or_default() as f32).to_string();
+                *value = serde_json::from_str(&short).unwrap_or(Value::Null);
+            }
+            Value::Array(items) => items.iter_mut().for_each(shorten),
+            Value::Object(fields) => fields.values_mut().for_each(shorten),
+            _ => {}
+        }
+    }
+    let mut defaults = serde_json::to_value(Settings::default()).expect("settings serialize");
+    shorten(&mut defaults);
     let mut out = Vec::new();
     leaves("", &defaults, &mut out);
     out.into_iter()
