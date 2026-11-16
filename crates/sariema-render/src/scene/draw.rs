@@ -3,23 +3,17 @@
 //! Recording the scene's draws: the background, then the room's visible
 //! draws in order, or their depth alone.
 
-use glam::Vec3;
 use sariema_core::Camera;
 use sariema_format::AlphaMode;
 
 use super::{Scene, Targets};
+use crate::cull;
 use crate::resources::Room;
 
 impl Scene {
     /// `keep_depth` stores the depth for post-processing; otherwise it is
     /// discarded, which spares tile-based GPUs writing it out.
-    pub fn draw(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        room: Option<&Room>,
-        camera: &Camera,
-        keep_depth: bool,
-    ) {
+    pub fn draw(&self, encoder: &mut wgpu::CommandEncoder, room: Option<&Room>, keep_depth: bool) {
         let Targets {
             multisampled,
             resolved,
@@ -57,13 +51,13 @@ impl Scene {
         let Some(room) = room else {
             return;
         };
-        let order = draw_order(room, camera.position);
-        if order.is_empty() {
+        if self.order.is_empty() {
             return;
         }
         room.bind_meshes(&mut pass);
         let mut current = None;
-        for i in order {
+        for &(_, _, i) in &self.order {
+            let i = i as usize;
             let draw = &room.draws[i];
             if current != Some(draw.kind) {
                 pass.set_pipeline(&self.pipelines[draw.kind.index()]);
@@ -88,7 +82,6 @@ impl Scene {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         room: Option<&Room>,
-        camera: &Camera,
         depth: &wgpu::TextureView,
     ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -99,17 +92,18 @@ impl Scene {
         let Some(room) = room else {
             return;
         };
-        let order: Vec<usize> = draw_order(room, camera.position)
-            .into_iter()
-            .filter(|&i| room.draws[i].kind.alpha != AlphaMode::Additive)
-            .collect();
-        if order.is_empty() {
+        let covering = || {
+            (self.order.iter())
+                .map(|&(_, _, i)| i as usize)
+                .filter(|&i| room.draws[i].kind.alpha != AlphaMode::Additive)
+        };
+        if covering().next().is_none() {
             return;
         }
         pass.set_bind_group(0, &self.frame_group, &[]);
         room.bind_meshes(&mut pass);
         let mut current = None;
-        for i in order {
+        for i in covering() {
             let double_sided = room.draws[i].kind.double_sided;
             if current != Some(double_sided) {
                 pass.set_pipeline(&self.depth_only[double_sided as usize]);
@@ -120,24 +114,40 @@ impl Scene {
     }
 }
 
-/// Visible draws: opaque front to back, then blended back to front, then additive.
-fn draw_order(room: &Room, eye: Vec3) -> Vec<usize> {
-    let mut order: Vec<(u8, f32, usize)> = room
-        .draws
-        .iter()
-        .enumerate()
-        .filter(|(_, d)| d.visible && d.index_count > 0)
-        .map(|(i, d)| {
-            let distance2 = eye.distance_squared(d.center());
-            match d.kind.alpha {
-                AlphaMode::Opaque => (0, distance2, i),
-                AlphaMode::Blend => (1, -distance2, i),
-                AlphaMode::Additive => (2, 0.0, i),
+impl Scene {
+    /// Orders the room's visible draws for `camera`: opaque front to back,
+    /// then blended back to front, then additive. With
+    /// `Quality::frustum_culling`, draws whose bounds lie outside the view
+    /// are left out; returns how many.
+    pub(super) fn order(&mut self, room: &Room, camera: &Camera) -> u32 {
+        let planes = cull::planes(camera.proj * camera.view);
+        let eye = camera.position;
+        let mut culled = 0;
+        self.order.clear();
+        for (i, d) in room.draws.iter().enumerate() {
+            if !d.visible || d.index_count == 0 {
+                continue;
             }
-        })
-        .collect();
-    order.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
-    order.into_iter().map(|(_, _, i)| i).collect()
+            if self.frustum_culling && !cull::box_visible(&planes, d.min, d.max) {
+                culled += 1;
+                continue;
+            }
+            let distance2 = eye.distance_squared(d.center());
+            self.order.push(match d.kind.alpha {
+                AlphaMode::Opaque => (0, distance2, i as u32),
+                AlphaMode::Blend => (1, -distance2, i as u32),
+                AlphaMode::Additive => (2, 0.0, i as u32),
+            });
+        }
+        // The index breaks ties, so an unstable sort, which needs no buffer,
+        // gives the order a stable one would.
+        self.order.sort_unstable_by(|a, b| {
+            (a.0.cmp(&b.0))
+                .then(a.1.total_cmp(&b.1))
+                .then(a.2.cmp(&b.2))
+        });
+        culled
+    }
 }
 
 fn depth_attachment(

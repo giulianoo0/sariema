@@ -21,6 +21,7 @@ use sariema_core::Camera;
 use sariema_format::{Look, RoomPack};
 
 mod cluster;
+mod cull;
 mod golden;
 mod headless;
 mod lights;
@@ -88,6 +89,8 @@ pub struct FrameStats {
     /// Full-screen passes after the scene, the composite included; effects
     /// the look turns off draw none.
     pub post_passes: u32,
+    /// Visible room draws left out because their bounds are outside the view.
+    pub draws_culled: u32,
 }
 
 /// The device and queue, counting what is created through them.
@@ -140,6 +143,7 @@ pub struct Renderer {
     shadows: Shadows,
     post: Post,
     room: Option<Room>,
+    visible: Visible,
     stats: FrameStats,
     warned: bool,
 }
@@ -188,6 +192,7 @@ impl Renderer {
             shadows,
             post,
             room: None,
+            visible: Visible::default(),
             stats: FrameStats::default(),
             warned: false,
         })
@@ -247,7 +252,7 @@ impl Renderer {
     /// configured output format.
     pub fn render(&mut self, camera: &Camera, time_s: f32, target: &wgpu::TextureView) {
         let room = self.room.as_ref();
-        let visible = cluster::visible_lights(
+        self.visible.find(
             room.map_or(&[][..], |r| &r.lights[..]),
             camera.view,
             camera.proj,
@@ -256,10 +261,10 @@ impl Renderer {
         );
         let shadows = self
             .shadows
-            .assign(&self.gpu, room, camera, &visible.lights);
+            .assign(&self.gpu, room, camera, &self.visible.lights);
         let stats = self
             .scene
-            .prepare(&self.gpu, room, camera, time_s, &visible, &shadows);
+            .prepare(&self.gpu, room, camera, time_s, &self.visible, shadows);
         if !self.warned && (stats.lights_dropped > 0 || stats.cluster_overflows > 0) {
             self.warned = true;
             log::warn!(
@@ -278,7 +283,7 @@ impl Renderer {
         }
         let keep_depth = self.post.reads_depth();
         self.scene
-            .draw(&mut encoder, self.room.as_ref(), camera, keep_depth);
+            .draw(&mut encoder, self.room.as_ref(), keep_depth);
         self.stats.post_passes = self.post.draw(&self.gpu, &mut encoder, camera, target);
         self.gpu.queue.submit([encoder.finish()]);
     }
@@ -292,7 +297,7 @@ impl Renderer {
             .prepare(&self.gpu, room, camera, 0.0, &none, &no_shadows);
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
         self.scene
-            .draw_depth(&mut encoder, self.room.as_ref(), camera, depth);
+            .draw_depth(&mut encoder, self.room.as_ref(), depth);
         self.gpu.queue.submit([encoder.finish()]);
     }
 

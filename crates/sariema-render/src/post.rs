@@ -7,7 +7,10 @@
 //! maps, grades and dithers into the target. An effect the look turns off
 //! draws none of its passes.
 
+use std::cell::Cell;
+
 use bytemuck::{Pod, Zeroable};
+use glam::Mat4;
 use sariema_core::Camera;
 use sariema_format::Look;
 use wgpu::BindingResource;
@@ -76,6 +79,8 @@ pub(crate) struct Post {
     bloom: bool,
     ao: bool,
     ao_radius_m: f32,
+    /// The projection the depth passes' uniforms were last written for.
+    uploaded_for: Cell<Option<Mat4>>,
 }
 
 /// What does not depend on the target's size.
@@ -138,6 +143,7 @@ impl Post {
             bloom: false,
             ao: false,
             ao_radius_m: 0.0,
+            uploaded_for: Cell::new(None),
         }
     }
 
@@ -155,6 +161,7 @@ impl Post {
             && radius.is_finite()
             && radius > 0.0;
         self.ao_radius_m = radius;
+        self.uploaded_for.set(None);
         let bright = BrightUniform {
             tint: look.tint,
             threshold: look.bloom_threshold,
@@ -188,7 +195,8 @@ impl Post {
         camera: &Camera,
         target: &wgpu::TextureView,
     ) -> u32 {
-        if self.reads_depth() {
+        if self.reads_depth() && self.uploaded_for.get() != Some(camera.proj) {
+            self.uploaded_for.set(Some(camera.proj));
             let projection = ProjectionUniform {
                 a: camera.proj.z_axis.z,
                 b: camera.proj.w_axis.z,
@@ -196,9 +204,9 @@ impl Post {
             };
             gpu.queue
                 .write_buffer(&self.stages.projection, 0, bytemuck::bytes_of(&projection));
-        }
-        if let Some(occlusion) = self.stages.occlusion.as_ref().filter(|_| self.ao) {
-            occlusion.prepare(gpu, camera, self.ao_radius_m);
+            if let Some(occlusion) = self.stages.occlusion.as_ref().filter(|_| self.ao) {
+                occlusion.prepare(gpu, camera, self.ao_radius_m);
+            }
         }
         let frame = &self.frame;
         // The bloom reads the 1/4 level before the miniature blur blurs it in place.

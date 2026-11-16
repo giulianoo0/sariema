@@ -83,20 +83,28 @@ fn allocate(atlas: u32, sun: bool, lights: usize, min: u32) -> (Option<Rect>, Ve
     (sun.filter(|r| r.size >= min), free.into())
 }
 
-/// The square for each rank, of `rects[rank]`'s size. A light keeps the
-/// square it `held` while that size holds; the others take free squares of
-/// their size.
-fn place(rects: &[Rect], held: &[Option<Rect>]) -> Vec<Rect> {
-    let mut taken = vec![false; rects.len()];
-    let mut placed: Vec<Option<usize>> = (held.iter().enumerate())
-        .map(|(rank, held)| {
-            let kept = rects.iter().position(|r| Some(*r) == *held)?;
-            (rects[kept].size == rects[rank].size).then(|| {
-                taken[kept] = true;
-                kept
-            })
+/// Room to place squares in without allocating.
+#[derive(Debug, Default)]
+struct Placing {
+    taken: Vec<bool>,
+    placed: Vec<Option<usize>>,
+}
+
+/// Fills `out` with the square for each rank, of `rects[rank]`'s size. A
+/// light keeps the square it `held` while that size holds; the others take
+/// free squares of their size.
+fn place(rects: &[Rect], held: &[Option<Rect>], scratch: &mut Placing, out: &mut Vec<Rect>) {
+    let Placing { taken, placed } = scratch;
+    taken.clear();
+    taken.resize(rects.len(), false);
+    placed.clear();
+    placed.extend(held.iter().enumerate().map(|(rank, held)| {
+        let kept = rects.iter().position(|r| Some(*r) == *held)?;
+        (rects[kept].size == rects[rank].size && !taken[kept]).then(|| {
+            taken[kept] = true;
+            kept
         })
-        .collect();
+    }));
     for (rank, square) in placed.iter_mut().enumerate() {
         if square.is_none() {
             let size = rects[rank].size;
@@ -107,7 +115,8 @@ fn place(rects: &[Rect], held: &[Option<Rect>]) -> Vec<Rect> {
             *square = Some(free);
         }
     }
-    placed.into_iter().flatten().map(|i| rects[i]).collect()
+    out.clear();
+    out.extend(placed.iter().flatten().map(|&i| rects[i]));
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -187,7 +196,16 @@ pub(crate) struct Shadows {
     stale: Vec<usize>,
     /// Bounds of the casters shown or hidden since the last frame.
     toggled: Vec<(Vec3, Vec3)>,
+    /// Bounds of the visible casters, if there are any; `None` until measured.
+    casters: Option<Option<(Vec3, Vec3)>>,
     drawn: u32,
+    assigned: Assigned,
+    ranked: Vec<(f32, usize)>,
+    held: Vec<Option<Rect>>,
+    placing: Placing,
+    placed: Vec<Rect>,
+    /// The frame's slots while they are compared with `slots`.
+    next: Vec<Slot>,
 }
 
 impl Shadows {
@@ -326,7 +344,14 @@ impl Shadows {
             slots: Vec::new(),
             stale: Vec::new(),
             toggled: Vec::new(),
+            casters: None,
             drawn: 0,
+            assigned: Assigned::default(),
+            ranked: Vec::new(),
+            held: Vec::new(),
+            placing: Placing::default(),
+            placed: Vec::new(),
+            next: Vec::new(),
         }
     }
 
@@ -361,6 +386,7 @@ impl Shadows {
         self.slots.clear();
         self.stale.clear();
         self.toggled.clear();
+        self.casters = None;
         self.room_bounds = bounds(room.draws.iter());
         let sun = room.sun.as_ref().is_some_and(|s| s.casts_shadow);
         let lights = room.lights.iter().filter(|l| l.casts_shadow).count();
@@ -375,37 +401,45 @@ impl Shadows {
 
     /// Gives slots to the sun and to the `visible` lights (indices into the
     /// room's lights) that cast shadows, ranked by [`priority`] at the
-    /// camera's focus, and uploads them.
+    /// camera's focus, and uploads them if they changed.
     pub fn assign(
         &mut self,
         gpu: &Gpu,
         room: Option<&Room>,
         camera: &Camera,
         visible: &[usize],
-    ) -> Assigned {
-        let mut assigned = Assigned {
-            lights: vec![None; visible.len()],
-            ..Default::default()
-        };
+    ) -> &Assigned {
+        let assigned = &mut self.assigned;
+        assigned.lights.clear();
+        assigned.lights.resize(visible.len(), None);
+        assigned.sun = None;
+        assigned.skipped = 0;
         self.stale.clear();
         let Some(room) = room else {
-            return assigned;
+            return &self.assigned;
         };
-        let mut ranked: Vec<(f32, usize)> = visible
-            .iter()
-            .enumerate()
-            .filter(|&(_, &i)| room.lights[i].casts_shadow)
-            .map(|(k, &i)| (priority(&room.lights[i], camera.focus), k))
-            .collect();
-        // Stable, so equal priorities keep the frame's order.
-        ranked.sort_by(|a, b| b.0.total_cmp(&a.0));
+        if !self.toggled.is_empty() || self.casters.is_none() {
+            self.casters = Some(bounds(
+                room.draws.iter().filter(|d| d.visible && d.casts_shadow),
+            ));
+        }
+        let ranked = &mut self.ranked;
+        ranked.clear();
+        ranked.extend(
+            (visible.iter().enumerate())
+                .filter(|&(_, &i)| room.lights[i].casts_shadow)
+                .map(|(k, &i)| (priority(&room.lights[i], camera.focus), k)),
+        );
+        // Equal priorities keep the frame's order.
+        ranked.sort_unstable_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
         let (sun_rect, rects) = &self.layout;
         let casting = ranked.len();
         ranked.truncate(rects.len());
         assigned.skipped = (casting - ranked.len()) as u32;
 
-        let mut slots = Vec::with_capacity(ranked.len() + 1);
-        let casters = bounds(room.draws.iter().filter(|d| d.visible && d.casts_shadow));
+        let slots = &mut self.next;
+        slots.clear();
+        let casters = self.casters.flatten();
         let sun = (sun_rect.zip(room.sun.as_ref()).zip(casters))
             .and_then(|((rect, sun), casters)| Some((rect, sun_view(sun, casters)?)));
         if let Some((rect, (view_proj, texel))) = sun {
@@ -417,16 +451,15 @@ impl Shadows {
                 texel,
             });
         }
-        let held: Vec<Option<Rect>> = (ranked.iter())
-            .map(|&(_, k)| {
-                let source = Source::Light(visible[k]);
-                self.slots
-                    .iter()
-                    .find(|s| s.source == source)
-                    .map(|s| s.rect)
-            })
-            .collect();
-        for (&(_, k), rect) in ranked.iter().zip(place(rects, &held)) {
+        self.held.clear();
+        self.held.extend(ranked.iter().map(|&(_, k)| {
+            let source = Source::Light(visible[k]);
+            (self.slots.iter())
+                .find(|s| s.source == source)
+                .map(|s| s.rect)
+        }));
+        place(rects, &self.held, &mut self.placing, &mut self.placed);
+        for (&(_, k), &rect) in ranked.iter().zip(&self.placed) {
             let (view_proj, texel) = light_view(&room.lights[visible[k]], self.room_bounds);
             assigned.lights[k] = Some(slots.len() as u32);
             slots.push(Slot {
@@ -437,17 +470,12 @@ impl Shadows {
             });
         }
 
-        self.stale = (0..slots.len())
-            .filter(|&i| {
-                !self.slots.contains(&slots[i])
-                    || self
-                        .toggled
-                        .iter()
-                        .any(|&b| slots[i].reaches(&room.lights, b))
-            })
-            .collect();
+        let (held, toggled) = (&self.slots, &self.toggled);
+        self.stale.extend((0..slots.len()).filter(|&i| {
+            !held.contains(&slots[i]) || toggled.iter().any(|&b| slots[i].reaches(&room.lights, b))
+        }));
         self.toggled.clear();
-        if slots != self.slots {
+        if *slots != self.slots {
             let views = strided(
                 slots.iter().map(|s| s.view_proj.to_cols_array_2d()),
                 self.view_stride as usize,
@@ -458,9 +486,9 @@ impl Shadows {
                 gpu.queue
                     .write_buffer(&self.gpu_slots, 0, bytemuck::cast_slice(&gpu_slots));
             }
-            self.slots = slots;
+            std::mem::swap(&mut self.slots, &mut self.next);
         }
-        assigned
+        &self.assigned
     }
 
     /// Draws the slots [`Shadows::assign`] found stale.
@@ -603,6 +631,12 @@ fn light_view(light: &Light, room_bounds: Option<(Vec3, Vec3)>) -> (Mat4, Vec2) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn place(rects: &[Rect], held: &[Option<Rect>]) -> Vec<Rect> {
+        let mut out = Vec::new();
+        super::place(rects, held, &mut Placing::default(), &mut out);
+        out
+    }
 
     fn overlap(a: Rect, b: Rect) -> bool {
         a.x < b.x + b.size && b.x < a.x + a.size && a.y < b.y + b.size && b.y < a.y + a.size

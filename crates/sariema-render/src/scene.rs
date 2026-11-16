@@ -8,7 +8,7 @@ use glam::Vec3;
 use sariema_core::Camera;
 use sariema_format::{AlphaMode, Shading};
 
-use crate::cluster::{self, Grid, Visible};
+use crate::cluster::{self, Bins, Grid, Visible};
 use crate::lights::{GPU_LIGHT_SIZE, GpuLight, gpu_light};
 use crate::resources::{DrawUniform, Room};
 use crate::shadow::{self, Assigned, Shadows};
@@ -151,6 +151,12 @@ pub(crate) struct Scene {
     targets: Targets,
     grid: Grid,
     max_lights_per_cluster: u32,
+    frustum_culling: bool,
+    packed: Vec<GpuLight>,
+    bins: Bins,
+    sent: Uploads,
+    /// The room's draws in view, as [`Scene::order`] sorted them.
+    order: Vec<(u8, f32, u32)>,
 }
 
 impl Scene {
@@ -267,6 +273,11 @@ impl Scene {
             targets: targets(gpu, width, height, msaa),
             grid: Grid::new(width, height, quality),
             max_lights_per_cluster: quality.max_lights_per_cluster,
+            frustum_culling: quality.frustum_culling,
+            packed: Vec::new(),
+            bins: Bins::default(),
+            sent: Uploads::default(),
+            order: Vec::new(),
             layouts,
             pipelines,
             background,
@@ -299,9 +310,10 @@ impl Scene {
     }
 
     /// Bins the frame's `visible` lights, with their `shadows`, for `camera`
-    /// and uploads them with the frame constants.
+    /// and uploads what changed since the last frame; then orders the room's
+    /// draws in view.
     pub fn prepare(
-        &self,
+        &mut self,
         gpu: &Gpu,
         room: Option<&Room>,
         camera: &Camera,
@@ -310,42 +322,75 @@ impl Scene {
         shadows: &Assigned,
     ) -> FrameStats {
         let lights = room.map_or(&[][..], |r| &r.lights[..]);
-        let packed: Vec<GpuLight> = (visible.lights.iter().zip(&shadows.lights))
-            .map(|(&i, &slot)| gpu_light(&lights[i], i, time_s, slot))
-            .collect();
+        self.packed.clear();
+        self.packed.extend(
+            (visible.lights.iter().zip(&shadows.lights))
+                .map(|(&i, &slot)| gpu_light(&lights[i], i, time_s, slot)),
+        );
         let (near, far) = cluster::light_depths(camera.proj, &visible.spheres);
         let grid = self.grid.sliced(near, far);
-        let bins = cluster::bin(
+        self.bins.fill(
             &grid,
             camera.proj,
             &visible.spheres,
             self.max_lights_per_cluster,
         );
+        let frame = frame_uniform(room, camera, &grid, shadows.sun);
         let queue = &gpu.queue;
-        for (buffer, bytes) in [
-            (&self.lights, bytemuck::cast_slice(&packed)),
-            (&self.cells, bytemuck::cast_slice(&bins.cells)),
-            (&self.indices, bytemuck::cast_slice(&bins.indices)),
-        ] {
-            if !bytes.is_empty() {
-                queue.write_buffer(buffer, 0, bytes);
-            }
-        }
-        queue.write_buffer(
-            &self.frame,
-            0,
-            bytemuck::bytes_of(&frame_uniform(room, camera, &grid, shadows.sun)),
+        let sent = &mut self.sent;
+        sent.lights
+            .write(queue, &self.lights, bytemuck::cast_slice(&self.packed));
+        sent.cells
+            .write(queue, &self.cells, bytemuck::cast_slice(&self.bins.cells));
+        sent.indices.write(
+            queue,
+            &self.indices,
+            bytemuck::cast_slice(&self.bins.indices),
         );
+        sent.frame
+            .write(queue, &self.frame, bytemuck::bytes_of(&frame));
+        let draws_culled = match room {
+            Some(room) => self.order(room, camera),
+            None => {
+                self.order.clear();
+                0
+            }
+        };
         FrameStats {
             lights_in_frustum: visible.in_frustum,
             lights_dropped: visible.dropped,
             clusters: grid.len(),
-            max_lights_overlapping_cluster: bins.max_overlapping,
-            cluster_overflows: bins.overflows,
+            max_lights_overlapping_cluster: self.bins.max_overlapping,
+            cluster_overflows: self.bins.overflows,
             shadows_skipped: shadows.skipped,
-            post_passes: 0,
+            draws_culled,
+            ..FrameStats::default()
         }
     }
+}
+
+/// The bytes last written to a buffer, so that a frame writes it only when
+/// they change: each write stages a copy that costs more than the comparison.
+#[derive(Default)]
+struct Sent(Vec<u8>);
+
+impl Sent {
+    fn write(&mut self, queue: &wgpu::Queue, buffer: &wgpu::Buffer, bytes: &[u8]) {
+        if bytes.is_empty() || self.0 == bytes {
+            return;
+        }
+        queue.write_buffer(buffer, 0, bytes);
+        self.0.clear();
+        self.0.extend_from_slice(bytes);
+    }
+}
+
+#[derive(Default)]
+struct Uploads {
+    lights: Sent,
+    cells: Sent,
+    indices: Sent,
+    frame: Sent,
 }
 
 fn frame_uniform(

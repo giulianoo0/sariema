@@ -50,6 +50,9 @@ pub struct Quality {
     /// Most texels of the occlusion target the radius may span; a surface
     /// near enough to the camera to need more gets a smaller radius.
     pub ao_max_radius_texels: u32,
+    /// Leaves out the room draws and actors whose bounds lie outside the
+    /// view. Off draws everything, for comparing images.
+    pub frustum_culling: bool,
 }
 
 impl Quality {
@@ -74,6 +77,7 @@ impl Quality {
             ao_divisor: 4,
             ao_blur_taps: 5,
             ao_max_radius_texels: 24,
+            frustum_culling: true,
         }
     }
 

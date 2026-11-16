@@ -137,5 +137,6 @@ pub fn frame_stats_json(stats: &FrameStats) -> Value {
         "cluster_overflows": stats.cluster_overflows,
         "shadows_skipped": stats.shadows_skipped,
         "post_passes": stats.post_passes,
+        "draws_culled": stats.draws_culled,
     })
 }
