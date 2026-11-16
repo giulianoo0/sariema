@@ -33,6 +33,13 @@ pub const LINE: u32 = u32::MAX;
 /// Tween ids from here up belong to the sequencer.
 pub const TWEENS: u32 = 0xFFFF_0000;
 
+/// The codes of a refused `cutscene_play`, reported in `rejected`.
+pub const CODES: [&str; 3] = [
+    "E_CUTSCENE_BUSY",
+    "E_CUTSCENE_UNKNOWN",
+    "E_CUTSCENE_UNBOUND",
+];
+
 // A macro rather than a function so the borrow of `run` stays per field.
 macro_rules! ctx {
     ($s:expr, $cutscene:expr, $run:expr, $skip:expr) => {

@@ -10,6 +10,7 @@ pub mod cutscene;
 pub mod ease;
 pub mod events;
 pub mod follow;
+pub mod game;
 pub mod hash;
 pub mod input;
 pub mod motion;

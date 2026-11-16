@@ -150,6 +150,11 @@ impl<L: Logic> Simulation<L> {
         self.reported.push(event);
     }
 
+    /// The events the logic was given at the last step.
+    pub fn delivered(&self) -> &EventQueue {
+        &self.head
+    }
+
     /// Messages for the host, oldest first.
     pub fn take_host(&mut self) -> Vec<HostOut> {
         std::mem::take(&mut self.state.outbox.host)
