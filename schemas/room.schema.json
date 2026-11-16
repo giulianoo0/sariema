@@ -60,7 +60,18 @@
         "real": { "type": "number" },
         "night": { "type": "number" },
         "tilt": { "type": "number" },
-        "focus": { "type": "number" }
+        "focus": { "type": "number" },
+        "ao_strength": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "How much light screen-space ambient occlusion takes from fully occluded creases; 0 turns it off. 0.5 when absent."
+        },
+        "ao_radius_m": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "How far, in metres, a surface occludes another. 0.5 when absent."
+        }
       }
     },
     "camera": {

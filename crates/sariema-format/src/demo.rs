@@ -138,6 +138,8 @@ pub fn demo_room() -> RoomPack {
             night: 0.0,
             tilt: 0.0,
             focus: 12.0,
+            ao_strength: Look::DEFAULT_AO_STRENGTH,
+            ao_radius_m: Look::DEFAULT_AO_RADIUS_M,
         },
         camera: RoomCamera {
             fov_y_deg: 40.0,

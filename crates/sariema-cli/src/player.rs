@@ -684,6 +684,8 @@ mod tests {
             night: 0.0,
             tilt: 0.0,
             focus: 8.0,
+            ao_strength: Look::DEFAULT_AO_STRENGTH,
+            ao_radius_m: Look::DEFAULT_AO_RADIUS_M,
         }
     }
 

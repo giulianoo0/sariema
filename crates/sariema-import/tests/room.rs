@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use common::write_glb;
 use sariema_format::{
-    AlphaMode, Draw, LightKind, Mobility, RoomPack, Shading, TextureFormat, decode, encode,
+    AlphaMode, Draw, LightKind, Look, Mobility, RoomPack, Shading, TextureFormat, decode, encode,
     eval_sh9,
 };
 use sariema_import::{ImportError, RoomSource, build_room};
@@ -567,6 +567,33 @@ fn schema_rejects_malformed_room_options() {
         let e = build_err(with(sala_min(), bad));
         assert_eq!(e.code(), "E_SCHEMA");
         assert!(e.to_string().contains(at), "{e}");
+    }
+}
+
+#[test]
+fn ambient_occlusion_is_optional_in_the_look() {
+    let r = build(sala_min());
+    assert_eq!(r.look.ao_strength, Look::DEFAULT_AO_STRENGTH);
+    assert_eq!(r.look.ao_radius_m, Look::DEFAULT_AO_RADIUS_M);
+    let mut sala = sala_min();
+    sala["look"]["ao_strength"] = json!(0.0);
+    sala["look"]["ao_radius_m"] = json!(0.25);
+    let r = build(sala);
+    assert_eq!((r.look.ao_strength, r.look.ao_radius_m), (0.0, 0.25));
+}
+
+#[test]
+fn schema_rejects_ambient_occlusion_out_of_range() {
+    for (key, value) in [
+        ("ao_strength", 1.2),
+        ("ao_strength", -0.1),
+        ("ao_radius_m", 0.0),
+    ] {
+        let mut sala = sala_min();
+        sala["look"][key] = json!(value);
+        let e = build_err(sala);
+        assert_eq!(e.code(), "E_SCHEMA");
+        assert!(e.to_string().contains(&format!("/look/{key}")), "{e}");
     }
 }
 

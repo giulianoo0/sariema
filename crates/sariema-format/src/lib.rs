@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 pub mod demo;
 
 pub const MAGIC: [u8; 4] = *b"SRMA";
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 
 const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
@@ -212,6 +212,28 @@ pub struct Look {
     pub night: f32,
     pub tilt: f32,
     pub focus: f32,
+    /// How much of the light screen-space ambient occlusion takes away from
+    /// fully occluded creases, in [0, 1]; 0 turns it off.
+    #[serde(default = "Look::default_ao_strength")]
+    pub ao_strength: f32,
+    /// How far, in metres, a surface occludes the light reaching another.
+    #[serde(default = "Look::default_ao_radius_m")]
+    pub ao_radius_m: f32,
+}
+
+impl Look {
+    /// What a room description that leaves `ao_strength` out gets.
+    pub const DEFAULT_AO_STRENGTH: f32 = 0.5;
+    /// What a room description that leaves `ao_radius_m` out gets.
+    pub const DEFAULT_AO_RADIUS_M: f32 = 0.5;
+
+    fn default_ao_strength() -> f32 {
+        Look::DEFAULT_AO_STRENGTH
+    }
+
+    fn default_ao_radius_m() -> f32 {
+        Look::DEFAULT_AO_RADIUS_M
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -315,8 +337,9 @@ pub fn encode(room: &RoomPack) -> Vec<u8> {
 }
 
 /// Decodes a pack and validates it: every mesh, material, texture and vertex
-/// index must exist, every draw's bounds must be finite with `min <= max`, and
-/// every light's importance finite and at least 0.
+/// index must exist, every draw's bounds must be finite with `min <= max`,
+/// every light's importance finite and at least 0, the look's `ao_strength`
+/// in [0, 1] and its `ao_radius_m` finite and positive.
 ///
 /// Never panics. A length read from the input cannot cause a large
 /// allocation: postcard only reports a sequence length as a size hint when
@@ -377,6 +400,19 @@ fn validate(room: &RoomPack) -> Result<(), FormatError> {
                 light.importance
             ));
         }
+    }
+    let Look {
+        ao_strength,
+        ao_radius_m,
+        ..
+    } = room.look;
+    if !(0.0..=1.0).contains(&ao_strength) {
+        return invalid(format!("look.ao_strength is {ao_strength}, not in [0, 1]"));
+    }
+    if !(ao_radius_m.is_finite() && ao_radius_m > 0.0) {
+        return invalid(format!(
+            "look.ao_radius_m is {ao_radius_m}, which is not finite or not positive"
+        ));
     }
     for (i, draw) in room.draws.iter().enumerate() {
         if draw.mesh as usize >= room.meshes.len() {

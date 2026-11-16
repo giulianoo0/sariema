@@ -24,6 +24,8 @@ fn real_noite() -> Look {
         bloom_strength: 0.45,
         tint: [0.9, 0.95, 1.0],
         exposure: 2.1,
+        ao_strength: Look::DEFAULT_AO_STRENGTH,
+        ao_radius_m: Look::DEFAULT_AO_RADIUS_M,
     }
 }
 
@@ -38,6 +40,8 @@ fn desenho_dia() -> Look {
         bloom_strength: 0.6,
         tint: [1.0, 0.96, 0.85],
         exposure: 2.0,
+        ao_strength: Look::DEFAULT_AO_STRENGTH,
+        ao_radius_m: Look::DEFAULT_AO_RADIUS_M,
     }
 }
 
@@ -382,13 +386,16 @@ fn blurred_levels_line_up_with_the_scene_at_odd_sizes() {
     );
 }
 
-/// Full-screen passes after the scene for a look of `tilt` and `bloom_strength`.
-fn post_passes(tilt: f32, bloom_strength: f32) -> u32 {
+/// Full-screen passes after the scene for a look of `tilt`, `bloom_strength`
+/// and `ao_strength`, at `quality`.
+fn post_passes(quality: Quality, tilt: f32, bloom_strength: f32, ao_strength: f32) -> u32 {
     let room = demo_room();
-    let mut h = headless(&room);
+    let mut h = Headless::new(W, H, quality).unwrap();
+    h.renderer().load_room(&room).unwrap();
     h.renderer().set_look(&with(|l| {
         l.tilt = tilt;
         l.bloom_strength = bloom_strength;
+        l.ao_strength = ao_strength;
     }));
     h.render(&camera_of(&room), 0.0);
     h.renderer().last_frame_stats().post_passes
@@ -397,17 +404,43 @@ fn post_passes(tilt: f32, bloom_strength: f32) -> u32 {
 #[test]
 fn effects_turned_off_draw_no_passes() {
     let levels = Quality::high().bloom_levels;
-    // Both effects start from the scene reduced to 1/2 and 1/4.
+    // The bloom and the miniature blur start from the scene reduced to 1/2 and 1/4.
     let reduce = 2;
     // Bright and blurred at 1/4, then reduced and blurred at each smaller level.
     let bloom = 2 + 3 * (levels - 1);
-    // The depth resolve and a two-pass blur at 1/2 and at 1/4.
-    let tilt = 1 + 2 + 2;
+    // One depth resolve serves the miniature blur and the occlusion.
+    let resolve = 1;
+    // A two-pass blur at 1/2 and at 1/4.
+    let tilt = 2 + 2;
+    // The estimate, then its two-pass blur.
+    let ao = 1 + 2;
     let composite = 1;
-    assert_eq!(post_passes(0.0, 0.0), composite);
-    assert_eq!(post_passes(0.0, 0.3), reduce + bloom + composite);
-    assert_eq!(post_passes(1.0, 0.0), reduce + tilt + composite);
-    assert_eq!(post_passes(1.0, 0.3), reduce + bloom + tilt + composite);
+    let passes = |tilt, bloom, ao| post_passes(Quality::high(), tilt, bloom, ao);
+    assert_eq!(passes(0.0, 0.0, 0.0), composite);
+    assert_eq!(passes(0.0, 0.3, 0.0), reduce + bloom + composite);
+    assert_eq!(passes(1.0, 0.0, 0.0), reduce + resolve + tilt + composite);
+    assert_eq!(
+        passes(1.0, 0.3, 0.0),
+        reduce + bloom + resolve + tilt + composite
+    );
+    assert_eq!(passes(0.0, 0.0, 0.5), resolve + ao + composite);
+    assert_eq!(
+        passes(1.0, 0.0, 0.5),
+        reduce + resolve + tilt + ao + composite
+    );
+    assert_eq!(
+        passes(1.0, 0.3, 0.5),
+        reduce + bloom + resolve + tilt + ao + composite
+    );
+    let no_occlusion = Quality {
+        ao_samples: 0,
+        ..Quality::high()
+    };
+    assert_eq!(post_passes(no_occlusion.clone(), 0.0, 0.0, 0.5), composite);
+    assert_eq!(
+        post_passes(no_occlusion, 1.0, 0.0, 0.5),
+        reduce + resolve + tilt + composite
+    );
 }
 
 #[test]
@@ -418,6 +451,10 @@ fn skipping_passes_does_not_change_the_image() {
         (
             with(|l| l.bloom_strength = 0.0),
             with(|l| l.bloom_strength = barely),
+        ),
+        (
+            with(|l| l.ao_strength = 0.0),
+            with(|l| l.ao_strength = barely),
         ),
     ];
     for (skipped, drawn) in pairs {

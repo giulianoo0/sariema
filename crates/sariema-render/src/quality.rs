@@ -2,7 +2,7 @@
 
 use crate::cluster::{MAX_CLUSTER_LIGHTS, MAX_INDEX_ENTRIES};
 use crate::lights::GPU_LIGHT_SIZE;
-use crate::post::MAX_BLUR_TAPS;
+use crate::post::{MAX_BLUR_TAPS, ao};
 use crate::scene::{DEPTH_FORMAT, HDR_FORMAT};
 use crate::shadow::{GPU_SHADOW_SIZE, view_stride};
 
@@ -38,6 +38,14 @@ pub struct Quality {
     /// Bilinear samples per direction of each post-processing blur, odd and
     /// at most 9; each one past the centre weighs two texels.
     pub blur_taps: u32,
+    /// Depth samples per texel of the screen-space ambient occlusion, at most
+    /// 32; 0 turns the occlusion off whatever the look asks.
+    pub ao_samples: u32,
+    /// The occlusion is computed at 1/`ao_divisor` of the target's size, 1 to 8.
+    pub ao_divisor: u32,
+    /// Texels per direction of the occlusion's depth-aware blur, odd and at
+    /// most 9. 5 and 9 average away the 4×4 pattern that turns its samples.
+    pub ao_blur_taps: u32,
 }
 
 impl Quality {
@@ -58,6 +66,9 @@ impl Quality {
             // miniature blur reach, which is part of the look.
             bloom_levels: 4,
             blur_taps: 5,
+            ao_samples: 6,
+            ao_divisor: 4,
+            ao_blur_taps: 5,
         }
     }
 
@@ -72,6 +83,7 @@ impl Quality {
             max_shadowed_lights: 12,
             shadow_min_slot_px: 128,
             shadow_pcf_taps: 4,
+            ao_samples: 8,
             ..Quality::low()
         }
     }
@@ -87,6 +99,9 @@ impl Quality {
             max_shadowed_lights: 32,
             shadow_min_slot_px: 256,
             shadow_pcf_taps: 16,
+            ao_samples: 12,
+            ao_divisor: 2,
+            ao_blur_taps: 9,
             ..Quality::medium()
         }
     }
@@ -121,6 +136,7 @@ impl Quality {
         let min_slots_per_side = (shadow_atlas_size / shadow_min_slot_px) as u64;
         let min_slots = (min_slots_per_side * min_slots_per_side).min(u32::MAX as u64) as u32;
         let blur_taps = self.blur_taps.clamp(1, MAX_BLUR_TAPS);
+        let ao_blur_taps = self.ao_blur_taps.clamp(1, ao::MAX_BLUR_TAPS);
         Quality {
             max_visible_lights: self.max_visible_lights.min(entries(GPU_LIGHT_SIZE)),
             max_lights_per_cluster,
@@ -135,13 +151,21 @@ impl Quality {
                 .min(entries(view_stride(limits).max(GPU_SHADOW_SIZE)).saturating_sub(1)),
             shadow_min_slot_px,
             bloom_levels: self.bloom_levels.max(1),
-            blur_taps: if blur_taps.is_multiple_of(2) {
-                blur_taps - 1
-            } else {
-                blur_taps
-            },
+            blur_taps: odd(blur_taps),
+            ao_samples: self.ao_samples.min(ao::MAX_SAMPLES),
+            ao_divisor: self.ao_divisor.clamp(1, ao::MAX_DIVISOR),
+            ao_blur_taps: odd(ao_blur_taps),
             ..self.clone()
         }
+    }
+}
+
+/// `taps`, or the odd count below it.
+fn odd(taps: u32) -> u32 {
+    if taps.is_multiple_of(2) {
+        taps - 1
+    } else {
+        taps
     }
 }
 
@@ -218,5 +242,32 @@ mod tests {
         }
         .clamped_to(&limits);
         assert_eq!(wide.blur_taps, MAX_BLUR_TAPS);
+    }
+
+    #[test]
+    fn occlusion_settings_are_held_to_usable_values() {
+        let limits = wgpu::Limits::default();
+        let greedy = Quality {
+            ao_samples: u32::MAX,
+            ao_divisor: u32::MAX,
+            ao_blur_taps: u32::MAX,
+            ..Quality::high()
+        }
+        .clamped_to(&limits);
+        assert_eq!(
+            (greedy.ao_samples, greedy.ao_divisor, greedy.ao_blur_taps),
+            (ao::MAX_SAMPLES, ao::MAX_DIVISOR, ao::MAX_BLUR_TAPS)
+        );
+        let meagre = Quality {
+            ao_samples: 0,
+            ao_divisor: 0,
+            ao_blur_taps: 4,
+            ..Quality::high()
+        }
+        .clamped_to(&limits);
+        assert_eq!(
+            (meagre.ao_samples, meagre.ao_divisor, meagre.ao_blur_taps),
+            (0, 1, 3)
+        );
     }
 }

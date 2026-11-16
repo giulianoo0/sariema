@@ -2,9 +2,10 @@
 
 //! Post-processing. The scene is reduced to 1/2 and 1/4 of its size; the
 //! bloom blurs the light past its threshold from 1/4 down, and the miniature
-//! blur resolves the depth and blurs the 1/2 and 1/4 levels. One pass then
-//! composites, tone maps, grades and dithers into the target. An effect the
-//! look turns off draws none of its passes.
+//! blur blurs the 1/2 and 1/4 levels. The miniature blur and the ambient
+//! occlusion share one resolve of the depth. One pass then composites, tone
+//! maps, grades and dithers into the target. An effect the look turns off
+//! draws none of its passes.
 
 use bytemuck::{Pod, Zeroable};
 use sariema_core::Camera;
@@ -13,6 +14,8 @@ use wgpu::BindingResource;
 
 use crate::scene::{HDR_FORMAT, Scene};
 use crate::{Gpu, Quality};
+
+pub(crate) mod ao;
 
 const VIEW_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 /// Past 9 taps the kernel's outer pairs weigh under 0.02% each; a wider blur
@@ -47,7 +50,7 @@ struct CompositeUniform {
     tilt: f32,
     focus: f32,
     srgb_target: u32,
-    _pad: u32,
+    ao_strength: f32,
 }
 
 struct Layouts {
@@ -67,9 +70,12 @@ struct Pass {
 pub(crate) struct Post {
     stages: Stages,
     frame: Frame,
-    /// Whether the last look turned the miniature blur and the bloom on.
+    /// Whether the last look turned the miniature blur, the bloom and the
+    /// occlusion on.
     tilt: bool,
     bloom: bool,
+    ao: bool,
+    ao_radius_m: f32,
 }
 
 /// What does not depend on the target's size.
@@ -82,8 +88,11 @@ struct Stages {
     /// The horizontal blur keeping only the light past the bloom threshold.
     bright_blur: wgpu::RenderPipeline,
     composite: wgpu::RenderPipeline,
+    /// `None` where the quality turns the occlusion off.
+    occlusion: Option<ao::Occlusion>,
     sampler: wgpu::Sampler,
-    /// Bound as the bloom while it is off.
+    /// Bound as the bloom while it is off, and as the occlusion where the
+    /// quality turns it off.
     black: wgpu::TextureView,
     kernel: wgpu::Buffer,
     projection: wgpu::Buffer,
@@ -107,10 +116,13 @@ struct Targets {
 
 /// The passes over the current size's textures, by the effect they serve.
 struct Frame {
-    /// The scene to 1/2, then 1/2 to 1/4; both effects start there.
+    /// The scene's depth to view depth, for the miniature blur and the occlusion.
+    resolve: Pass,
+    occlusion: Vec<Pass>,
+    /// The scene to 1/2, then 1/2 to 1/4; the bloom and the miniature blur start there.
     reduce: Vec<Pass>,
     bloom: Vec<Pass>,
-    /// The depth resolve, then the 1/2 and 1/4 levels blurred in place.
+    /// The 1/2 and 1/4 levels blurred in place.
     tilt: Vec<Pass>,
     composite: wgpu::BindGroup,
     composite_without_bloom: wgpu::BindGroup,
@@ -124,6 +136,8 @@ impl Post {
             stages,
             tilt: false,
             bloom: false,
+            ao: false,
+            ao_radius_m: 0.0,
         }
     }
 
@@ -135,6 +149,8 @@ impl Post {
     pub fn set_look(&mut self, gpu: &Gpu, look: &Look) {
         self.tilt = look.tilt > 0.0;
         self.bloom = look.bloom_strength > 0.0;
+        self.ao = self.stages.occlusion.is_some() && look.ao_strength > 0.0;
+        self.ao_radius_m = look.ao_radius_m;
         let bright = BrightUniform {
             tint: look.tint,
             threshold: look.bloom_threshold,
@@ -147,7 +163,7 @@ impl Post {
             tilt: look.tilt,
             focus: look.focus,
             srgb_target: self.stages.srgb_target as u32,
-            _pad: 0,
+            ao_strength: if self.ao { look.ao_strength } else { 0.0 },
         };
         let queue = &gpu.queue;
         queue.write_buffer(&self.stages.bright, 0, bytemuck::bytes_of(&bright));
@@ -156,7 +172,7 @@ impl Post {
 
     /// Whether the next frame reads the scene's depth.
     pub fn reads_depth(&self) -> bool {
-        self.tilt
+        self.tilt || self.ao
     }
 
     /// Records the passes the look needs, then the composite into `target`,
@@ -168,7 +184,7 @@ impl Post {
         camera: &Camera,
         target: &wgpu::TextureView,
     ) -> u32 {
-        if self.tilt {
+        if self.reads_depth() {
             let projection = ProjectionUniform {
                 a: camera.proj.z_axis.z,
                 b: camera.proj.w_axis.z,
@@ -177,9 +193,14 @@ impl Post {
             gpu.queue
                 .write_buffer(&self.stages.projection, 0, bytemuck::bytes_of(&projection));
         }
+        if let Some(occlusion) = self.stages.occlusion.as_ref().filter(|_| self.ao) {
+            occlusion.prepare(gpu, camera, self.ao_radius_m);
+        }
         let frame = &self.frame;
         // The bloom reads the 1/4 level before the miniature blur blurs it in place.
         let groups = [
+            (self.reads_depth(), std::slice::from_ref(&frame.resolve)),
+            (self.ao, &frame.occlusion),
             (self.tilt || self.bloom, &frame.reduce),
             (self.bloom, &frame.bloom),
             (self.tilt, &frame.tilt),
@@ -204,7 +225,7 @@ impl Stages {
     fn new(gpu: &Gpu, format: wgpu::TextureFormat, quality: &Quality) -> Stages {
         use wgpu::util::DeviceExt;
         let device = &gpu.device;
-        let module = |label, source: &str| {
+        let module = |label: &str, source: &str| {
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(label),
                 source: wgpu::ShaderSource::Wgsl(
@@ -226,7 +247,14 @@ impl Stages {
         );
         let downsample = module("downsample", include_str!("../shaders/downsample.wgsl"));
         let blur = module("blur", include_str!("../shaders/blur.wgsl"));
-        let composite = module("composite", include_str!("../shaders/composite.wgsl"));
+        let composite = module(
+            "composite",
+            &[
+                include_str!("../shaders/composite.wgsl"),
+                include_str!("../shaders/ao_surface.wgsl"),
+            ]
+            .concat(),
+        );
 
         let colour = wgpu::TextureSampleType::Float { filterable: true };
         let uniform = wgpu::BufferBindingType::Uniform;
@@ -269,6 +297,11 @@ impl Stages {
                     texture_entry(4, colour, false),
                     sampler_entry(5),
                     buffer_entry(6, uniform),
+                    texture_entry(
+                        7,
+                        wgpu::TextureSampleType::Float { filterable: false },
+                        false,
+                    ),
                 ],
             ),
         };
@@ -318,7 +351,15 @@ impl Stages {
             downsample: pipeline(gpu, &layouts.downsample, &downsample, "fs", &[], HDR_FORMAT),
             blur: [blur_pipeline(false, false), blur_pipeline(true, false)],
             bright_blur: blur_pipeline(false, true),
-            composite: pipeline(gpu, &layouts.composite, &composite, "fs", &[], format),
+            composite: pipeline(
+                gpu,
+                &layouts.composite,
+                &composite,
+                "fs",
+                &[("AO_DIVISOR", quality.ao_divisor as f64)],
+                format,
+            ),
+            occlusion: ao::Occlusion::new(gpu, quality, module),
             layouts,
             sampler: device.create_sampler(&wgpu::SamplerDescriptor {
                 label: Some("post"),
@@ -342,20 +383,37 @@ impl Stages {
 
     fn frame(&self, gpu: &Gpu, scene: &Scene) -> Frame {
         let t = Targets::new(gpu, scene, self.bloom_levels);
+        let (occlusion, ambient) = match &self.occlusion {
+            Some(o) => o.passes(gpu, &t.depth),
+            None => (Vec::new(), self.black.clone()),
+        };
+        let bloom = t.bloom.create_view(&Default::default());
         Frame {
+            resolve: self.pass(
+                gpu,
+                &self.resolve,
+                &self.layouts.resolve,
+                [
+                    BindingResource::TextureView(scene.depth()),
+                    self.projection.as_entire_binding(),
+                ],
+                &t.depth,
+            ),
+            occlusion,
             reduce: vec![
                 self.reduce(gpu, scene.output(), &t.half),
                 self.reduce(gpu, &t.half, &t.quarter),
             ],
             bloom: self.bloom_passes(gpu, &t),
-            tilt: self.tilt_passes(gpu, scene, &t),
-            composite: self.composite_group(
-                gpu,
-                scene,
-                &t,
-                &t.bloom.create_view(&Default::default()),
-            ),
-            composite_without_bloom: self.composite_group(gpu, scene, &t, &self.black),
+            tilt: [
+                self.blur(gpu, &self.blur[0], &t.half, &t.scratch[0], &t.half),
+                self.blur(gpu, &self.blur[0], &t.quarter, &t.scratch[1], &t.quarter),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            composite: self.composite_group(gpu, scene, &t, &bloom, &ambient),
+            composite_without_bloom: self.composite_group(gpu, scene, &t, &self.black, &ambient),
         }
     }
 
@@ -368,23 +426,6 @@ impl Stages {
             let scratch = &t.scratch[k as usize + 1];
             passes.extend(self.blur(gpu, &self.blur[0], &level(k), scratch, &level(k)));
         }
-        passes
-    }
-
-    fn tilt_passes(&self, gpu: &Gpu, scene: &Scene, t: &Targets) -> Vec<Pass> {
-        let resolve = self.pass(
-            gpu,
-            &self.resolve,
-            &self.layouts.resolve,
-            [
-                BindingResource::TextureView(scene.depth()),
-                self.projection.as_entire_binding(),
-            ],
-            &t.depth,
-        );
-        let mut passes = vec![resolve];
-        passes.extend(self.blur(gpu, &self.blur[0], &t.half, &t.scratch[0], &t.half));
-        passes.extend(self.blur(gpu, &self.blur[0], &t.quarter, &t.scratch[1], &t.quarter));
         passes
     }
 
@@ -433,6 +474,7 @@ impl Stages {
         scene: &Scene,
         t: &Targets,
         bloom: &wgpu::TextureView,
+        ambient: &wgpu::TextureView,
     ) -> wgpu::BindGroup {
         group(
             gpu,
@@ -445,6 +487,7 @@ impl Stages {
                 BindingResource::TextureView(bloom),
                 BindingResource::Sampler(&self.sampler),
                 self.params.as_entire_binding(),
+                BindingResource::TextureView(ambient),
             ],
         )
     }

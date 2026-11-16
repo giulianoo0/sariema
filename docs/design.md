@@ -148,8 +148,9 @@ One renderer for 2D and 3D, with shaders in WGSL.
   changes, plus projected blob shadows under actors.
 - A post-processing chain with per-room parameters: bloom from a chain of
   reduced resolutions; a miniature (tilt-shift) blur that reuses the same
-  chain and always changes smoothly; a filmic tone curve; colour grading; and
-  a final dither to avoid banding in gradients.
+  chain and always changes smoothly; screen-space ambient occlusion from the
+  depth at reduced resolution; a filmic tone curve; colour grading; and a
+  final dither to avoid banding in gradients.
 - Anti-aliasing is always on.
 - Scenery is merged per material at packaging time; repeated objects are
   instanced.

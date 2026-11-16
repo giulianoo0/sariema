@@ -92,6 +92,36 @@ fn bad_importance_is_invalid() {
 }
 
 #[test]
+fn bad_ambient_occlusion_is_invalid() {
+    for strength in [-0.1, 1.5, f32::NAN, f32::INFINITY] {
+        let mut r = demo_room();
+        r.look.ao_strength = strength;
+        assert!(
+            matches!(decode(&encode(&r)), Err(FormatError::Invalid(_))),
+            "strength {strength}"
+        );
+    }
+    for radius in [0.0, -0.5, f32::NAN, f32::INFINITY] {
+        let mut r = demo_room();
+        r.look.ao_radius_m = radius;
+        assert!(
+            matches!(decode(&encode(&r)), Err(FormatError::Invalid(_))),
+            "radius {radius}"
+        );
+    }
+}
+
+#[test]
+fn ambient_occlusion_limits_are_valid() {
+    for (strength, radius) in [(0.0, 0.01), (1.0, 50.0)] {
+        let mut r = demo_room();
+        r.look.ao_strength = strength;
+        r.look.ao_radius_m = radius;
+        assert_eq!(decode(&encode(&r)).unwrap(), r);
+    }
+}
+
+#[test]
 fn hemisphere_sh_matches_endpoints() {
     let sh = hemisphere_sh9([0.2, 0.4, 0.8], [0.1, 0.1, 0.0], 0.5);
     let up = eval_sh9(&sh, [0.0, 1.0, 0.0]);

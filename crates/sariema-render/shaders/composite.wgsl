@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// The frame's last pass: miniature blur, bloom, the Hejl-Burgess-Dawson
-// curve, the "real world" grade outside the drawn mask, and dither.
+// The frame's last pass: miniature blur, ambient occlusion, bloom, the
+// Hejl-Burgess-Dawson curve, the "real world" grade outside the drawn mask,
+// and dither. Appended with ao_surface.wgsl.
 
 struct Params {
     exposure: f32,
@@ -12,11 +13,13 @@ struct Params {
     focus: f32,
     // 1 when the target is an sRGB format that encodes on write.
     srgb_target: u32,
+    // Darkening of a fully occluded pixel; 0 when the occlusion is off.
+    ao_strength: f32,
 }
 
 @group(0) @binding(0) var scene: texture_2d<f32>;
-// View depth in metres, and the scene blurred at 1/2 and 1/4 of its size;
-// the three are read only when tilt > 0.
+// View depth in metres, read when tilt > 0 or ao_strength > 0, and the
+// scene blurred at 1/2 and 1/4 of its size, read when tilt > 0.
 @group(0) @binding(1) var view_depth: texture_2d<f32>;
 @group(0) @binding(2) var half_size: texture_2d<f32>;
 @group(0) @binding(3) var quarter_size: texture_2d<f32>;
@@ -25,6 +28,11 @@ struct Params {
 @group(0) @binding(4) var bloom: texture_2d<f32>;
 @group(0) @binding(5) var bilinear: sampler;
 @group(0) @binding(6) var<uniform> params: Params;
+// The fraction of ambient light left and the view depth it is for, at
+// 1/AO_DIVISOR of the size rounded up; read when ao_strength > 0.
+@group(0) @binding(7) var occlusion: texture_2d<f32>;
+
+override AO_DIVISOR: u32 = 4u;
 
 @fragment
 fn fs(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
@@ -41,6 +49,9 @@ fn fs(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
         c = mix(c, textureSampleLevel(half_size, bilinear, uv, 0.0), sqrt(blur));
         c = mix(c, textureSampleLevel(quarter_size, bilinear, uv, 0.0), blur * blur);
     }
+    if params.ao_strength > 0.0 {
+        c = vec4(c.rgb * mix(1.0, ambient_left(p), params.ao_strength), c.a);
+    }
     var glow = vec3(0.0);
     for (var i = 0u; i < textureNumLevels(bloom); i++) {
         glow += textureSampleLevel(bloom, bilinear, uv, f32(i)).rgb;
@@ -52,6 +63,29 @@ fn fs(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
         color = select(pow((color + 0.055) / 1.055, vec3(2.4)), color / 12.92, color <= vec3(0.04045));
     }
     return vec4(color, 1.0);
+}
+
+// The occlusion at `pixel` from its four nearest texels, weighted
+// bilinearly and by how near their depth is to the pixel's so that none
+// reaches across a silhouette; 1 when none lies on the pixel's surface.
+fn ambient_left(pixel: vec2<i32>) -> f32 {
+    let depth = textureLoad(view_depth, pixel, 0).r;
+    let at = (vec2<f32>(pixel) - f32(AO_DIVISOR / 2u)) / f32(AO_DIVISOR);
+    let first = vec2<i32>(floor(at));
+    let f = at - floor(at);
+    let last = vec2<i32>(textureDimensions(occlusion)) - 1;
+    var sum = 0.0;
+    var total = 0.0;
+    for (var i = 0; i < 4; i++) {
+        let corner = vec2(i & 1, i >> 1);
+        let t = clamp(first + corner, vec2(0), last);
+        let bilinear = select(1.0 - f, f, corner == vec2(1));
+        let texel = textureLoad(occlusion, t, 0).rg;
+        let w = bilinear.x * bilinear.y * same_surface(texel.y, depth);
+        sum += w * texel.x;
+        total += w;
+    }
+    return select(1.0, sum / total, total > 1e-3);
 }
 
 // Its output is already display-encoded.
