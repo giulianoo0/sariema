@@ -9,6 +9,9 @@ use sariema_render::{
     GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, compare_images, render_to_image,
 };
 
+mod common;
+use common::{downlevel, matches_golden_on_the_downlevel_path};
+
 const W: u32 = 960;
 const H: u32 = 540;
 const GOLDEN_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/golden");
@@ -526,6 +529,19 @@ fn matches_post_goldens() {
             img.save(&actual).unwrap();
             panic!("{name}: {d:?}; this render is in {actual}");
         }
+    }
+}
+
+#[test]
+fn matches_post_goldens_on_the_downlevel_path() {
+    for (name, look) in golden_looks() {
+        let mut room = demo_room();
+        room.look = look;
+        let mut h = Headless::new(W, H, downlevel()).unwrap();
+        h.renderer().load_room(&room).unwrap();
+        let img = h.render(&camera_of(&room), 0.0);
+        let label = format!("demo_post_{name}");
+        matches_golden_on_the_downlevel_path(&img, &label, &golden_path(name));
     }
 }
 

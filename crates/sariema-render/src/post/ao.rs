@@ -20,7 +20,7 @@ pub(crate) const MAX_SAMPLES: u32 = 32;
 pub(crate) const MAX_DIVISOR: u32 = 8;
 /// The fraction of ambient light left, 1 where nothing occludes, and the
 /// view depth it is for, which the blur and the composite compare.
-const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
+pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
 
 /// Mirrors `Params` in ao.wgsl.
 #[repr(C)]

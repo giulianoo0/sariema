@@ -28,8 +28,9 @@ the `sariema` command-line tool.
 - `crates/sariema-engine` — the engine as one: the runtime stepped with the
   collision, animation, sound and HUD modules wired in, deterministic on
   every platform ([docs/engine.md](docs/engine.md), `examples/climb`).
+- `crates/sariema-web` and `packages/sariema-web` — the engine in a web page or app WebView: WebAssembly on WebGPU or WebGL2, the typed `@sariema/web` package, browser tests and a probe page ([docs/web.md](docs/web.md)).
 - `crates/sariema-cli` — the `sariema` tool: `new`, `build`, `inspect`, `run`,
-  `test`, `check`, `physics-map`, `bench`, `audio`, `ui` and `api`, each with
+  `test`, `check`, `physics-map`, `bench`, `audio`, `ui`, `api` and `web`, each with
   `--json`. `examples/demo` is a room it can build; `examples/climb` is a
   game it builds, replays headless and plays in a window.
 - `tools/wasm-replay` — a game pack replayed in Node's WebAssembly, to show
@@ -46,6 +47,7 @@ Docs:
 - [docs/engine.md](docs/engine.md) — the order of a step and every hand-off between the modules.
 - [docs/game-api.md](docs/game-api.md) — the game module, the step, commands and events.
 - [docs/cutscenes.md](docs/cutscenes.md) — cutscenes, their rules and directing.
+- [docs/web.md](docs/web.md) — browsers and WebViews: render paths, textures, audio, building, testing and serving.
 
 Agent skills, for an agent building a game with the engine:
 
@@ -56,6 +58,7 @@ Agent skills, for an agent building a game with the engine:
 - [skills/sariema-actors](skills/sariema-actors/SKILL.md)
 - [skills/sariema-audio](skills/sariema-audio/SKILL.md)
 - [skills/sariema-ui](skills/sariema-ui/SKILL.md)
+- [skills/sariema-web](skills/sariema-web/SKILL.md)
 
 ```sh
 cargo test --workspace

@@ -23,11 +23,13 @@ use std::time::Duration;
 
 use sariema_core::Camera;
 use sariema_format::actor::ActorPack;
-use sariema_format::{Look, RoomPack};
+use sariema_format::{AlphaMode, Look, RoomPack};
 
 mod actors;
 mod cluster;
 mod cull;
+#[cfg(test)]
+mod glsl_es;
 mod golden;
 mod headless;
 mod lights;
@@ -36,13 +38,14 @@ mod quality;
 mod resources;
 mod scene;
 mod shadow;
+mod table;
 mod timing;
 pub mod ui;
 
 pub use actors::{ActorId, ActorModel, ActorState, DiscShadow};
 pub use golden::{GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, GoldenDiff, compare_images};
 pub use headless::{Headless, render_coverage, render_to_image};
-pub use quality::Quality;
+pub use quality::{Quality, RenderPath};
 pub use timing::{FrameTimings, PassTime};
 
 use actors::Actors;
@@ -128,9 +131,39 @@ pub(crate) struct Gpu {
     draws: Cell<u32>,
     uploaded: Cell<u64>,
     timer: Option<GpuTimer>,
+    /// Every shader's label and WGSL, for the GLSL ES check.
+    #[cfg(test)]
+    shaders: std::cell::RefCell<Vec<(String, String)>>,
 }
 
 impl Gpu {
+    pub(crate) fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Gpu {
+        Gpu {
+            device,
+            queue,
+            pipelines: Cell::new(0),
+            buffers: Cell::new(0),
+            passes: Cell::new(0),
+            draws: Cell::new(0),
+            uploaded: Cell::new(0),
+            timer: None,
+            #[cfg(test)]
+            shaders: Default::default(),
+        }
+    }
+
+    pub fn shader(&self, label: &str, source: String) -> wgpu::ShaderModule {
+        #[cfg(test)]
+        self.shaders
+            .borrow_mut()
+            .push((label.into(), source.clone()));
+        self.device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some(label),
+                source: wgpu::ShaderSource::Wgsl(source.into()),
+            })
+    }
+
     /// Counts a render pass about to begin and gives its timestamp writes
     /// while passes are being timed.
     pub fn pass(&self, label: &'static str) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
@@ -145,6 +178,38 @@ impl Gpu {
     pub fn write(&self, buffer: &wgpu::Buffer, bytes: &[u8]) {
         self.uploaded.set(self.uploaded.get() + bytes.len() as u64);
         self.queue.write_buffer(buffer, 0, bytes);
+    }
+
+    /// Writes `width × rows` texels from row `y` of `texture`, each row of
+    /// `bytes` starting `bytes_per_row` after the one before.
+    pub fn write_texture(
+        &self,
+        texture: &wgpu::Texture,
+        y: u32,
+        (width, rows): (u32, u32),
+        bytes_per_row: u32,
+        bytes: &[u8],
+    ) {
+        self.uploaded.set(self.uploaded.get() + bytes.len() as u64);
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytes,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: Some(rows),
+            },
+            wgpu::Extent3d {
+                width,
+                height: rows,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 
     pub fn pipeline(&self, desc: &wgpu::RenderPipelineDescriptor) -> wgpu::RenderPipeline {
@@ -198,9 +263,10 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// Fails when the device lacks fragment-stage storage buffers or cannot
-    /// hold a `width × height` target. `config.quality` is clamped to the
-    /// device; see [`Renderer::effective_quality`].
+    /// Fails when `config.quality` forces [`RenderPath::Full`] on a device
+    /// without fragment-stage storage buffers, or the device cannot hold a
+    /// `width × height` target. `config.quality` is clamped to the device and
+    /// its path chosen; see [`Renderer::effective_quality`].
     pub fn new(
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
@@ -208,9 +274,10 @@ impl Renderer {
     ) -> Result<Renderer, RenderError> {
         let limits = device.limits();
         let storage = limits.max_storage_buffers_per_shader_stage;
-        if storage < scene::STORAGE_BUFFERS {
+        if config.quality.path == RenderPath::Full && storage < scene::STORAGE_BUFFERS {
             return Err(RenderError::Device(format!(
-                "lighting needs {} storage buffers in the fragment stage and this device has {storage}",
+                "the full path needs {} storage buffers in the fragment stage and this device has {storage}; \
+                 RenderPath::Downlevel runs without",
                 scene::STORAGE_BUFFERS
             )));
         }
@@ -222,17 +289,8 @@ impl Renderer {
             )));
         }
         let quality = config.quality.clamped(&device);
-        let gpu = Gpu {
-            device,
-            queue,
-            pipelines: Cell::new(0),
-            buffers: Cell::new(0),
-            passes: Cell::new(0),
-            draws: Cell::new(0),
-            uploaded: Cell::new(0),
-            timer: None,
-        };
-        let layouts = scene::layouts(&gpu);
+        let gpu = Gpu::new(device, queue);
+        let layouts = scene::layouts(&gpu, quality.path);
         let shadows = Shadows::new(&gpu, &quality, &layouts.draw);
         let scene = Scene::new(&gpu, (width, height), &quality, layouts, &shadows);
         let post = Post::new(&gpu, config.output_format, &quality, &scene);
@@ -280,8 +338,8 @@ impl Renderer {
 
     /// Uploads an actor pack, creating the pipelines its materials need; the
     /// first pack also creates the shadow and disc pipelines. Fails on a
-    /// pack the device cannot hold, or a device without storage buffers in
-    /// vertex shaders.
+    /// pack the device cannot hold, or on the downlevel path, one whose
+    /// record outgrows `Quality::actor_uniform_rows`.
     pub fn load_actor(&mut self, pack: &ActorPack) -> Result<ActorModel, RenderError> {
         let layouts = self.scene.layouts();
         let view = &self.shadows.view_layout;
@@ -480,8 +538,9 @@ impl Renderer {
         self.scene
             .prepare(&self.gpu, room, camera, 0.0, &none, &no_shadows);
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
-        self.scene
-            .draw_depth(&mut encoder, self.room.as_ref(), depth);
+        let covers = |alpha| alpha != AlphaMode::Additive;
+        let room = self.room.as_ref();
+        (self.scene).draw_depth(&self.gpu, &mut encoder, room, None, depth, covers);
         self.gpu.queue.submit([encoder.finish()]);
     }
 
@@ -526,8 +585,8 @@ impl Renderer {
         if !device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
             return false;
         }
-        // The shadow atlas and the scene, then the post-processing chain.
-        let passes = 2 + self.post.most_passes();
+        // The shadow atlas, the scene and its depth pass, then the post-processing chain.
+        let passes = 2 + self.scene.depth_passes() + self.post.most_passes();
         self.gpu.timer = Some(GpuTimer::new(device, passes, frames.max(1)));
         true
     }
@@ -545,6 +604,12 @@ impl Renderer {
         &self.gpu
     }
 }
+
+/// The float formats the renderer draws into besides its target: the scene,
+/// view depth and the occlusion. WebGL2 renders into them only with
+/// `EXT_color_buffer_float`, which a device must have.
+pub const FLOAT_TARGETS: [wgpu::TextureFormat; 3] =
+    [scene::HDR_FORMAT, post::VIEW_DEPTH_FORMAT, post::ao::FORMAT];
 
 /// A device of `adapter` with every limit it has, and with ASTC sampling,
 /// adapter-specific format features and timestamp queries when it offers them.

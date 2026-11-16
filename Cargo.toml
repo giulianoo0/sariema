@@ -39,6 +39,11 @@ winit = "0.30.13"
 wasmi = { version = "2.0.0", default-features = false, features = ["std", "validate", "deterministic"] }
 wat = "1.263.0"
 tinywasm = { version = "=0.12.0-beta.0", default-features = false, features = ["std", "parser", "validate", "canonicalize-nans"] }
+js-sys = "0.3.107"
+naga = "30.0.2"
+wasm-bindgen = "=0.2.130"
+wasm-bindgen-futures = "0.4.80"
+web-sys = "0.3.107"
 
 # The ASTC encoder is C++ that cc builds at the package's opt-level; unoptimised it is about 100× slower.
 [profile.dev.package.ctt-astcenc]

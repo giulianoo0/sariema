@@ -33,6 +33,7 @@ mod simulate;
 mod spot_check;
 mod stage;
 mod ui;
+mod web;
 mod window;
 
 #[derive(Parser)]
@@ -123,6 +124,9 @@ enum Command {
     },
     /// Describe every command, event, enum, setting and error code of the game API.
     Api,
+    /// Build a project for the web package: every room and actor with ASTC
+    /// and with RGBA8 textures, its sound bank, and sariema-web.json.
+    Web(web::WebArgs),
 }
 
 #[derive(Args)]
@@ -229,6 +233,7 @@ fn main() -> ExitCode {
             toolchain,
         } => scaffold::new(dir, sdk.as_deref(), toolchain.as_deref()),
         Command::Api => api::api(),
+        Command::Web(args) => web::run(args),
     });
     output::emit(cli.json, outcome)
 }

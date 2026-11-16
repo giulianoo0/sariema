@@ -15,6 +15,9 @@ use sariema_render::{
     compare_images,
 };
 
+mod common;
+use common::{downlevel, matches_golden_on_the_downlevel_path};
+
 const W: u32 = 960;
 const H: u32 = 540;
 
@@ -104,6 +107,35 @@ fn the_arm_at_rest_matches_its_golden() {
 fn the_bent_arm_matches_its_golden() {
     let (mut h, _) = arm_scene(Quality::high(), 0.5);
     matches_golden(&h.render(&camera(), 0.0), "demo_actor_bent");
+}
+
+#[test]
+fn the_arm_matches_its_goldens_on_the_downlevel_path() {
+    for (time, name) in [(0.0, "demo_actor_rest"), (0.5, "demo_actor_bent")] {
+        let (mut h, _) = arm_scene(downlevel(), time);
+        matches_golden_on_the_downlevel_path(&h.render(&camera(), 0.0), name, &golden(name));
+    }
+}
+
+#[test]
+fn a_record_past_the_downlevel_uniform_is_refused() {
+    let pack = demo_arm();
+    let rows = 8 + pack.faces.len().div_ceil(2) as u32 + 4 * pack.joints.len() as u32;
+    let tight = Quality {
+        actor_uniform_rows: rows - 1,
+        ..downlevel()
+    };
+    let mut h = Headless::new(W, H, tight).unwrap();
+    match h.renderer().load_actor(&pack) {
+        Err(RenderError::Actor(why)) => assert!(why.contains("actor_uniform_rows"), "{why}"),
+        other => panic!("expected an actor error, got {other:?}"),
+    }
+    let fits = Quality {
+        actor_uniform_rows: rows,
+        ..downlevel()
+    };
+    let mut h = Headless::new(W, H, fits).unwrap();
+    h.renderer().load_actor(&pack).unwrap();
 }
 
 #[test]

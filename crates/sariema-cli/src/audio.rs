@@ -184,7 +184,7 @@ fn strict_failure(warnings: &[Warning]) -> Failure {
     Failure::new("E_AUDIO_CHECK", messages.join("; "))
 }
 
-fn build(dir: &Path, output: &Path, strict: bool) -> Result<Done, Failure> {
+pub(crate) fn build(dir: &Path, output: &Path, strict: bool) -> Result<Done, Failure> {
     let (project, base) = load_project(dir)?;
     let bank = sariema_audio::build(&project, &base)?;
     let warnings = check(&bank, &project.checks);

@@ -1,0 +1,21 @@
+{
+  "name": "@sariema/web",
+  "version": "0.1.0",
+  "description": "Mount the Sariema engine on a canvas in a web page or an app WebView.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node test/run.mjs",
+    "serve": "node scripts/serve.mjs"
+  },
+  "devDependencies": {
+    "binaryen": "132.0.0",
+    "playwright": "1.64.1",
+    "typescript": "7.0.2"
+  }
+}

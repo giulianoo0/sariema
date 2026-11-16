@@ -55,7 +55,7 @@ pub enum UiTextureFormat {
     Rgba8,
 }
 
-const SHADER: &str = r#"
+pub(crate) const SHADER: &str = r#"
 struct Globals { screen: vec2f, linear_out: u32, pad: u32 }
 @group(0) @binding(0) var<uniform> g: Globals;
 @group(1) @binding(0) var tex: texture_2d<f32>;

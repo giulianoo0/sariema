@@ -12,7 +12,8 @@ use crate::cluster::{self, Bins, Grid, Visible};
 use crate::lights::{GPU_LIGHT_SIZE, GpuLight, gpu_light};
 use crate::resources::{DrawUniform, Room};
 use crate::shadow::{self, Assigned, Shadows};
-use crate::{FrameStats, Gpu, Quality};
+use crate::table::{self, Table, Texel};
+use crate::{FrameStats, Gpu, Quality, RenderPath};
 
 mod draw;
 
@@ -21,10 +22,23 @@ pub(crate) const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth3
 /// Lights, cluster cells, light indices and shadow slots.
 pub(crate) const STORAGE_BUFFERS: u32 = 4;
 
-const SOURCE: &str = concat!(
-    include_str!("../shaders/common.wgsl"),
-    include_str!("../shaders/scene.wgsl")
-);
+/// common.wgsl and scene.wgsl with the per-frame arrays of `quality`'s path.
+pub(crate) fn source(quality: &Quality) -> String {
+    let tables = match quality.path {
+        RenderPath::Downlevel => format!(
+            "const TABLE_WIDTH: u32 = {}u;\n{}",
+            quality.data_texture_width,
+            include_str!("../shaders/tables_textures.wgsl")
+        ),
+        _ => include_str!("../shaders/tables_buffers.wgsl").to_string(),
+    };
+    [
+        include_str!("../shaders/common.wgsl"),
+        include_str!("../shaders/scene.wgsl"),
+        &tables,
+    ]
+    .concat()
+}
 
 /// Mirrors `Frame` in common.wgsl.
 #[repr(C)]
@@ -134,6 +148,10 @@ struct Targets {
     multisampled: Option<wgpu::TextureView>,
     resolved: wgpu::TextureView,
     depth: wgpu::TextureView,
+    /// The downlevel path's single-sample depth of the opaque draws, drawn
+    /// in a pass of its own where the scene is multisampled: OpenGL ES 3.0
+    /// cannot sample a multisampled texture.
+    single_depth: Option<wgpu::TextureView>,
 }
 
 pub(crate) struct Scene {
@@ -144,9 +162,9 @@ pub(crate) struct Scene {
     /// Indexed by `double_sided as usize`.
     depth_only: [wgpu::RenderPipeline; 2],
     frame: wgpu::Buffer,
-    lights: wgpu::Buffer,
-    cells: wgpu::Buffer,
-    indices: wgpu::Buffer,
+    lights: Table,
+    cells: Table,
+    indices: Table,
     frame_group: wgpu::BindGroup,
     targets: Targets,
     grid: Grid,
@@ -170,10 +188,7 @@ impl Scene {
         shadows: &Shadows,
     ) -> Scene {
         let device = &gpu.device;
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("scene"),
-            source: wgpu::ShaderSource::Wgsl(SOURCE.into()),
-        });
+        let module = gpu.shader("scene", source(quality));
         let pipeline_layout = |groups: &[&wgpu::BindGroupLayout]| {
             let groups: Vec<_> = groups.iter().copied().map(Some).collect();
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -239,22 +254,29 @@ impl Scene {
             })
         });
 
-        let storage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
         let frame = gpu.buffer(
             "frame",
             size_of::<FrameUniform>() as u64,
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
-        let lights = gpu.buffer(
+        let table = |label, capacity, texel| {
+            let width = quality.data_texture_width;
+            Table::new(gpu, label, quality.path, capacity, texel, width)
+        };
+        let lights = table(
             "lights",
             quality.max_visible_lights.max(1) as u64 * GPU_LIGHT_SIZE,
-            storage,
+            Texel::Four,
         );
-        let cells = gpu.buffer("cluster cells", quality.cluster_budget as u64 * 4, storage);
-        let indices = gpu.buffer(
+        let cells = table(
+            "cluster cells",
+            quality.cluster_budget as u64 * 4,
+            Texel::One,
+        );
+        let indices = table(
             "cluster light indices",
             quality.cluster_budget as u64 * quality.max_lights_per_cluster as u64 * 4,
-            storage,
+            Texel::One,
         );
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("material"),
@@ -267,9 +289,9 @@ impl Scene {
         });
         let entries = [
             entry(0, frame.as_entire_binding()),
-            entry(1, lights.as_entire_binding()),
-            entry(2, cells.as_entire_binding()),
-            entry(3, indices.as_entire_binding()),
+            entry(1, lights.binding()),
+            entry(2, cells.binding()),
+            entry(3, indices.binding()),
             entry(4, wgpu::BindingResource::Sampler(&sampler)),
         ];
         let frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -278,7 +300,7 @@ impl Scene {
             entries: &[entries.as_slice(), &shadows.group_entries()].concat(),
         });
         Scene {
-            targets: targets(gpu, width, height, msaa),
+            targets: targets(gpu, width, height, quality),
             grid: Grid::new(width, height, quality),
             max_lights_per_cluster: quality.max_lights_per_cluster,
             frustum_culling: quality.frustum_culling,
@@ -307,13 +329,20 @@ impl Scene {
         &self.targets.resolved
     }
 
-    /// The scene's depth, with `Quality::msaa` samples per pixel.
+    /// The depth the post-processing reads: the scene's, with
+    /// `Quality::msaa` samples per pixel, or the downlevel path's single-sample one.
     pub fn depth(&self) -> &wgpu::TextureView {
-        &self.targets.depth
+        let t = &self.targets;
+        t.single_depth.as_ref().unwrap_or(&t.depth)
+    }
+
+    /// Passes of their own that draw [`Scene::depth`] when the post-processing reads it.
+    pub fn depth_passes(&self) -> u32 {
+        self.targets.single_depth.is_some() as u32
     }
 
     pub fn resize(&mut self, gpu: &Gpu, width: u32, height: u32, quality: &Quality) {
-        self.targets = targets(gpu, width, height, quality.msaa);
+        self.targets = targets(gpu, width, height, quality);
         self.grid = Grid::new(width, height, quality);
     }
 
@@ -356,14 +385,31 @@ impl Scene {
         );
         let frame = frame_uniform(room, camera, &grid, shadows.sun);
         let sent = &mut self.sent;
-        sent.lights
-            .write(gpu, &self.lights, bytemuck::cast_slice(&self.packed));
-        sent.cells
-            .write(gpu, &self.cells, bytemuck::cast_slice(&self.bins.cells));
-        sent.indices
-            .write(gpu, &self.indices, bytemuck::cast_slice(&self.bins.indices));
-        sent.frame
-            .write(gpu, &self.frame, bytemuck::bytes_of(&frame));
+        let tables = [
+            (
+                &mut sent.lights,
+                &self.lights,
+                bytemuck::cast_slice(&self.packed),
+            ),
+            (
+                &mut sent.cells,
+                &self.cells,
+                bytemuck::cast_slice(&self.bins.cells),
+            ),
+            (
+                &mut sent.indices,
+                &self.indices,
+                bytemuck::cast_slice(&self.bins.indices),
+            ),
+        ];
+        for (sent, table, bytes) in tables {
+            if sent.changed(bytes) {
+                table.write(gpu, bytes);
+            }
+        }
+        if sent.frame.changed(bytemuck::bytes_of(&frame)) {
+            gpu.write(&self.frame, bytemuck::bytes_of(&frame));
+        }
         FrameStats {
             lights_in_frustum: visible.in_frustum,
             lights_dropped: visible.dropped,
@@ -382,13 +428,14 @@ impl Scene {
 struct Sent(Vec<u8>);
 
 impl Sent {
-    fn write(&mut self, gpu: &Gpu, buffer: &wgpu::Buffer, bytes: &[u8]) {
+    /// Whether `bytes`, if any, differ from those last given; it keeps them.
+    fn changed(&mut self, bytes: &[u8]) -> bool {
         if bytes.is_empty() || self.0 == bytes {
-            return;
+            return false;
         }
-        gpu.write(buffer, bytes);
         self.0.clear();
         self.0.extend_from_slice(bytes);
+        true
     }
 }
 
@@ -442,7 +489,7 @@ fn rgb_w(rgb: [f32; 3], w: f32) -> [f32; 4] {
     [rgb[0], rgb[1], rgb[2], w]
 }
 
-pub(crate) fn layouts(gpu: &Gpu) -> Layouts {
+pub(crate) fn layouts(gpu: &Gpu, path: RenderPath) -> Layouts {
     let device = &gpu.device;
     // `dynamic` is the binding size of a uniform bound with a dynamic offset.
     let uniform = |binding, visibility, dynamic: Option<u64>| wgpu::BindGroupLayoutEntry {
@@ -452,16 +499,6 @@ pub(crate) fn layouts(gpu: &Gpu) -> Layouts {
             ty: wgpu::BufferBindingType::Uniform,
             has_dynamic_offset: dynamic.is_some(),
             min_binding_size: dynamic.and_then(wgpu::BufferSize::new),
-        },
-        count: None,
-    };
-    let storage = |binding| wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::FRAGMENT,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: false,
-            min_binding_size: None,
         },
         count: None,
     };
@@ -488,9 +525,9 @@ pub(crate) fn layouts(gpu: &Gpu) -> Layouts {
             &[
                 [
                     uniform(0, both, None),
-                    storage(1),
-                    storage(2),
-                    storage(3),
+                    table::layout_entry(1, path),
+                    table::layout_entry(2, path),
+                    table::layout_entry(3, path),
                     wgpu::BindGroupLayoutEntry {
                         binding: 4,
                         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -499,7 +536,7 @@ pub(crate) fn layouts(gpu: &Gpu) -> Layouts {
                     },
                 ]
                 .as_slice(),
-                &shadow::layout_entries(),
+                &shadow::layout_entries(path),
             ]
             .concat(),
         ),
@@ -623,7 +660,8 @@ pub(crate) fn mesh_pipeline(
     })
 }
 
-fn targets(gpu: &Gpu, width: u32, height: u32, msaa: u32) -> Targets {
+fn targets(gpu: &Gpu, width: u32, height: u32, quality: &Quality) -> Targets {
+    let msaa = quality.msaa;
     let texture = |label, format, sample_count, usage| {
         gpu.device
             .create_texture(&wgpu::TextureDescriptor {
@@ -643,19 +681,17 @@ fn targets(gpu: &Gpu, width: u32, height: u32, msaa: u32) -> Targets {
             .create_view(&Default::default())
     };
     let attachment = wgpu::TextureUsages::RENDER_ATTACHMENT;
+    let sampled = attachment | wgpu::TextureUsages::TEXTURE_BINDING;
+    let single_depth = (quality.single_depth_pass())
+        .then(|| texture("scene depth, one sample", DEPTH_FORMAT, 1, sampled));
+    let depth_usage = match single_depth {
+        Some(_) => attachment,
+        None => sampled,
+    };
     Targets {
         multisampled: (msaa > 1).then(|| texture("scene msaa", HDR_FORMAT, msaa, attachment)),
-        resolved: texture(
-            "scene",
-            HDR_FORMAT,
-            1,
-            attachment | wgpu::TextureUsages::TEXTURE_BINDING,
-        ),
-        depth: texture(
-            "scene depth",
-            DEPTH_FORMAT,
-            msaa,
-            attachment | wgpu::TextureUsages::TEXTURE_BINDING,
-        ),
+        resolved: texture("scene", HDR_FORMAT, 1, sampled),
+        depth: texture("scene depth", DEPTH_FORMAT, msaa, depth_usage),
+        single_depth,
     }
 }

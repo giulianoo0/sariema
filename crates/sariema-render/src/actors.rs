@@ -2,8 +2,11 @@
 
 //! Actors: skinned packs lit and shadowed like the room. A loaded pack is an
 //! [`ActorModel`]; each [`ActorId`] shows one model with its own pose, face
-//! cells and part visibility. Every actor's frame data lives in one storage
-//! buffer, written once a frame, which each actor's bind group views.
+//! cells and part visibility. Every actor's frame data lives in one buffer,
+//! written once a frame, which each actor's bind group views: a storage
+//! buffer, or on the downlevel path a uniform buffer viewed
+//! `Quality::actor_uniform_rows` rows at a time, as Bevy and Filament bind
+//! their joint palettes where storage buffers are missing.
 
 use glam::{Mat3, Mat4, Vec2, Vec3};
 use sariema_core::Camera;
@@ -11,7 +14,7 @@ use sariema_format::actor::{ActorPack, FaceAtlas, SkinnedVertex};
 
 use crate::resources::{self, MaterialGpu};
 use crate::scene::{Kind, Layouts};
-use crate::{Gpu, Quality, RenderError, cull};
+use crate::{Gpu, Quality, RenderError, RenderPath, cull};
 
 mod draw;
 mod pipelines;
@@ -76,7 +79,6 @@ const ROW_BYTES: usize = 16;
 struct PartGpu {
     first_index: u32,
     index_count: u32,
-    base_vertex: i32,
     material: u32,
     kind: Kind,
     casts_shadow: bool,
@@ -84,6 +86,8 @@ struct PartGpu {
 
 struct ModelGpu {
     vertices: wgpu::Buffer,
+    /// Each mesh's indices already offset to its first vertex: WebGL2 draws
+    /// with no base vertex.
     indices: wgpu::Buffer,
     parts: Vec<PartGpu>,
     part_names: Vec<String>,
@@ -143,6 +147,9 @@ pub(crate) struct Actors {
     buffer: Option<wgpu::Buffer>,
     capacity_rows: usize,
     align_rows: usize,
+    /// Rows each bind group views on the downlevel path; `None` on the full
+    /// path, where it views the actor's own record.
+    uniform_rows: Option<usize>,
     dirty: bool,
     /// World bounds, before and after, of the casting actors changed since
     /// the shadows last looked.
@@ -156,6 +163,22 @@ pub(crate) struct Actors {
 
 impl Actors {
     pub fn new(gpu: &Gpu, quality: &Quality) -> Actors {
+        let limits = gpu.device.limits();
+        let uniform_rows =
+            (quality.path == RenderPath::Downlevel).then_some(quality.actor_uniform_rows as usize);
+        let (ty, align) = match uniform_rows {
+            Some(rows) => (
+                wgpu::BufferBindingType::Uniform,
+                (
+                    limits.min_uniform_buffer_offset_alignment,
+                    (rows * ROW_BYTES) as u64,
+                ),
+            ),
+            None => (
+                wgpu::BufferBindingType::Storage { read_only: true },
+                (limits.min_storage_buffer_offset_alignment, 0),
+            ),
+        };
         let layout = gpu
             .device
             .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -164,14 +187,14 @@ impl Actors {
                     binding: 1,
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        ty,
                         has_dynamic_offset: false,
-                        min_binding_size: None,
+                        min_binding_size: wgpu::BufferSize::new(align.1),
                     },
                     count: None,
                 }],
             });
-        let align = gpu.device.limits().min_storage_buffer_offset_alignment as usize;
+        let align = align.0 as usize;
         Actors {
             layout,
             pipelines: None,
@@ -181,6 +204,7 @@ impl Actors {
             buffer: None,
             capacity_rows: 0,
             align_rows: align.div_ceil(ROW_BYTES).max(1),
+            uniform_rows,
             dirty: false,
             moved: Vec::new(),
             frustum_culling: quality.frustum_culling,
@@ -200,7 +224,8 @@ impl Actors {
         pack: &ActorPack,
     ) -> Result<ActorModel, RenderError> {
         let limits = gpu.device.limits();
-        validate(pack, &limits, gpu.device.features()).map_err(RenderError::Actor)?;
+        validate(pack, &limits, gpu.device.features(), self.uniform_rows)
+            .map_err(RenderError::Actor)?;
         if self.pipelines.is_none() {
             self.pipelines = Some(Pipelines::new(
                 gpu,
@@ -208,16 +233,18 @@ impl Actors {
                 &self.layout,
                 shadow_view,
                 quality,
+                quality.single_depth_pass(),
             )?);
         }
         let pipelines = self.pipelines.as_mut().expect("created above");
         let mut vertices: Vec<SkinnedVertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
-        let mut ranges = Vec::with_capacity(pack.meshes.len());
+        let mut firsts = Vec::with_capacity(pack.meshes.len());
         for mesh in &pack.meshes {
-            ranges.push((indices.len() as u32, vertices.len() as i32));
+            firsts.push(indices.len() as u32);
+            let base = vertices.len() as u32;
             vertices.extend_from_slice(&mesh.vertices);
-            indices.extend_from_slice(&mesh.indices);
+            indices.extend(mesh.indices.iter().map(|i| base + i));
         }
         // A buffer cannot be empty.
         let vertex_bytes: &[u8] = bytemuck::cast_slice(&vertices);
@@ -258,12 +285,10 @@ impl Actors {
             .parts
             .iter()
             .map(|p| {
-                let (first_index, base_vertex) = ranges[p.mesh as usize];
                 let kind = Kind::of(&pack.materials[p.material as usize]);
                 PartGpu {
-                    first_index,
+                    first_index: firsts[p.mesh as usize],
                     index_count: pack.meshes[p.mesh as usize].indices.len() as u32,
-                    base_vertex,
                     material: p.material,
                     kind,
                     casts_shadow: p.casts_shadow && kind.is_opaque(),
@@ -331,13 +356,20 @@ impl Actors {
         Ok(ActorId(id as u32))
     }
 
-    /// A buffer twice the size needed, and every actor's view into it.
+    /// A buffer twice the size needed, and every actor's view into it. A
+    /// uniform view spans `uniform_rows` whatever the record's size, so the
+    /// buffer holds that many more past its last record.
     fn grow(&mut self, gpu: &Gpu) {
         self.capacity_rows = (self.rows.len() * 2).max(self.align_rows);
+        let usage = match self.uniform_rows {
+            Some(_) => wgpu::BufferUsages::UNIFORM,
+            None => wgpu::BufferUsages::STORAGE,
+        };
+        let rows = self.capacity_rows + self.uniform_rows.unwrap_or(0);
         self.buffer = Some(gpu.buffer(
             "actors",
-            (self.capacity_rows * ROW_BYTES) as u64,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            (rows * ROW_BYTES) as u64,
+            usage | wgpu::BufferUsages::COPY_DST,
         ));
         for id in 0..self.instances.len() {
             self.instances[id].group = Some(self.group(gpu, id));
@@ -346,7 +378,7 @@ impl Actors {
 
     fn group(&self, gpu: &Gpu, id: usize) -> wgpu::BindGroup {
         let instance = &self.instances[id];
-        let rows = self.models[instance.model].rows;
+        let rows = (self.uniform_rows).unwrap_or(self.models[instance.model].rows);
         gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("actor"),
             layout: &self.layout,
@@ -548,11 +580,13 @@ fn face_offset(face: &FaceAtlas, cell: u32) -> Vec2 {
     Vec2::from(face.origin) + at * Vec2::from(face.step)
 }
 
-/// Checks what the device must hold of `pack`, after the format's own checks.
+/// Checks what the device must hold of `pack`, after the format's own checks;
+/// `uniform_rows` is the downlevel path's record size.
 fn validate(
     pack: &ActorPack,
     limits: &wgpu::Limits,
     features: wgpu::Features,
+    uniform_rows: Option<usize>,
 ) -> Result<(), String> {
     sariema_format::actor::validate(pack)?;
     let vertices: usize = pack.meshes.iter().map(|m| m.vertices.len()).sum();
@@ -565,12 +599,20 @@ fn validate(
             limits.max_buffer_size
         ));
     }
-    let record =
-        ((HEADER_ROWS + pack.faces.len().div_ceil(2) + 4 * pack.joints.len()) * ROW_BYTES) as u64;
+    let rows = HEADER_ROWS + pack.faces.len().div_ceil(2) + 4 * pack.joints.len();
+    if let Some(most) = uniform_rows.filter(|&most| rows > most) {
+        return Err(format!(
+            "its {} joints and {} faces take {rows} rows a frame; the downlevel path binds \
+             Quality::actor_uniform_rows, {most}",
+            pack.joints.len(),
+            pack.faces.len()
+        ));
+    }
+    let record = (rows * ROW_BYTES) as u64;
     let binding = limits
         .max_storage_buffer_binding_size
         .min(limits.max_buffer_size);
-    if record > binding {
+    if uniform_rows.is_none() && record > binding {
         return Err(format!(
             "its {} joints take {record} bytes a frame; the device binds at most {binding}",
             pack.joints.len()

@@ -44,7 +44,6 @@ pub(crate) struct DrawItem {
     pub max: Vec3,
     pub index_count: u32,
     first_index: u32,
-    base_vertex: i32,
 }
 
 impl DrawItem {
@@ -66,6 +65,8 @@ pub(crate) struct Room {
     pub ambient: [[f32; 3]; 9],
     pub background: Background,
     vertices: wgpu::Buffer,
+    /// Each mesh's indices already offset to its first vertex: WebGL2 draws
+    /// with no base vertex.
     indices: wgpu::Buffer,
     draw_group: wgpu::BindGroup,
     draw_stride: u32,
@@ -82,11 +83,7 @@ impl Room {
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, i: usize) {
         let d = &self.draws[i];
         pass.set_bind_group(1, &self.draw_group, &[i as u32 * self.draw_stride]);
-        pass.draw_indexed(
-            d.first_index..d.first_index + d.index_count,
-            d.base_vertex,
-            0..1,
-        );
+        pass.draw_indexed(d.first_index..d.first_index + d.index_count, 0, 0..1);
     }
 }
 
@@ -99,9 +96,10 @@ pub(crate) fn upload(gpu: &Gpu, layouts: &Layouts, room: &RoomPack) -> Result<Ro
     let mut indices: Vec<u32> = Vec::new();
     let mut ranges = Vec::with_capacity(room.meshes.len());
     for mesh in &room.meshes {
-        ranges.push((indices.len() as u32, vertices.len() as i32));
+        let base = vertices.len() as u32;
+        ranges.push((indices.len() as u32, base));
         vertices.extend_from_slice(&mesh.vertices);
-        indices.extend_from_slice(&mesh.indices);
+        indices.extend(mesh.indices.iter().map(|i| base + i));
     }
     // A mirroring transform reverses the winding, so its draws use a copy of
     // the mesh's triangles wound the other way.
@@ -110,8 +108,13 @@ pub(crate) fn upload(gpu: &Gpu, layouts: &Layouts, room: &RoomPack) -> Result<Ro
         let mesh = d.mesh as usize;
         if mirrored_first[mesh].is_none() {
             mirrored_first[mesh] = Some(indices.len() as u32);
+            let base = ranges[mesh].1;
             let triangles = room.meshes[mesh].indices.as_chunks::<3>().0;
-            indices.extend(triangles.iter().flat_map(|&[a, b, c]| [a, c, b]));
+            indices.extend(
+                triangles
+                    .iter()
+                    .flat_map(|&[a, b, c]| [a, c, b].map(|i| base + i)),
+            );
         }
     }
     let vertices = gpu.buffer_with(
@@ -157,7 +160,7 @@ pub(crate) fn upload(gpu: &Gpu, layouts: &Layouts, room: &RoomPack) -> Result<Ro
         .draws
         .iter()
         .map(|d| {
-            let (first_index, base_vertex) = ranges[d.mesh as usize];
+            let first_index = ranges[d.mesh as usize].0;
             let first_index = match mirrored_first[d.mesh as usize] {
                 Some(first) if mirrors(&d.transform) => first,
                 _ => first_index,
@@ -174,7 +177,6 @@ pub(crate) fn upload(gpu: &Gpu, layouts: &Layouts, room: &RoomPack) -> Result<Ro
                 max: d.bounds.max.into(),
                 index_count: room.meshes[d.mesh as usize].indices.len() as u32,
                 first_index,
-                base_vertex,
             }
         })
         .collect();

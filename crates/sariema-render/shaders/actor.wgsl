@@ -16,6 +16,13 @@ fn vs_actor(v: SkinnedIn) -> VertexOut {
     return out;
 }
 
+// An opaque actor's depth, for the downlevel path's depth pass.
+@vertex
+fn vs_actor_depth(v: SkinnedIn) -> @builtin(position) vec4<f32> {
+    let world = actor_model() * skin(v.joints, v.weights) * vec4(v.position, 1.0);
+    return frame.view_proj * world;
+}
+
 // A face material shows the atlas cell the actor chose; others their own offset.
 fn uv_offset() -> vec2<f32> {
     if material.face < 0.0 {

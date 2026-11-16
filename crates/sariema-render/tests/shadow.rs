@@ -11,6 +11,9 @@ use sariema_render::{
     GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, compare_images, render_to_image,
 };
 
+mod common;
+use common::{downlevel, matches_golden_on_the_downlevel_path};
+
 const W: u32 = 960;
 const H: u32 = 540;
 const GOLDEN: &str = concat!(
@@ -407,6 +410,13 @@ fn sunny_demo_room() -> RoomPack {
 fn render_sunny() -> RgbaImage {
     let room = sunny_demo_room();
     render_to_image(&room, &camera_of(&room), W, H, 0.0).unwrap()
+}
+
+#[test]
+fn matches_shadow_golden_on_the_downlevel_path() {
+    let room = sunny_demo_room();
+    let img = render(downlevel(), &room);
+    matches_golden_on_the_downlevel_path(&img, "demo_shadow", GOLDEN);
 }
 
 #[test]

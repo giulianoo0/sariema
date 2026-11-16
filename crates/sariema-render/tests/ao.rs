@@ -7,6 +7,9 @@ use sariema_format::demo::demo_room;
 use sariema_format::{Aabb, Ambient, Draw, Look, RoomCamera, RoomPack, hemisphere_sh9};
 use sariema_render::{GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, compare_images};
 
+mod common;
+use common::{downlevel, matches_golden_on_the_downlevel_path};
+
 const W: u32 = 960;
 const H: u32 = 540;
 const GOLDEN: &str = concat!(
@@ -481,8 +484,18 @@ fn zero_strength_is_the_same_as_occlusion_off() {
 }
 
 fn render_golden_look() -> RgbaImage {
+    render_golden_look_with(Quality::high())
+}
+
+fn render_golden_look_with(quality: Quality) -> RgbaImage {
     let room = demo_with_strength(1.0);
-    headless(&room, Quality::high()).render(&camera_of(&room), 0.0)
+    headless(&room, quality).render(&camera_of(&room), 0.0)
+}
+
+#[test]
+fn matches_occlusion_golden_on_the_downlevel_path() {
+    let img = render_golden_look_with(downlevel());
+    matches_golden_on_the_downlevel_path(&img, "demo_ao", GOLDEN);
 }
 
 #[test]
