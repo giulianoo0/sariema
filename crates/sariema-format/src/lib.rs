@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "demo")]
 pub mod demo;
+pub mod script;
 
 pub const MAGIC: [u8; 4] = *b"SRMA";
 pub const VERSION: u32 = 5;
