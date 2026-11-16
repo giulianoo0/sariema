@@ -36,7 +36,10 @@ taffy = { version = "0.15.1", default-features = false, features = ["std", "taff
 tempfile = "3.27.0"
 wgpu = "30.0.2"
 winit = "0.30.13"
-wasmi = { version = "2.0.0", default-features = false, features = ["std", "validate", "deterministic"] }
+# auto-dispatch falls back to a loop where the target cannot tail-call (wasm32
+# without the tail-call proposal); the tail-call dispatch there recurses on
+# the native stack once per instruction run, so a long tick overflows it.
+wasmi = { version = "2.0.0", default-features = false, features = ["std", "validate", "deterministic", "auto-dispatch"] }
 wat = "1.263.0"
 tinywasm = { version = "=0.12.0-beta.0", default-features = false, features = ["std", "parser", "validate", "canonicalize-nans"] }
 js-sys = "0.3.107"
