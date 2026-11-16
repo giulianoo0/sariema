@@ -426,6 +426,14 @@ without `--headless` the pack plays in a window.
   go too. Refused with `E_HOLD_ACTOR` for an actor to hold and, the step
   after, `E_SOCKET_UNKNOWN` for a name the actor's model lacks; an actor
   drawn without a model keeps it where it stands.
+- **A lantern in the hand**: a room's spot light spawned as a `light`
+  entity, held at the hand, and aimed with `light_aim` at a point ahead in
+  its own frame (or the carrier's) lights where the hand points as the
+  actor walks and turns; the target is in metres of the world whatever the
+  scale of the frame. `at` NONE aims at a point of the world; a point light
+  has no aim. Hidden with `set_visible`, the light is off and takes no
+  place among the frame's lights, so a lantern switched off frees its place
+  for another light. `E_NOT_LIGHT` refuses an entity that is not a light.
 - **A clip's rate while it plays**: `clip_rate` plays the clip an actor
   plays at a new rate from the step it arrives, going on from the time it
   is at: no restart and no crossfade, where a second `play_clip` starts it

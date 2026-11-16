@@ -71,6 +71,8 @@ game!(Hello);
 | part of a room on or off | `RoomGroup { group, on }` (a sub-room); `PieceState { piece, state }` (0: as placed) |
 | a light or the look to change | `Tween { property: Property::Scene, var: id("<parameter>"), .. }` |
 | a room node or light to move | `ctx.spawn(Kind::RoomNode, id("<node>"))` or `Kind::Light`, then move the entity |
+| something in a hand | `Hold { entity, actor, socket: id("<socket>"), offset, keep }`; `actor: Entity::NONE` lets go where it is |
+| a lantern | a spot `Kind::Light` held at the hand, `LightAim { entity, at: <the light>, target: [0, 0, -4] }`; `SetVisible` off frees its light place |
 
 Test the logic natively with `sariema_sdk::testing::TestHost` (queue
 events, `Runner::run`, decode with `testing::commands`;
