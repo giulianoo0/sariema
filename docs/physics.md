@@ -16,7 +16,9 @@ The public API takes and returns `glam` types and plain ids. It depends on
 ### World, colliders and triggers
 
 A `World` is built from colliders (`World::new`, or `World::from_pack` for a
-collision pack). A collider is a box, sphere, capsule, convex hull or
+collision pack, which `World::build_from_pack` builds a share at a time:
+`WorldBuild::advance(units)` adds colliders, then folds, sorts and writes
+the tree over their parts, and gives the world `from_pack` would). A collider is a box, sphere, capsule, convex hull or
 two-sided triangle mesh, static or a platform whose pose the game sets each
 step. Colliders can be enabled and disabled (a door that opens, a piece that
 appears); a disabled one blocks nothing and the walkable grid around it is
@@ -126,8 +128,10 @@ times.
 Each actor collider shape gets a walkable grid, built on first use, or ahead
 by `World::prepare_paths` (for an actor) or `World::prepare_grid` (for a
 collider no actor has yet). `World::start_grid`, `grow_grid` and
-`finish_grid` build one a share of its columns at a time and give the grid
-`prepare_grid` would; a collider switched on or off meanwhile has it built
+`finish_grid` build one a share of its columns at a time, then join a share
+of its columns' floors into islands at a time, and give the grid
+`prepare_grid` would (an island is named by its lowest floor, whatever the
+shares); a collider switched on or off meanwhile has it built
 again, whole, when it is finished. The engine builds the grid of each body of
 a room's collision pack with the room's world, off the step
 (`docs/rooms.md`). Like Recast's heightfield, each grid

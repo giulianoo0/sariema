@@ -71,6 +71,22 @@ let hero = world.add_actor(spot_actor(&pack, pack.spot("start").unwrap()))?;
 world.prepare_paths(hero); // the walkable grid, built while loading rather than on the first MoveTo
 ```
 
+To build a large room's world within a frame budget instead, take it a
+share at a time; each share is bounded, and the result is the world and
+grid built whole:
+
+```rust
+let mut build = World::build_from_pack(Settings::default(), &pack);
+let mut world = loop {
+    if let Some(world) = build.advance(2048)? { break world; } // colliders, then the tree over their parts
+};
+let collider = sariema_physics::actor_collider(&pack.actors[0]);
+if let Some(mut grid) = world.start_grid(collider) {
+    while !world.grow_grid(&mut grid, 8) {} // columns, then the islands they join into
+    world.finish_grid(grid);
+}
+```
+
 Player input is a stick in world axes (x along +X, y along +Z), so north is
 `(0, -1)`; turn gamepad input by the camera's yaw first. It stays until
 replaced.

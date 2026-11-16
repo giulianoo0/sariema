@@ -9,7 +9,7 @@ use std::ops::Range;
 use glam::{Mat3, Vec3};
 
 use crate::actor::Probe;
-use crate::bvh::Bvh;
+use crate::bvh::{Bvh, BvhBuild};
 use crate::geom::ray_triangle;
 use crate::math::{Bounds, yaw_matrix};
 use crate::narrow::{Contact, Part, Round, Tolerance, contact, sweep};
@@ -114,77 +114,121 @@ pub(crate) struct NewCollider<'a> {
     pub platform: Option<Pose>,
 }
 
-impl Scene {
-    pub fn new(colliders: &[NewCollider], tol: Tolerance) -> Result<Scene, (usize, ShapeError)> {
-        let mut scene = Scene {
-            colliders: Vec::with_capacity(colliders.len()),
-            parts: Vec::new(),
-            part_collider: Vec::new(),
-            planes: Vec::new(),
-            bvh: Bvh::default(),
-            solid_bvh: Bvh::default(),
-            solids: Vec::new(),
-            platforms: Vec::new(),
-            tol,
-        };
-        for (i, c) in colliders.iter().enumerate() {
-            let parts = parts_of(&c.shape).map_err(|e| (i, e))?;
-            let id = scene.colliders.len() as u32;
-            let first = scene.parts.len() as u32;
-            let local = parts
-                .parts
-                .iter()
-                .fold(Bounds::EMPTY, |b, p| b.union(part_bounds(p)));
-            scene
-                .part_collider
-                .extend(std::iter::repeat_n(id, parts.parts.len()));
-            scene.parts.extend(parts.parts);
-            let first_plane = scene.planes.len() as u32;
-            scene.planes.extend(parts.planes);
-            let kinematic = c.platform.map(|pose| Kinematic {
-                pose,
-                rotation: yaw_matrix(pose.yaw),
-                local_bounds: local,
-                moved_from: None,
-            });
-            let bounds = match &kinematic {
-                Some(k) => transformed(local, k.rotation, k.pose.translation),
-                None => local,
-            };
-            if kinematic.is_some() {
-                scene.platforms.push(id);
-            } else if scene.planes.len() as u32 > first_plane {
-                scene.solids.push(id);
-            }
-            scene.colliders.push(Collider {
-                name: c.name.to_owned(),
-                enabled: c.enabled,
-                parts: first..scene.parts.len() as u32,
-                planes: first_plane..scene.planes.len() as u32,
-                bounds,
-                kinematic,
-            });
+/// A [`Scene`] built a share at a time: its colliders one by one
+/// ([`SceneBuild::add`]), then the trees over them ([`SceneBuild::advance`]).
+/// It gives the scene [`Scene::new`] gives.
+#[derive(Debug)]
+pub(crate) struct SceneBuild {
+    scene: Scene,
+    tree: Option<(Vec<Bounds>, BvhBuild)>,
+}
+
+impl SceneBuild {
+    pub fn new(tol: Tolerance, colliders: usize) -> SceneBuild {
+        SceneBuild {
+            scene: Scene {
+                colliders: Vec::with_capacity(colliders),
+                parts: Vec::new(),
+                part_collider: Vec::new(),
+                planes: Vec::new(),
+                bvh: Bvh::default(),
+                solid_bvh: Bvh::default(),
+                solids: Vec::new(),
+                platforms: Vec::new(),
+                tol,
+            },
+            tree: None,
         }
-        let static_parts: Vec<Bounds> = scene
+    }
+
+    /// Adds the next collider; none may follow the first
+    /// [`SceneBuild::advance`].
+    pub fn add(&mut self, c: &NewCollider) -> Result<(), ShapeError> {
+        let scene = &mut self.scene;
+        let parts = parts_of(&c.shape)?;
+        let id = scene.colliders.len() as u32;
+        let first = scene.parts.len() as u32;
+        let local = parts
             .parts
             .iter()
-            .zip(&scene.part_collider)
-            .map(|(p, &c)| {
-                if scene.colliders[c as usize].kinematic.is_some() {
-                    Bounds::EMPTY
-                } else {
-                    part_bounds(p)
-                }
-            })
-            .collect();
-        scene.bvh = Bvh::build(&static_parts);
+            .fold(Bounds::EMPTY, |b, p| b.union(part_bounds(p)));
+        scene
+            .part_collider
+            .extend(std::iter::repeat_n(id, parts.parts.len()));
+        scene.parts.extend(parts.parts);
+        let first_plane = scene.planes.len() as u32;
+        scene.planes.extend(parts.planes);
+        let kinematic = c.platform.map(|pose| Kinematic {
+            pose,
+            rotation: yaw_matrix(pose.yaw),
+            local_bounds: local,
+            moved_from: None,
+        });
+        let bounds = match &kinematic {
+            Some(k) => transformed(local, k.rotation, k.pose.translation),
+            None => local,
+        };
+        if kinematic.is_some() {
+            scene.platforms.push(id);
+        } else if scene.planes.len() as u32 > first_plane {
+            scene.solids.push(id);
+        }
+        scene.colliders.push(Collider {
+            name: c.name.to_owned(),
+            enabled: c.enabled,
+            parts: first..scene.parts.len() as u32,
+            planes: first_plane..scene.planes.len() as u32,
+            bounds,
+            kinematic,
+        });
+        Ok(())
+    }
+
+    /// Builds the tree over the static parts on, about `units` of its work;
+    /// the scene once it is built.
+    pub fn advance(&mut self, units: usize) -> Option<Scene> {
+        let scene = &self.scene;
+        let (parts, tree) = self.tree.get_or_insert_with(|| {
+            let parts: Vec<Bounds> = (scene.parts.iter().zip(&scene.part_collider))
+                .map(|(p, &c)| {
+                    if scene.colliders[c as usize].kinematic.is_some() {
+                        Bounds::EMPTY
+                    } else {
+                        part_bounds(p)
+                    }
+                })
+                .collect();
+            let tree = BvhBuild::new(parts.len());
+            (parts, tree)
+        });
+        if !tree.advance(parts, units) {
+            return None;
+        }
+        let (parts, tree) = self.tree.take()?;
+        let empty = SceneBuild::new(self.scene.tol, 0).scene;
+        let mut scene = std::mem::replace(&mut self.scene, empty);
+        scene.bvh = tree.finish(&parts);
         let solid_bounds: Vec<Bounds> = scene
             .solids
             .iter()
             .map(|&c| scene.colliders[c as usize].bounds)
             .collect();
         scene.solid_bvh = Bvh::build(&solid_bounds);
-        Ok(scene)
+        Some(scene)
+    }
+}
+
+impl Scene {
+    pub fn new(colliders: &[NewCollider], tol: Tolerance) -> Result<Scene, (usize, ShapeError)> {
+        let mut build = SceneBuild::new(tol, colliders.len());
+        for (i, c) in colliders.iter().enumerate() {
+            build.add(c).map_err(|e| (i, e))?;
+        }
+        loop {
+            if let Some(scene) = build.advance(usize::MAX) {
+                return Ok(scene);
+            }
+        }
     }
 
     pub fn static_bounds(&self) -> Bounds {

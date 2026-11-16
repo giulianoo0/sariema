@@ -153,15 +153,19 @@ impl Actor {
     }
 }
 
+pub(crate) fn tolerance(settings: &Settings) -> Tolerance {
+    Tolerance {
+        contact: settings.collision.contact_tolerance,
+        sweep: settings.collision.sweep_tolerance,
+        iterations: settings.collision.sweep_iterations,
+        tangent: settings.collision.tangent_tolerance,
+        flat: libm::cosf(settings.collision.flat_edge_deg.to_radians()),
+    }
+}
+
 impl World {
     pub fn new(settings: Settings, colliders: &[ColliderDesc]) -> Result<World, BuildError> {
-        let tol = Tolerance {
-            contact: settings.collision.contact_tolerance,
-            sweep: settings.collision.sweep_tolerance,
-            iterations: settings.collision.sweep_iterations,
-            tangent: settings.collision.tangent_tolerance,
-            flat: libm::cosf(settings.collision.flat_edge_deg.to_radians()),
-        };
+        let tol = tolerance(&settings);
         let new: Vec<NewCollider> = colliders
             .iter()
             .map(|c| NewCollider {
@@ -175,7 +179,11 @@ impl World {
             name: colliders[i].name.to_owned(),
             error,
         })?;
-        Ok(World {
+        Ok(World::with_scene(settings, scene))
+    }
+
+    pub(crate) fn with_scene(settings: Settings, scene: Scene) -> World {
+        World {
             derived: Derived::new(&settings),
             settings,
             scene,
@@ -190,7 +198,7 @@ impl World {
             order: Vec::new(),
             pushes: Vec::new(),
             inside: Vec::new(),
-        })
+        }
     }
 
     pub fn settings(&self) -> &Settings {
@@ -325,7 +333,8 @@ impl World {
         })
     }
 
-    /// Builds up to `columns` more columns of `build`; true once all are.
+    /// Builds up to `columns` more columns of `build`, then labels the
+    /// islands of as many; true once all are.
     pub fn grow_grid(&self, build: &mut GridBuild, columns: usize) -> bool {
         build.grid.grow(&self.nav_ctx(), &mut build.layers, columns)
     }
@@ -342,7 +351,7 @@ impl World {
             return self.build_nav(collider);
         }
         let mut grid = build.grid;
-        grid.finish(&self.nav_ctx());
+        grid.finish();
         self.navs.push(grid);
         self.navs.len() - 1
     }
@@ -1194,5 +1203,59 @@ impl Fnv {
         self.f32(v.x);
         self.f32(v.y);
         self.f32(v.z);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use glam::{Mat3, Vec3};
+
+    use super::*;
+
+    /// Two 6 m floors 1 m apart: two islands.
+    fn two_floors() -> World {
+        let floor = |name, x: f32| ColliderDesc {
+            name,
+            shape: Shape::Box {
+                center: Vec3::new(x, -0.1, 0.0),
+                half_extents: Vec3::new(3.0, 0.1, 3.0),
+                rotation: Mat3::IDENTITY,
+            },
+            enabled: true,
+            platform: None,
+        };
+        World::new(
+            Settings::default(),
+            &[floor("west", -3.5), floor("east", 3.5)],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_grid_is_labelled_into_islands_in_its_shares_not_when_finished() {
+        let whole = {
+            let mut world = two_floors();
+            let n = world.prepare_grid(ActorCollider::default());
+            world.navs[n].islands()
+        };
+        let world = two_floors();
+        let mut build = world.start_grid(ActorCollider::default()).unwrap();
+        let columns = world.grid_columns();
+        let mut shares = 0;
+        while !world.grow_grid(&mut build, 97) {
+            shares += 1;
+        }
+        assert!(
+            shares > columns / 97,
+            "{shares} shares of {columns} columns"
+        );
+        assert_eq!(build.grid.islands(), whole);
+        assert_eq!(
+            whole
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            2
+        );
     }
 }
