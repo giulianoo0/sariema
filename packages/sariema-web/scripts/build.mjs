@@ -87,7 +87,10 @@ if (counting) {
   if (!existsSync(glue)) throw new Error("dist/ is missing: run the build without --alloc-count first");
   const tmp = join(target, "sariema-web-counting");
   bind(tmp);
-  const same = readFileSync(join(tmp, "sariema_web.js"), "utf8") === readFileSync(glue, "utf8");
+  // wasm-bindgen's comments name each closure shim by its index in the
+  // module, which the counting allocator's functions move.
+  const code = (path) => readFileSync(path, "utf8").replace(/^\s*\/\/.*\n/gm, "");
+  const same = code(join(tmp, "sariema_web.js")) === code(glue);
   copyFileSync(join(tmp, "sariema_web_bg.wasm"), join(dist, "wasm", "sariema_web_counting_bg.wasm"));
   rmSync(tmp, { recursive: true, force: true });
   if (!same) throw new Error("the counting build's bindings differ from dist/'s: rebuild dist/ with the same flags");
