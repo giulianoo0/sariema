@@ -235,3 +235,35 @@ fn triggers_fire_once_per_entry_and_exit_including_on_teleport() {
         assert_eq!(trigger_kinds(&events), expect, "teleport to {to}");
     }
 }
+
+#[test]
+fn a_teleport_clears_the_head_where_it_will_face() {
+    let mut room = Room::default();
+    room.floor(20.0)
+        .wall("wall", Vec2::new(0.0, -1.0), Vec3::new(4.0, 2.0, 0.2), 0.0);
+    let mut world = room.world(Settings::default());
+    let collider = ActorCollider {
+        radius: 0.3,
+        height: 1.0,
+        head: Some(Head {
+            radius: 0.3,
+            height: 1.1,
+            forward: 0.3,
+        }),
+    };
+    let id = actor_with(&mut world, Vec3::new(0.0, 0.0, 3.0), collider, 2.1);
+    let north = std::f32::consts::PI;
+    world.apply(Intent::Teleport {
+        actor: id,
+        position: Vec3::new(0.0, 0.0, -0.5),
+        yaw: north,
+    });
+    world.step(&mut Vec::new());
+    let a = world.actor(id);
+    assert!(
+        world
+            .actor_overlap(&collider, a.position, a.yaw)
+            .is_none_or(|(_, separation)| separation > -1e-3),
+        "{a:?}"
+    );
+}

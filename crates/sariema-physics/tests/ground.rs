@@ -140,3 +140,39 @@ fn walking_down_a_gentle_slope_stays_on_the_ground() {
         "{events:?}"
     );
 }
+
+#[test]
+fn an_actor_placed_on_the_floor_stands_and_only_a_drop_lands() {
+    let mut room = Room::default();
+    room.floor(10.0);
+    let mut world = room.world(Settings::default());
+    let id = actor(&mut world, Vec3::ZERO);
+    assert!(world.actor(id).grounded, "{:?}", world.actor(id));
+    let mut events = Vec::new();
+    let teleport = |world: &mut sariema_physics::World, y: f32| {
+        world.apply(sariema_physics::Intent::Teleport {
+            actor: id,
+            position: Vec3::new(2.0, y, 2.0),
+            yaw: 0.0,
+        })
+    };
+    for _ in 0..10 {
+        world.step(&mut events);
+    }
+    teleport(&mut world, 0.0);
+    for _ in 0..10 {
+        world.step(&mut events);
+    }
+    let landings = |events: &[sariema_physics::Event]| {
+        events
+            .iter()
+            .filter(|e| matches!(e.kind, EventKind::Landed { .. }))
+            .count()
+    };
+    assert_eq!(landings(&events), 0, "{events:?}");
+    teleport(&mut world, 1.0);
+    for _ in 0..60 {
+        world.step(&mut events);
+    }
+    assert_eq!(landings(&events), 1, "{events:?}");
+}

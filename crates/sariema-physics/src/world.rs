@@ -214,7 +214,7 @@ impl World {
         if !desc.collider.is_valid() {
             return Err(BuildError::Actor);
         }
-        self.actors.push(Actor {
+        let mut actor = Actor {
             desc,
             position: desc.position,
             previous_position: desc.position,
@@ -235,7 +235,9 @@ impl World {
             nav: None,
             awake: true,
             triggers: Vec::new(),
-        });
+        };
+        actor.ground = self.standing_on(&actor, desc.position, desc.yaw);
+        self.actors.push(actor);
         self.pushes.push(Vec3::ZERO);
         self.order.push(self.actors.len() as u32 - 1);
         Ok(ActorId(self.actors.len() as u32 - 1))
@@ -370,6 +372,17 @@ impl World {
         self.geometry_changed = false;
     }
 
+    /// The ground an actor placed at `at` already touches, within a skin, so
+    /// that placing it on a floor is not a landing.
+    fn standing_on(&self, a: &Actor, at: Vec3, yaw: f32) -> Option<Ground> {
+        let mover = Mover {
+            yaw,
+            ..self.mover(a, Filter::ALL)
+        };
+        let (rest, ground) = mover.snap(at)?;
+        (at.y - rest.y <= self.settings.collision.skin).then_some(ground)
+    }
+
     fn mover<'a>(&'a self, a: &'a Actor, filter: Filter) -> Mover<'a> {
         Mover {
             scene: &self.scene,
@@ -391,12 +404,16 @@ impl World {
         }
         self.carry(i);
         if let Some((position, yaw)) = self.actors[i].teleport.take() {
-            let resolved = self
-                .mover(&self.actors[i], Filter::ALL)
-                .depenetrate(position);
+            let a = &self.actors[i];
+            let resolved = Mover {
+                yaw,
+                ..self.mover(a, Filter::ALL)
+            }
+            .depenetrate(position)
+            .map(|p| (p, self.standing_on(a, p, yaw)));
             let a = &mut self.actors[i];
             match resolved {
-                Some(p) => {
+                Some((p, ground)) => {
                     a.position = p;
                     a.previous_position = p;
                     a.yaw = yaw;
@@ -404,7 +421,7 @@ impl World {
                     a.target_yaw = yaw;
                     a.velocity = Vec3::ZERO;
                     a.vertical = 0.0;
-                    a.ground = None;
+                    a.ground = ground;
                     a.route = None;
                     a.move_to = None;
                     a.awake = true;
