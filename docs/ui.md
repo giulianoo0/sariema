@@ -191,6 +191,8 @@ pass.draw(&mut encoder, target, bytemuck::cast_slice(&list.quads), &batches, Non
 ```
 
 Images are textures `1 + index` of `Ui::images()` (premultiplied RGBA8).
+`sariema-ui` uses no threads and passes `cargo check` for
+`wasm32-unknown-unknown`, for a web build.
 `sariema_ui::Quad` and `sariema_render::ui::UiInstance` have the same
 layout, checked at compile time in the CLI, so the quads cast without a copy.
 

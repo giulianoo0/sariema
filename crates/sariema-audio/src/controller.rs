@@ -4,9 +4,8 @@
 //! streams and sends timed commands. Everything that allocates or frees
 //! happens here.
 
-use std::sync::mpsc::{self, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 use rtrb::{Consumer, Producer, RingBuffer};
@@ -16,6 +15,8 @@ use crate::AudioError;
 use crate::command::{Op, Play, Src, Timed, VoiceId};
 use crate::decode::decode_all;
 use crate::duck::Duck;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::feed::{FeedThread, feed};
 use crate::mixer::{MUSIC_SLOTS, MixStats, Mixer, SharedStats};
 use crate::pcm::Pcm;
 use crate::ramp::{Curve, db_to_gain};
@@ -48,7 +49,9 @@ pub struct SoundId(pub u32);
 /// Who decodes streams ahead of the mixer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Feeding {
-    /// A thread of its own, started with the first stream.
+    /// A thread of its own, started with the first stream. Not on `wasm32`:
+    /// the web has no threads, so web builds use `Manual`.
+    #[cfg(not(target_arch = "wasm32"))]
     Thread,
     /// The caller, through [`Audio::pump`]; deterministic, for offline work.
     Manual,
@@ -101,8 +104,8 @@ pub struct Audio {
     next_voice: u64,
     music: Option<u32>,
     feeders: Vec<Feeder>,
-    /// Dropping the sender lets the thread end once its streams are abandoned.
-    thread: Option<(Sender<Feeder>, JoinHandle<()>)>,
+    #[cfg(not(target_arch = "wasm32"))]
+    thread: Option<FeedThread>,
     stream_errors: Arc<Mutex<Vec<String>>>,
     shared: Arc<SharedStats>,
     feeding: Feeding,
@@ -131,6 +134,7 @@ impl Audio {
             next_voice: 1,
             music: None,
             feeders: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             thread: None,
             stream_errors: Arc::new(Mutex::new(Vec::new())),
             shared,
@@ -455,45 +459,13 @@ impl Audio {
                 feeder.pump()?;
                 self.feeders.push(feeder);
             }
-            Feeding::Thread => self.feed_on_thread(feeder),
+            #[cfg(not(target_arch = "wasm32"))]
+            Feeding::Thread => {
+                let poll = Duration::from_millis(u64::from(self.settings.stream.poll_ms.max(1)));
+                feed(&mut self.thread, feeder, poll, &self.stream_errors)?;
+            }
         }
         Ok(Src::Stream(reader))
-    }
-
-    fn feed_on_thread(&mut self, feeder: Feeder) {
-        let feeder = match &self.thread {
-            Some((tx, _)) => match tx.send(feeder) {
-                Ok(()) => return,
-                Err(mpsc::SendError(feeder)) => feeder,
-            },
-            None => feeder,
-        };
-        let (tx, rx) = mpsc::channel::<Feeder>();
-        let poll = Duration::from_millis(u64::from(self.settings.stream.poll_ms.max(1)));
-        let errors = self.stream_errors.clone();
-        let handle = thread::Builder::new()
-            .name("sariema-audio-decode".into())
-            .spawn(move || {
-                let mut feeders = vec![feeder];
-                loop {
-                    match rx.try_recv() {
-                        Ok(f) => feeders.push(f),
-                        Err(TryRecvError::Disconnected) if feeders.is_empty() => return,
-                        Err(_) => {}
-                    }
-                    feeders.retain_mut(|f| match f.pump() {
-                        Ok(Pump::Abandoned) => false,
-                        Ok(_) => true,
-                        Err(e) => {
-                            errors.lock().expect("never poisoned").push(e.to_string());
-                            true
-                        }
-                    });
-                    thread::sleep(poll);
-                }
-            })
-            .expect("spawning the decoding thread");
-        self.thread = Some((tx, handle));
     }
 
     fn send(&mut self, at: u64, op: Op) -> Result<(), AudioError> {

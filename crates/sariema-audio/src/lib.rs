@@ -26,6 +26,8 @@ mod decode;
 #[cfg(feature = "device")]
 mod device;
 mod duck;
+#[cfg(not(target_arch = "wasm32"))]
+mod feed;
 mod loudness;
 mod mixer;
 pub mod offline;

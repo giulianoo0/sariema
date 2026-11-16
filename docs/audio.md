@@ -169,6 +169,7 @@ the pack codes (`E_PACK_BAD_MAGIC`, `E_PACK_VERSION`, `E_PACK_TRUNCATED`,
 
 ```rust
 let (settings, sounds) = sariema_audio::runtime(bank, MixerSettings::default());
+// Feeding::Manual on the web, with audio.pump() every step.
 let (mut audio, mixer) = Audio::new(settings, sounds, Feeding::Thread)?;
 // Audio thread: mixer.render(&mut buffer), or Output::start(mixer, rate)
 // with the `device` feature.
@@ -192,6 +193,13 @@ unmodified as a library). The device output is behind the `device` feature
 app provides what cpal cannot: the `AVAudioSession` category and
 interruptions on iOS, `ndk-context` initialised with the JVM and activity on
 Android. Pausing on backgrounding is `Audio::pause`.
+
+The web (`wasm32-unknown-unknown`, for a WebView build): `sariema-audio`
+passes `cargo check` and clippy there. The web has no threads, so
+`Feeding::Thread` does not exist on `wasm32` (using it is a compile error,
+not a panic at run time); a web build uses `Feeding::Manual` and calls
+`Audio::pump` every step to decode streams ahead of the mixer. The `device`
+feature was not checked for the web; the page provides the output.
 
 ## Numbers
 
