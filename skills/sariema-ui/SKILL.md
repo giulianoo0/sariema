@@ -64,6 +64,25 @@ The track that strikes the phrase, from the description:
 { "node": "strike", "prop": "progress", "to": 1, "duration": 0.34, "ease": "in_out", "delay": 0.14 }
 ```
 
+## In a game
+
+`"hud": "hud.json"` under `game` in `sariema.json` puts the description,
+its fonts and its images in the game pack. The logic drives it by name:
+`ui_visible`, `ui_text`, `ui_value` (a node's progress) and `ui_play` (an
+animation). A joystick widget drives the move axis that takes the touch
+stick; a button node named like an input button (`action`) presses that
+button. Over the HUD the engine draws the dialogue line (with the HUD's
+first font), the cinema bars and the fade. Check the frames in the game,
+not only the description:
+
+```sh
+sariema run --headless --game climb.srmg --input examples/climb/input/play.json \
+    --steps 900 --screenshot strip.png --filmstrip 8 --width 844 --height 390 --json
+```
+
+`examples/climb/hud.json` is a HUD with an objective that animates in on
+the first move and checks itself off when the cutscene ends.
+
 ## Quick reference
 
 | Need | Write |

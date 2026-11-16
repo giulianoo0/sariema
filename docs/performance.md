@@ -69,6 +69,25 @@ The JSON report holds:
 - `load_average`: the system's 1, 5 and 15 minute load averages, since the
   numbers mean little without them.
 
+### A game pack's frame
+
+```sh
+sariema bench game.srmg --input examples/climb/input/play.json --json
+```
+
+Given a game pack, each frame bench draws is one engine step, with the
+input log's actions when `--input` names one, and the frame at its end: the
+room, the actors and the HUD ([engine.md](engine.md)). `cpu_ms.frame` then
+covers all of it, `cpu_ms.step` the step alone and `cpu_ms.hud` the HUD's
+layout, draw list and pass. `per_frame` counts the HUD pass with the rest,
+and `game.hud_pass` gives its passes, draws and bytes uploaded apart. The
+steps run as `run --headless` runs them, the music decoded in the step, so
+`per_frame.allocations` includes the stream decoder's; a game playing to a
+device decodes on a thread of its own and its steady step allocates
+nothing (`crates/sariema-engine/tests/steady.rs`). The cost of a step with
+a crowd walking under the collision module is
+`cargo run --release -p sariema-engine --example crowd -- 2000`.
+
 The renderer exposes the same data to code: `Renderer::last_frame_stats`
 (passes, draws, bytes uploaded), `Renderer::last_frame_timings` (the CPU
 stages, once `Renderer::time_cpu_stages` has given the renderer a clock;
@@ -168,6 +187,24 @@ engine rows drew 15, 20 and 23 passes and took 0.58–1.29 ms of CPU. Of the ful
 occlusion (three passes and its GPU work) is the largest share, then MSAA;
 the shadow atlas, drawn once for a static room, and the eight extra rooms
 cost at most 0.2 ms of CPU or GPU each.
+
+### The whole engine
+
+Apple M5, Metal, `medium`, release builds, medians of three repetitions,
+load average 6.6–9.2 (shared machine). Offscreen frames, since the window
+needs an unlocked screen; the window draws through the same `GameView`.
+
+| What | Buffer | CPU ms | GPU ms | Wall ms |
+|---|---|---|---|---|
+| `examples/climb`, one step and its frame (`bench`) | 1920×1080 | 0.83 (step 0.050, HUD 0.051) | 1.14 | 1.25 |
+| `examples/climb`, one step and its frame (`bench`) | 1280×720 | 0.67 | 0.63 | 0.87 |
+| one-s11 with two actors looping a clip (`run --headless`, 300 frames) | 1920×1080 | 1.30 | | 2.10 |
+
+The climb frame is 15 passes and 21 draws; its HUD pass is one pass, one
+draw and 7 KB of quads. A step alone, median: `examples/climb` 0.041 ms
+over its 900-step replay (wasm VM, collision, animation, sound mixed in the
+step, HUD); 100 actors walking under collision, each looping a clip,
+0.042 ms; 2,000 of them, 1.34 ms (`examples/crowd`).
 
 ## Phones and the web
 

@@ -75,13 +75,16 @@ enum Command {
     /// pack's joints, clips, parts, sockets and faces, or a collision pack's
     /// colliders, triggers, spots and routes.
     Inspect { pack: PathBuf },
-    /// Draw a pack's room in a window, or offscreen with --headless.
+    /// Draw a room pack in a window, or offscreen with --headless; play a game
+    /// pack (--game) in a window, or step it headless.
     ///
-    /// In the window, dragging with the left button moves the camera over the
-    /// floor, the wheel changes its distance, R resets it, T toggles the
-    /// tilt-shift blur and Esc closes. Its report's ms_per_frame is the average
-    /// time between presented frames, paced by the display, and null when
-    /// fewer than two frames were presented.
+    /// In a room's window, dragging with the left button moves the camera over
+    /// the floor, the wheel changes its distance, R resets it, T toggles the
+    /// tilt-shift blur and Esc closes. A game's window takes the keys its
+    /// input settings bind and the mouse as the HUD's pointer, and plays its
+    /// sound on the default output device, silent without one. Either
+    /// report's ms_per_frame is the average time between presented frames,
+    /// paced by the display, and null when fewer than two were presented.
     ///
     /// Offscreen, the report's cpu_ms_per_frame is the CPU time to encode and
     /// submit a frame and excludes GPU execution; wall_ms_per_frame waits for
@@ -99,9 +102,9 @@ enum Command {
     Check(check::CheckArgs),
     /// Draw a collision pack from above into a PNG: colliders, walkable cells, triggers, spots, a path.
     PhysicsMap(physics_map::MapArgs),
-    /// Draw a pack's room offscreen many times and report the cost of each
-    /// load stage, frame stage and GPU pass, with draws, passes, uploads and
-    /// allocations per frame.
+    /// Draw a room pack offscreen many times, or step and draw a game pack, and
+    /// report the cost of each load stage, frame stage and GPU pass, with
+    /// draws, passes, uploads and allocations per frame and the HUD pass's own.
     Bench(bench::BenchArgs),
     /// Build, inspect and check sound banks; render cue lists offline.
     Audio(audio::AudioArgs),

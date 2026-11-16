@@ -25,9 +25,15 @@ the `sariema` command-line tool.
   checks and offline rendering of cue lists ([docs/audio.md](docs/audio.md)).
 - `crates/sariema-ui` — in-engine UI: flexbox tree, distance-field text, animation, touch widgets and a batched draw list ([docs/ui.md](docs/ui.md)).
 - `crates/sariema-runtime`, `crates/sariema-vm`, `crates/sariema-sdk` — games: the fixed-step simulation with cutscenes, the sandboxed WebAssembly machine, and the SDK the logic is written with ([docs/game-api.md](docs/game-api.md), `examples/hello-game`).
+- `crates/sariema-engine` — the engine as one: the runtime stepped with the
+  collision, animation, sound and HUD modules wired in, deterministic on
+  every platform ([docs/engine.md](docs/engine.md), `examples/climb`).
 - `crates/sariema-cli` — the `sariema` tool: `new`, `build`, `inspect`, `run`,
   `test`, `check`, `physics-map`, `bench`, `audio`, `ui` and `api`, each with
-  `--json`. `examples/demo` is a project it can build.
+  `--json`. `examples/demo` is a room it can build; `examples/climb` is a
+  game it builds, replays headless and plays in a window.
+- `tools/wasm-replay` — a game pack replayed in Node's WebAssembly, to show
+  its hashes match the native run's.
 
 Docs:
 
@@ -37,6 +43,7 @@ Docs:
 - [docs/audio.md](docs/audio.md) — sound banks, the mixer and `sariema audio`.
 - [docs/ui.md](docs/ui.md) — the in-engine UI and `sariema ui render`.
 - [docs/performance.md](docs/performance.md) — `sariema bench` and what a frame costs.
+- [docs/engine.md](docs/engine.md) — the order of a step and every hand-off between the modules.
 - [docs/game-api.md](docs/game-api.md) — the game module, the step, commands and events.
 - [docs/cutscenes.md](docs/cutscenes.md) — cutscenes, their rules and directing.
 

@@ -71,6 +71,18 @@ sariema audio render game.srms --cues examples/audio/cues.json -o mix.wav
 2 s (the music and wind duck), fires `chime` as a stinger at 5 s (the theme
 drops and returns where it was), and stops the wind with a 1 s fade.
 
+## In a game
+
+The game pack carries the bank built from `sariema.json`'s `audio`. The
+logic plays by name: `play_sound` (with an emitter, heard from the camera:
+full gain within 2 m, then the inverse-distance falloff, panned left and
+right) and `play_music`; a cutscene's `sound` step and a line's `voice` do
+the same, and voice ducks the music. `sariema run --headless --game …`
+mixes every step and prints `audio_hash`, the same run after run with one
+build; the bench mix to listen to is still a cue list rendered offline. In
+a window the sound plays on the default device; without one the report
+gives `E_AUDIO_DEVICE` and the game runs silent.
+
 ## Quick reference
 
 | Need | Write |
