@@ -22,7 +22,8 @@ struct Draw {
     model: mat4x4<f32>,
     // Columns of the inverse transpose of the model's 3×3 part. The first's
     // w is the draw's presence: 1 drawn whole, 0 gone, between dissolving;
-    // negative, it dissolves in the complementary pattern.
+    // negative, it dissolves in the complementary pattern. The second's and
+    // third's are its glow's fill and rim.
     normal_x: vec4<f32>,
     normal_y: vec4<f32>,
     normal_z: vec4<f32>,

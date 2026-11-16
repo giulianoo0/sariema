@@ -305,6 +305,13 @@ impl Scenery {
         Ok(())
     }
 
+    /// The active room's node named `node`, as its room's index and its own.
+    pub fn node(&self, node: u32) -> Result<(usize, usize), SceneReject> {
+        let room = self.active_room().ok_or(SceneReject::Unknown)?;
+        let n = find(&room.node_ids, node).ok_or(SceneReject::Unknown)?;
+        Ok((self.active, n))
+    }
+
     /// The active room's parameter `id`.
     pub fn param(&self, id: u32) -> Result<f32, SceneReject> {
         let room = self.active_room().ok_or(SceneReject::Unknown)?;

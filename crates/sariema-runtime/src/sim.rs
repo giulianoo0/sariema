@@ -288,6 +288,7 @@ impl<L: Logic> Simulation<L> {
         s.camera.step(&s.world);
         let events = &mut s.events;
         s.zones.step(&s.world, |e| events.push(e));
+        s.fx.step(&s.world);
         self.step += 1;
     }
 

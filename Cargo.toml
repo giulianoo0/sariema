@@ -36,6 +36,11 @@ taffy = { version = "0.15.1", default-features = false, features = ["std", "taff
 tempfile = "3.27.0"
 wgpu = "30.0.2"
 winit = "0.30.13"
+# BSD-3-Clause (the C library) and MIT: KTX2 levels in Zstandard.
+zstd = { version = "0.13.3", default-features = false }
+# auto-dispatch falls back to a loop where the target cannot tail-call (wasm32
+# without the tail-call proposal); the tail-call dispatch there recurses on
+# the native stack once per instruction run, so a long tick overflows it.
 # auto-dispatch takes wasmi's tail-call dispatch only where the target can
 # tail-call and wasmi is optimised (opt-level 2, 3, s or z), and a loop
 # elsewhere: on wasm32 without the tail-call proposal, and for a wasmi built

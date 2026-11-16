@@ -37,7 +37,10 @@ static ALLOCATOR: Counting = Counting;
 
 /// Allocations in 100 steps of `logic` after 10 to settle.
 fn steady_allocations<L: Logic>(logic: L) -> u64 {
-    let settings = Settings::default();
+    steady_allocations_with(Settings::default(), logic)
+}
+
+fn steady_allocations_with<L: Logic>(settings: Settings, logic: L) -> u64 {
     let actions = Actions::for_settings(&settings.input);
     let mut sim = Simulation::new(settings, Vec::new(), logic, 1);
     for _ in 0..10 {
@@ -113,4 +116,125 @@ fn a_steady_step_with_two_thousand_visible_actors_walking_allocates_nothing() {
         0,
         "allocations in 100 steady steps"
     );
+}
+
+#[test]
+fn steps_with_emitters_running_bursting_and_stopping_allocate_nothing() {
+    use sariema_format::script::{Entity, PointList, name_id};
+    use sariema_runtime::fx::Effect;
+    let mut settings = Settings::default();
+    settings.fx.effects = vec![Effect {
+        name: "spark".into(),
+        rate: 120.0,
+        puff: 4,
+        every: 0.1,
+        life: [0.2, 0.6],
+        speed: [0.5, 1.0],
+        spread: 60.0,
+        drift: 0.2,
+        color: vec![[0.0, 1.0, 1.0, 1.0, 0.0], [1.0, 1.0, 0.5, 0.2, 0.0]],
+        ..Effect::default()
+    }];
+    const PATH: [[f32; 3]; 3] = [[0.0; 3], [2.0, 0.0, 0.0], [2.0, 0.0, 2.0]];
+    let logic = native(|step, _: &[Event<'_>], out| {
+        let start = |emitter, points| Command::FxStart {
+            emitter,
+            effect: name_id("spark"),
+            entity: Entity::NONE,
+            position: [0.0; 3],
+            points,
+            seed: step as u32,
+        };
+        if step % 20 == 0 {
+            send(out, start(1, PointList::EMPTY));
+            send(out, start(2, PointList::Slice(&PATH)));
+        }
+        if step % 20 == 10 {
+            send(
+                out,
+                Command::FxStop {
+                    emitter: 2,
+                    fade: 0.1,
+                },
+            );
+            send(
+                out,
+                Command::FxBurst {
+                    effect: name_id("spark"),
+                    entity: Entity::NONE,
+                    position: [1.0, 0.0, 0.0],
+                    count: 30,
+                    seed: 4,
+                },
+            );
+        }
+    });
+    assert_eq!(steady_allocations_with(settings, logic), 0);
+}
+
+#[test]
+fn steps_with_trails_and_highlights_coming_and_going_allocate_nothing() {
+    use sariema_format::script::{PointList, name_id};
+    const ROUTE: [[f32; 3]; 3] = [[0.0; 3], [3.0, 0.0, 0.0], [3.0, 0.0, -3.0]];
+    let hero = entity(0);
+    let logic = native(move |step, _: &[Event<'_>], out| {
+        if step == 0 {
+            send(
+                out,
+                Command::Spawn {
+                    entity: hero,
+                    kind: Kind::Empty,
+                    asset: 0,
+                },
+            );
+        }
+        let trail = |trail| Command::Trail {
+            trail,
+            from: hero,
+            points: PointList::Slice(&ROUTE),
+            spacing: 0.5,
+            size: 0.2,
+            color: [1.0, 0.6, 0.2],
+            intensity: 0.55,
+            wave_speed: 2.0,
+            fade_from: 0.5,
+            fade_to: 0.5,
+            fade: 0.1,
+        };
+        let highlight = |fill| Command::Highlight {
+            entity: hero,
+            node: name_id(""),
+            fill,
+            rim: fill,
+            pulse: 1.0,
+            fade: 0.1,
+        };
+        match step % 20 {
+            0 => {
+                send(out, trail(1));
+                send(out, trail(2));
+                send(out, highlight(0.3));
+            }
+            10 => {
+                send(
+                    out,
+                    Command::TrailOff {
+                        trail: 2,
+                        fade: 0.05,
+                    },
+                );
+                send(out, highlight(0.0));
+            }
+            _ => {}
+        }
+        send(
+            out,
+            Command::SetTransform {
+                entity: hero,
+                position: [0.01 * (step % 20) as f32, 0.0, 0.0],
+                yaw: 0.0,
+            },
+        );
+    });
+    assert_eq!(steady_allocations_with(Settings::default(), logic), 0);
 }

@@ -99,7 +99,7 @@
             "required": ["name", "type", "doc"],
             "properties": {
               "name": { "type": "string" },
-              "type": { "enum": ["u8", "u16", "u32", "u64", "i32", "f32", "bool", "Entity", "Vec3", "Str", "Bytes", "Kind", "Ease", "Property", "ClipMode", "Bus", "Controller", "Advance", "Orientation", "Anchor", "RoomTransition"] },
+              "type": { "enum": ["u8", "u16", "u32", "u64", "i32", "f32", "bool", "Entity", "Vec3", "Str", "Bytes", "Points", "Kind", "Ease", "Property", "ClipMode", "Bus", "Controller", "Advance", "Orientation", "Anchor", "RoomTransition"] },
               "doc": { "type": "string" }
             }
           }

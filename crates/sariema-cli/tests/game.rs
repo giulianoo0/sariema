@@ -8,6 +8,7 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use sariema_format::script::{COMMANDS, Command, Reader, WireError};
 use sariema_runtime::cutscene::PLAY_CODES;
 use sariema_runtime::cutscene::check::CODES as CHECK_CODES;
+use sariema_runtime::fx::FxReject;
 use sariema_runtime::scenery::SceneReject;
 use sariema_runtime::world::Reject;
 use sariema_vm::VmError;
@@ -150,6 +151,7 @@ fn api_lists_every_error_code_the_engine_gives() {
         .chain(PLAY_CODES)
         .chain(Reject::ALL.map(Reject::code))
         .chain(SceneReject::ALL.map(SceneReject::code))
+        .chain(FxReject::ALL.map(FxReject::code))
         .chain(sariema_engine::REJECTED.iter().copied())
         .chain(wire)
         .chain([

@@ -14,10 +14,12 @@ export const sections = [
     title: "Modules",
     docs: [
       ["physics", "Physics"],
+      ["rooms", "Rooms"],
       ["actors", "Actors"],
       ["cutscenes", "Cutscenes"],
       ["audio", "Audio"],
       ["ui", "UI"],
+      ["fx", "Effects"],
     ],
   },
   {

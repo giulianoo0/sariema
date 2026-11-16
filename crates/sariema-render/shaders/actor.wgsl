@@ -14,6 +14,7 @@ fn vs_actor(v: SkinnedIn) -> VertexOut {
     out.color = v.color;
     out.view_depth = -(frame.view * world).z;
     out.presence = 1.0;
+    out.glow = vec2(actor[5].w, actor[6].w);
     return out;
 }
 

@@ -5,6 +5,11 @@
 const PI: f32 = 3.14159265;
 const SPOT: u32 = 1u;
 const COUNT_BITS: u32 = 8u;
+// A highlight's own colour is its base over its brightest channel, never
+// over less than this; its rim falls off as (1 − n·v) to this power, wider
+// than a material's rim so it reads at a distance.
+const GLOW_FLOOR: f32 = 0.08;
+const GLOW_RIM_POWER: f32 = 3.0;
 
 struct Light {
     position: vec3<f32>,
@@ -74,6 +79,8 @@ struct VertexOut {
     @location(3) color: vec4<f32>,
     @location(4) view_depth: f32,
     @location(5) @interpolate(flat) presence: f32,
+    // How much it glows in its own colour: over all of it, and at its rim.
+    @location(6) @interpolate(flat) glow: vec2<f32>,
 }
 
 @vertex
@@ -84,6 +91,7 @@ fn vs_main(v: VertexIn) -> VertexOut {
     out.world = world.xyz;
     out.normal = draw_normal() * v.normal;
     out.presence = draw.normal_x.w;
+    out.glow = vec2(draw.normal_y.w, draw.normal_z.w);
     out.uv = v.uv * material.uv_scale + material.uv_offset;
     out.color = v.color;
     out.view_depth = -(frame.view * world).z;
@@ -123,10 +131,22 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     if material.rim > 0.0 {
         color += material.rim * pow(1.0 - saturate(dot(n, v)), 5.2);
     }
+    if any(in.glow > vec2(0.0)) {
+        color += glow(base.rgb, in.glow, n, v);
+    }
     if BLEND {
         return vec4(color * base.a, base.a) * presence;
     }
     return vec4(color, material.drawn);
+}
+
+// A highlight in the surface's own colour, never white: its albedo and
+// vertex colour scaled so the brightest channel is 1, a dark piece keeping
+// its hue and a near-black one a faint grey.
+fn glow(base: vec3<f32>, levels: vec2<f32>, n: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
+    let own = base / max(max(base.r, max(base.g, base.b)), GLOW_FLOOR);
+    let rim = pow(1.0 - saturate(dot(n, v)), GLOW_RIM_POWER);
+    return own * (levels.x + levels.y * rim);
 }
 
 fn lit(in: VertexOut, n: vec3<f32>, v: vec3<f32>, base: vec3<f32>) -> vec3<f32> {

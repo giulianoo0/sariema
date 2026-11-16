@@ -78,9 +78,10 @@ and listed in the project file under `actors`:
 ### What the importer does with a glTF file
 
 - It reads the files gltfpack writes: `EXT_meshopt_compression`,
-  `KHR_mesh_quantization` (normalised 16-bit rotations included) and
-  `KHR_texture_transform`. `KHR_texture_basisu` is refused with
-  `E_GLTF_EXTENSION`; build from the source GLB instead.
+  `KHR_mesh_quantization` (normalised 16-bit rotations included),
+  `KHR_texture_transform` and `KHR_texture_basisu` (below). gltfpack drops
+  node names and extras unless given `-kn -ke`: without them parts have no
+  names and a part marked hidden in its extras shows.
 - One skin per actor. The skinned mesh node's own transform is ignored, as
   the glTF specification asks; the inverse bind matrices place the mesh.
 - Joints are reordered parents first. A node between two joints that carries
@@ -106,6 +107,52 @@ description names does not exist; the message lists the names that do),
 `E_SCHEMA` (the description or the result is invalid), `E_GLTF_EXTENSION`
 (the file requires an extension the importer cannot read),
 `E_TEXTURE_ENCODE` and `E_IO`.
+
+### Basis Universal textures
+
+Actors and room kits may carry their textures as KTX2 images
+(`image/ktx2`) named by `KHR_texture_basisu`, as gltfpack `-tc`/`-tu`,
+`toktx` and `basisu` write them:
+
+| KTX2 | Read |
+|---|---|
+| ETC1S in BasisLZ, with or without its alpha slice | yes |
+| UASTC LDR 4×4, raw or in Zstandard | yes |
+| a Vulkan format (not Basis data), UASTC HDR | no |
+| cube maps, arrays, 3D textures, ETC1S video frames, global selector codebooks | no |
+
+Only level 0 is read; the importer makes its own mips. The image is decoded
+to RGBA8 and then stored as the pack's `textures` say (`astc` or `rgba8`),
+exactly as a PNG would be, so a pack does not know where its texture came
+from. When a texture has both a `source` (PNG or JPEG) and a Basis image,
+the `source` wins: it is lossless and the Basis image is not. A KTX2 file
+that is broken or of an unread kind fails the build with `E_SCHEMA`
+(`unusable glTF: image N: KTX2 …`), naming what it holds.
+
+ETC1S was made to be transcoded, not decoded: re-encoding it to ASTC adds
+a second loss over its 4×4 blocks of two-colour lines. UASTC is ASTC-shaped
+and survives the trip with little more. A texture meant to look its best
+should come from the PNG; the decoder is for files whose PNG is gone or
+that a pipeline compressed on its way in.
+
+What was taken:
+
+- **basis_universal** (Binomial, Apache-2.0): the decoder is a port of its
+  transcoder's ETC1S/BasisLZ decoding (codebooks, Huffman tables, endpoint
+  predictions, the selector history and its runs) and its UASTC unpacking
+  (the 19 modes, their partitions, BISE endpoints and ASTC
+  unquantisation). It was checked texel for texel against the official
+  transcoder on 42 production textures (31 ETC1S up to 2048×1024, 11 UASTC
+  in Zstandard up to 1024×1024): every texel equal.
+- **three.js** `KTX2Loader` transcodes at load, in a worker, to the best
+  format the device samples (UASTC to ASTC, then BC7; ETC1S to ETC2 or
+  ETC1, then BC7, never to ASTC). Not taken: the engine's packs already carry ASTC and
+  RGBA8 variants (see `docs/web.md`), so the decoding happens once, at
+  build, and the runtime holds no transcoder.
+- **The `basis-universal` crate** (used by Bevy) binds the C++ library and
+  exposes only UASTC's low-level transcoding; ETC1S would need its own
+  build. A Rust port keeps the importer free of a C++ build. Zstandard
+  comes from the `zstd` crate.
 
 ## Animation (`sariema-anim`)
 

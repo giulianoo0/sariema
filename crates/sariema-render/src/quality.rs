@@ -104,6 +104,12 @@ pub struct Quality {
     pub actor_shadow_slots: u32,
     /// HUD quads the UI pass holds before its instance buffer grows.
     pub ui_quads: u32,
+    /// Particles and ground dots one frame draws; past it they are left
+    /// out and counted in `FrameStats::sprites_dropped`.
+    pub max_sprites: u32,
+    /// Least size in pixels a sprite is drawn at; a smaller one is drawn
+    /// this size and as much fainter.
+    pub sprite_min_px: u32,
     pub path: RenderPath,
     /// Texels per row of the downlevel path's data textures. Their heights
     /// follow from the light, cluster and shadow budgets, which are held to
@@ -144,6 +150,8 @@ impl Quality {
             frustum_culling: true,
             actor_shadow_slots: 0,
             ui_quads: 1024,
+            max_sprites: 4096,
+            sprite_min_px: 2,
             path: RenderPath::Auto,
             data_texture_width: 1024,
             actor_uniform_rows: 1024,

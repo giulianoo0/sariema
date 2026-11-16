@@ -8,6 +8,7 @@ use sariema_vm::VmSettings;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::camera::CameraSettings;
+use crate::fx::FxSettings;
 use crate::input::InputSettings;
 use crate::motion::MotionSettings;
 
@@ -24,6 +25,7 @@ pub struct Settings {
     pub input: InputSettings,
     pub cutscene: CutsceneSettings,
     pub vm: VmSettings,
+    pub fx: FxSettings,
 }
 
 impl Settings {
@@ -35,7 +37,7 @@ impl Settings {
                 "min_time_scale ({min}) and max_time_scale ({max}) must be positive, the minimum no larger than the maximum"
             ));
         }
-        Ok(())
+        self.fx.validate()
     }
 }
 
@@ -52,6 +54,7 @@ impl Default for Settings {
             input: InputSettings::default(),
             cutscene: CutsceneSettings::default(),
             vm: VmSettings::default(),
+            fx: FxSettings::default(),
         }
     }
 }
@@ -225,6 +228,74 @@ pub const DOCS: &[(&str, &str)] = &[
     ("vm.max_regions", "Bulk data regions a game may register."),
     ("vm.log_bytes_per_step", "Bytes of log text kept per tick."),
     ("vm.log_lines_per_step", "Log lines kept per tick."),
+    (
+        "fx.emitters",
+        "Particle emitters alive at once, bursts and fading ones included; one more is refused with E_FX_FULL.",
+    ),
+    (
+        "fx.pool",
+        "Particles one emitter keeps alive, unless its effect gives its own pool; the ones past it are not born.",
+    ),
+    (
+        "fx.path_points",
+        "Points an emitter's path may have; more are refused with E_FX_POINTS.",
+    ),
+    (
+        "fx.effects",
+        "The particle effects fx_start and fx_burst name: sprite, rate and puffs, life, size, speed, gravity, drag, drift, spin, colour keys, intensity and how additive; see docs/fx.md.",
+    ),
+    (
+        "fx.trails",
+        "Trails shown at once, fading ones included; one more is refused with E_FX_FULL.",
+    ),
+    (
+        "fx.trail_points",
+        "Points a trail's route may have; more are refused with E_FX_POINTS.",
+    ),
+    (
+        "fx.trail_dots",
+        "Dots one trail draws at most, counted from its goal.",
+    ),
+    (
+        "fx.trail.sprite",
+        "The sprite of every trail's dots: dot, star, disc or spark.",
+    ),
+    (
+        "fx.trail.lift",
+        "Metres the dots lie above the route, so they never sink into the floor.",
+    ),
+    (
+        "fx.trail.wave_length",
+        "Metres from a wave's crest to where it has fallen to e^-2 of it.",
+    ),
+    (
+        "fx.trail.wave_every",
+        "Metres between one wave's crest and the next.",
+    ),
+    (
+        "fx.trail.wave_gain",
+        "How much brighter a dot is at the crest: 1 is twice as bright.",
+    ),
+    (
+        "fx.trail.wave_grow",
+        "How much larger a dot is at the crest: 0.25 is a quarter larger.",
+    ),
+    (
+        "fx.trail.wave_alpha",
+        "How much of its opacity a dot far from every crest loses: 0.4 leaves it at 60%.",
+    ),
+    (
+        "fx.trail.additive",
+        "1 adds the dots' light to the floor, 0 covers it, between both.",
+    ),
+    (
+        "fx.highlights",
+        "Highlighted actors and nodes at once, fading ones included; one more is refused with E_FX_FULL.",
+    ),
+    (
+        "fx.pulse_depth",
+        "How far a pulsing highlight dims at the bottom of a pulse: 0.4 dims it to 60%.",
+    ),
     (
         "vm.commands_bytes_per_step",
         "Bytes of commands one tick may submit; more stops the game with E_GAME_BUDGET.",

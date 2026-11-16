@@ -19,8 +19,9 @@ reference: `docs/web.md`.
 
 Core rule: **prove it in the browsers, not just natively.** WebGL2 runs
 shaders as GLSL ES 3.00 and has GL-only failure modes, and a page has a
-smaller stack and a coarser clock; `npm test` plays the climb in Chromium
-and WebKit, on WebGPU and on WebGL2, against the native hashes and frames.
+smaller stack and a coarser clock; `npm test` plays the climb and the
+guide (particles, a trail, a highlight) in Chromium and WebKit, on WebGPU
+and on WebGL2, against the native hashes (`fx_hash` included) and frames.
 
 ## Quick reference
 

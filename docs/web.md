@@ -409,9 +409,10 @@ sariema web ../../examples/climb -o dist/demo --json   # game.srmg (ASTC), game.
 ```
 
 `npm test` writes the fixtures and native references with `cargo run
---example fixtures`, builds `examples/demo` and `examples/climb` with
-`sariema web`, renders the climb natively at steps 120, 300, 600 and 900
-with `sariema run --headless --game --input --screenshot` and times its
+--example fixtures`, builds `examples/demo`, `examples/climb` and
+`examples/guide` with `sariema web`, renders the climb natively at steps
+120, 300, 600 and 900 and the guide at 150 and 300 with `sariema run
+--headless --game --input --screenshot`, times the climb's
 native replay (`cargo run --example replay`), builds the counting `.wasm`
 (`npm run build -- --alloc-count`, whose allocator counts), serves them,
 and in Chromium with WebGPU, Chromium with WebGPU hidden (WebGL2), WebKit
@@ -442,8 +443,12 @@ drawing, also when the canvas first gives no context and a second restore
 succeeds; and, on the counting build, its replayed steps allocate at the
 steps and as often as natively, nothing from 600 to 1200 nor while only
 the HUD animates, and a second of live frames no more than the audio
-feed's steady second. Results and the numbers land in `test/out/results.json`, the
-browsers' climb frames in `test/out/renders/`. The tolerance is the
+feed's steady second. Then the guide, replayed without input: at both
+steps it reaches the native `engine_hash`, `state_hash` and `fx_hash` (its
+particles, trail and highlight decided the same way), and its frame
+matches the native one. Results and the numbers land in
+`test/out/results.json`, the browsers' climb and guide frames in
+`test/out/renders/`. The tolerance is the
 goldens' own: no channel more than 6 apart, or at most 0.5% of pixels.
 `SARIEMA_BROWSERS=chromium-webgl2,webkit-webgpu` picks configurations;
 `SARIEMA_GAME_PACKS=<dir>` adds every room pack in `<dir>`, compared with a
@@ -745,4 +750,5 @@ size build is the default.
   device samples, so the loader stays a plain fetch and the `.wasm` holds
   no Basis transcoder. The cost is disk on the host (the RGBA8 s11 is
   61 MB raw, 9.6 MB brotli) and, on a GPU without ASTC, four times the
-  texture memory; BC and ETC2 variants are not built.
+  texture memory; BC and ETC2 variants are not built. A KTX2 texture in a
+  source GLB is decoded at build, by the importer (`docs/actors.md`).

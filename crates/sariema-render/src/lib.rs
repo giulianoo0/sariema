@@ -47,6 +47,7 @@ mod quality;
 mod resources;
 mod scene;
 mod shadow;
+mod sprites;
 mod table;
 mod timing;
 pub mod ui;
@@ -55,6 +56,7 @@ pub use actors::{ActorId, ActorModel, ActorState, DiscShadow};
 pub use golden::{GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, GoldenDiff, compare_images};
 pub use headless::{Headless, render_coverage, render_to_image};
 pub use quality::{Quality, RenderPath};
+pub use sprites::{SHAPES, Sprite};
 pub use timing::{FrameTimings, PassTime};
 
 use actors::Actors;
@@ -63,6 +65,7 @@ use post::Post;
 use resources::{PendingRoom, Room};
 use scene::Scene;
 use shadow::{Assigned, Shadows};
+use sprites::Sprites;
 use timing::{GpuTimer, Stopwatch};
 use ui::{UiBatch, UiInstance, UiPass, UiTarget, UiTextureFormat};
 
@@ -139,6 +142,10 @@ pub struct FrameStats {
     pub draws: u32,
     /// Bytes written to GPU buffers during the frame.
     pub bytes_uploaded: u64,
+    /// Particles and ground dots drawn, and those past
+    /// `Quality::max_sprites` left out.
+    pub sprites: u32,
+    pub sprites_dropped: u32,
 }
 
 /// The device and queue, counting what is created and done through them.
@@ -330,6 +337,7 @@ pub struct Renderer {
     shadows: Shadows,
     post: Post,
     actors: Actors,
+    sprites: Sprites,
     stage: Stage,
     pending: Vec<(u32, PendingRoom)>,
     /// The drawn rooms' lights that are on, and their slot and index.
@@ -381,6 +389,7 @@ impl Renderer {
         let scene = Scene::new(&gpu, (width, height), &quality, layouts, &shadows);
         let post = Post::new(&gpu, config.output_format, &quality, &scene);
         let actors = Actors::new(&gpu, &quality);
+        let sprites = Sprites::new(&gpu, scene.layouts(), &quality);
         let ui = UiPass::new(
             gpu.device.clone(),
             gpu.queue.clone(),
@@ -397,6 +406,7 @@ impl Renderer {
             shadows,
             post,
             actors,
+            sprites,
             stage: Stage::default(),
             pending: Vec::new(),
             lights: Vec::new(),
@@ -572,6 +582,15 @@ impl Renderer {
             .is_some_and(|r| r.set_node_offset(node, offset))
     }
 
+    /// Makes node `node` of the room in `slot` glow in its own colour: its
+    /// albedo and vertex colour, brightest channel at 1, added over all of
+    /// it at `fill` and at its rim at `rim`; false if there is none.
+    pub fn set_node_glow(&mut self, slot: u32, node: usize, fill: f32, rim: f32) -> bool {
+        self.stage
+            .get_mut(slot)
+            .is_some_and(|r| r.set_node_glow(node, fill, rim))
+    }
+
     /// How much of the room in `slot` is drawn: 1 whole, 0 nothing; between,
     /// its opaque draws dither, the others fade, and it casts shadows from
     /// halfway. `inverted` dithers it in the complement
@@ -727,6 +746,17 @@ impl Renderer {
         self.actors.set_part_visible(actor, part, visible)
     }
 
+    /// Makes `actor` glow in its own colour, as [`Renderer::set_node_glow`]
+    /// does a node.
+    pub fn set_actor_glow(
+        &mut self,
+        actor: ActorId,
+        fill: f32,
+        rim: f32,
+    ) -> Result<(), RenderError> {
+        self.actors.set_glow(actor, fill, rim)
+    }
+
     /// Replaces the actor's disc shadow; `None` draws none.
     pub fn set_actor_disc(
         &mut self,
@@ -734,6 +764,11 @@ impl Renderer {
         disc: Option<DiscShadow>,
     ) -> Result<(), RenderError> {
         self.actors.set_disc(actor, disc)
+    }
+
+    /// The particles and ground dots of the frames from the next one on.
+    pub fn set_sprites(&mut self, sprites: &[Sprite]) {
+        self.sprites.stage(sprites);
     }
 
     /// Sizes of 0, or beyond what the device holds, are ignored.
@@ -811,6 +846,7 @@ impl Renderer {
             self.quality.max_visible_lights,
         );
         self.actors.upload(&self.gpu);
+        self.sprites.prepare(&self.gpu, camera, self.height);
         let lighting = match &self.lighting {
             Some(l) => Some(l.clone()),
             None => self.stage.first().map(|r| Lighting {
@@ -845,6 +881,8 @@ impl Renderer {
         stats.draws_culled = draws_culled;
         stats.actors_drawn = actor_stats.drawn;
         stats.actors_culled = actor_stats.culled;
+        stats.sprites = self.sprites.count();
+        stats.sprites_dropped = self.sprites.dropped;
         if !self.warned && (stats.lights_dropped > 0 || stats.cluster_overflows > 0) {
             self.warned = true;
             log::warn!(
@@ -874,7 +912,7 @@ impl Renderer {
             &self.gpu,
             &mut encoder,
             &self.stage,
-            &self.actors,
+            (&self.actors, &self.sprites),
             keep_depth,
         );
         let record = watch.lap();

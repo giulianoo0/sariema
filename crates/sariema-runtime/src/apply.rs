@@ -8,12 +8,13 @@ use sariema_format::script::{Bus, Command, Entity, Event, Kind, Property};
 
 use crate::camera::{CameraPose, CameraSettings, Framing};
 use crate::events::Happening;
+use crate::fx::{FxReject, GlowTarget, TrailLook};
 use crate::motion::Goal;
 use crate::no_jump;
 use crate::outbox::{
     ClipRequest, HostOut, LookAt, MusicRequest, PhysicsIntent, SoundRequest, UiOp,
 };
-use crate::scenery::SceneReject;
+use crate::scenery::{Binding, SceneReject};
 use crate::state::{CutsceneRequest, State};
 use crate::tween::Target;
 use crate::world::Reject;
@@ -62,6 +63,20 @@ fn place(s: &mut State, e: Entity, position: Vec3, yaw: f32, force: bool) -> Res
         yaw,
     });
     Ok(())
+}
+
+fn alive_or_none(s: &State, entity: Entity) -> Result<(), Refusal> {
+    if entity.is_none() {
+        return Ok(());
+    }
+    s.world.check(entity).map_err(refuse(entity))
+}
+
+fn fx(r: FxReject) -> Refusal {
+    Refusal {
+        code: r.code(),
+        entity: Entity::NONE,
+    }
 }
 
 fn forget(s: &mut State, e: Entity) {
@@ -542,6 +557,79 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
         }
         C::RoomGroup { group, on } => s.scenery.set_group(group, on).map_err(scene)?,
         C::PieceState { piece, state } => s.scenery.set_piece(piece, state).map_err(scene)?,
+        C::FxStart {
+            emitter,
+            effect,
+            entity,
+            position,
+            points,
+            seed,
+        } => {
+            alive_or_none(s, entity)?;
+            let at = (entity, v3(position), points);
+            s.fx.start(emitter, effect, at, seed).map_err(fx)?
+        }
+        C::FxStop { emitter, fade } => s.fx.stop(emitter, fade),
+        C::FxBurst {
+            effect,
+            entity,
+            position,
+            count,
+            seed,
+        } => {
+            alive_or_none(s, entity)?;
+            s.fx.burst(effect, (entity, v3(position)), count, seed)
+                .map_err(fx)?
+        }
+        C::Trail {
+            trail,
+            from,
+            points,
+            spacing,
+            size,
+            color,
+            intensity,
+            wave_speed,
+            fade_from,
+            fade_to,
+            fade,
+        } => {
+            alive_or_none(s, from)?;
+            let look = TrailLook {
+                spacing,
+                size,
+                color: v3(color),
+                intensity,
+                wave_speed,
+                fade_from,
+                fade_to,
+            };
+            (s.fx)
+                .trail(&s.world, (trail, from, points), look, fade)
+                .map_err(fx)?
+        }
+        C::TrailOff { trail, fade } => s.fx.trail_off(trail, fade),
+        C::Highlight {
+            entity,
+            node,
+            fill,
+            rim,
+            pulse,
+            fade,
+        } => {
+            let target = if entity.is_none() {
+                let (room, node) = s.scenery.node(node).map_err(scene)?;
+                GlowTarget::Node { room, node }
+            } else {
+                s.world.check(entity).map_err(refuse(entity))?;
+                match s.scenery.binding(&s.world, entity) {
+                    Some(Binding::Node { room, node, .. }) => GlowTarget::Node { room, node },
+                    _ => GlowTarget::Entity(entity),
+                }
+            };
+            s.fx.highlight(target, (fill, rim), pulse, fade)
+                .map_err(fx)?
+        }
         C::HostReady {} => s.outbox.host.push(HostOut::Ready),
         C::HostExit {} => s.outbox.host.push(HostOut::Exit),
         C::HostOrientation { orientation } => s.outbox.host.push(HostOut::Orientation(orientation)),

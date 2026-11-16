@@ -77,6 +77,19 @@ async function playClimb(options) {
   return sariema.pick(m.game, "climb");
 }
 
+/** The game in `dir` replayed with `log`, its hashes and frame at each of `steps`. */
+async function replayFrames(dir, file, log, steps) {
+  const variant = file.includes(".rgba8.") ? "rgba8" : "astc";
+  const at_ = [];
+  for (const n of steps) {
+    const hashes = sariema.replayGame(log, n);
+    const frame = await sariema.capture();
+    const diff = compare(frame.data, await referencePixels(at(`${dir}/${variant}-${n}.png`)));
+    at_.push({ n, hashes, ...diff, png: await pngDataUrl(frame) });
+  }
+  return { file, variant, at: at_ };
+}
+
 window.suite = {
   async start(options = {}) {
     manifest = await (await fetch(at("fixtures.json"))).json();
@@ -119,15 +132,14 @@ window.suite = {
   /** The climb replayed with its input log, its hashes and frame at each of `steps`. */
   async climbReplay(steps) {
     const file = await playClimb({ audio: false });
-    const variant = file.includes(".rgba8.") ? "rgba8" : "astc";
-    const at_ = [];
-    for (const n of steps) {
-      const hashes = sariema.replayGame(playLog, n);
-      const frame = await sariema.capture();
-      const diff = compare(frame.data, await referencePixels(at(`climb/${variant}-${n}.png`)));
-      at_.push({ n, hashes, ...diff, png: await pngDataUrl(frame) });
-    }
-    return { file, variant, at: at_ };
+    return replayFrames("climb", file, playLog, steps);
+  },
+
+  /** The guide replayed without input, its hashes and frame at each of `steps`. */
+  async guideReplay(steps) {
+    const log = await (await fetch(at("guide/play.json"))).text();
+    const m = await sariema.loadGame(at("guide/"), { audio: false });
+    return replayFrames("guide", sariema.pick(m.game, "guide"), log, steps);
   },
 
   /** Mean milliseconds a replayed step takes, over `steps` steps, for each of `reps` fresh games. */

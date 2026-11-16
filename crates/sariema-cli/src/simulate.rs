@@ -85,6 +85,7 @@ fn field(value: Field<'_>) -> Value {
         Field::Vec3(v) => json!(v),
         Field::Str(s) => json!(s),
         Field::Bytes(b) => json!(b),
+        Field::Points(p) => json!(p.iter().collect::<Vec<_>>()),
         Field::Enum(name) => json!(name),
     }
 }

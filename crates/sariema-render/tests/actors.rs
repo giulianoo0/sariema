@@ -390,3 +390,36 @@ fn an_actor_given_the_wrong_palette_or_cell_is_an_actor_error() {
         Err(RenderError::Actor(_))
     ));
 }
+
+#[test]
+fn an_actor_glows_and_back_at_zero_draws_as_before() {
+    for quality in [Quality::high(), downlevel()] {
+        let (mut h, arm) = arm_scene(quality.clone(), 0.0);
+        h.render(&camera(), 0.0);
+        let before = h.render(&camera(), 0.0);
+        let (pipelines, buffers) = (
+            h.renderer().pipelines_created(),
+            h.renderer().buffers_created(),
+        );
+        h.renderer().set_actor_glow(arm, 0.25, 0.6).unwrap();
+        let lit = h.render(&camera(), 0.0);
+        let brighter = |a: &RgbaImage, b: &RgbaImage| {
+            a.pixels()
+                .zip(b.pixels())
+                .filter(|(a, b)| {
+                    let sum = |p: &image::Rgba<u8>| p[0] as u32 + p[1] as u32 + p[2] as u32;
+                    sum(b) > sum(a) + 30
+                })
+                .count()
+        };
+        assert!(brighter(&before, &lit) > 500, "{quality:?}");
+        h.renderer().set_actor_glow(arm, 0.0, 0.0).unwrap();
+        let after = h.render(&camera(), 0.0);
+        assert_eq!(
+            compare_images(&before, &after).unwrap().max_channel_delta,
+            0
+        );
+        assert_eq!(h.renderer().pipelines_created(), pipelines);
+        assert_eq!(h.renderer().buffers_created(), buffers);
+    }
+}

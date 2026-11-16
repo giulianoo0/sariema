@@ -485,6 +485,7 @@ impl<L: Logic> Engine<L> {
             "state_hash": hex(self.sim.state_hash()),
             "physics_hash": self.physics().map(|p| hex(p.world.state_hash())),
             "audio_hash": self.sound.as_ref().map(|s| hex(s.hash())),
+            "fx_hash": hex(self.sim.state().fx.hash()),
         })
     }
 

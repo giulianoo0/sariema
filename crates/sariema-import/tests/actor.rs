@@ -507,10 +507,10 @@ fn a_model_without_a_skin_is_a_rigid_prop() {
 fn an_unsupported_extension_is_a_stable_error() {
     let doc = json!({
         "asset": {"version": "2.0"},
-        "extensionsRequired": ["KHR_texture_basisu"],
+        "extensionsRequired": ["KHR_draco_mesh_compression"],
         "scenes": [{"nodes": []}]
     });
-    let model = write_glb("basisu.glb", &doc.to_string(), &[]);
+    let model = write_glb("draco.glb", &doc.to_string(), &[]);
     assert_eq!(error_code(&model, json!({})), "E_GLTF_EXTENSION");
 }
 

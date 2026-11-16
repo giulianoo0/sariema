@@ -15,8 +15,10 @@
 // underruns, a touch on its joystick moves the hero, a game that never
 // returns is stopped by its budget and one over it at a later step stops
 // where the CLI stops it, and a lost GPU leaves the game at its step, even
-// when the first restore fails. Results land in test/out/results.json; the
-// exit code is the verdict.
+// when the first restore fails. The guide game (examples/guide), with its
+// particles, trail and highlight, reaches the native hashes and frames with
+// the same seed. Results land in test/out/results.json; the exit code is
+// the verdict.
 //
 //   SARIEMA_BROWSERS   comma list of chromium-webgpu, chromium-webgl2, webkit-webgpu,
 //                      webkit-webgl2 (default all)
@@ -128,6 +130,25 @@ for (const [variant, file] of [
     );
     nativeClimb[n] ??= r;
     if (r.engine_hash !== nativeClimb[n].engine_hash) throw new Error(`the two variants' engine hashes differ at step ${n}`);
+  }
+}
+const GUIDE_STEPS = [150, 300];
+const guideDir = join(fixtures, "guide");
+const guideLog = join(guideDir, "play.json");
+cli("web", join(repo, "examples", "guide"), "-o", guideDir);
+writeFileSync(guideLog, JSON.stringify({ changes: [] }));
+const nativeGuide = {};
+for (const [variant, file] of [
+  ["astc", "game.srmg"],
+  ["rgba8", "game.rgba8.srmg"],
+]) {
+  for (const n of GUIDE_STEPS) {
+    const r = cli(
+      "run", "--headless", "--game", join(guideDir, file), "--input", guideLog, "--steps", String(n),
+      "--screenshot", join(guideDir, `${variant}-${n}.png`), "--width", "960", "--height", "540", "--quality", "high",
+    );
+    nativeGuide[n] ??= r;
+    if (r.fx_hash !== nativeGuide[n].fx_hash) throw new Error(`the two variants' fx hashes differ at step ${n}`);
   }
 }
 const nativeCost = nativeReplay(join(climbDir, "game.rgba8.srmg"), climbLog, "900", "7");
@@ -323,11 +344,31 @@ async function runBrowser(name, { engine, hideWebGpu }) {
     });
 
     await climbChecks(name, page);
+    await guideChecks(name, page);
   } catch (e) {
     check(name, "runs", false, { error: String(e?.message ?? e).split("\n")[0] });
   } finally {
     await launched.close();
     if (logs.length) console.log(`${name} console:\n  ${logs.slice(0, 20).join("\n  ")}`);
+  }
+}
+
+async function guideChecks(name, page) {
+  await page.evaluate(() => window.suite.remount({}));
+  const replay = await page.evaluate(([s]) => window.suite.guideReplay(s), [GUIDE_STEPS]);
+  for (const r of replay.at) {
+    const native = nativeGuide[r.n];
+    saveRender(name, { name: `guide-${replay.variant}-${r.n}`, png: r.png });
+    const same = ["engine_hash", "state_hash", "fx_hash"].every((h) => r.hashes[h] === native[h]);
+    check(name, `the guide replay reaches the native hashes, its effects' included, at step ${r.n}`, same && r.hashes.steps === r.n, {
+      fx_hash: r.hashes.fx_hash,
+      native: native.fx_hash,
+    });
+    check(name, `the guide's frame at step ${r.n} matches the native one`, within(r), {
+      file: replay.file,
+      max_channel_delta: r.max_channel_delta,
+      differing_pixels_ratio: Number(r.differing_pixels_ratio.toFixed(5)),
+    });
   }
 }
 

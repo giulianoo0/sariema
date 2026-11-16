@@ -58,6 +58,8 @@ export interface GameHashes {
   physics_hash: string | null;
   /** Null for a game without sounds. */
   audio_hash: string | null;
+  /** The particles alive: the same on every host for the same replay. */
+  fx_hash: string;
 }
 
 export interface UiEvent {

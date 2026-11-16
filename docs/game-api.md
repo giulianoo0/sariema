@@ -71,7 +71,8 @@ records: a little-endian `u16` opcode, then the fields its table entry lists,
 in order, with no padding. `f32` fields must be finite; `bool` is one byte,
 0 or 1; `Str` and `Bytes` are a `u32` length then the bytes, `Str` being
 UTF-8; an `Entity` is a slot index and a generation, `u32` each; `Vec3` is
-three `f32`; enums are one byte.
+three `f32`; `Points` is a `u32` count then three `f32` per point (the SDK
+takes a `PointList::Slice(&[[x, y, z], …])`); enums are one byte.
 
 A command batch that does not decode stops the game for good with
 `E_BATCH_TRUNCATED`, `E_BATCH_UNKNOWN` or `E_BATCH_INVALID`, naming the
@@ -410,6 +411,13 @@ without `--headless` the pack plays in a window.
   one whose glyphs overflow the HUD's glyph atlas with `E_UI_ATLAS_FULL`;
   a text refused for its length leaves the node as it was, and one refused
   for the atlas leaves it empty.
+- **Particles**: `fx_start`, `fx_stop` and `fx_burst` run emitters of the
+  effects the game defines in `fx.effects`, seeded by the command, simulated
+  on the step and drawn in one instanced draw; see [effects](fx.md).
+- **Guides**: `trail` lays soft dots along a route to a goal, with a wave of
+  light running to it, and `trail_off` fades it; `highlight` makes an actor
+  or a room node glow in its own colour, over all of it and at its rim,
+  pulsing slowly, and eases it in and out; see [effects](fx.md).
 - **Screen**: `fade` to a colour, `letterbox`, and dialogue lines (`say`):
   an `auto` line ends after its duration, a `tap` line when the game sends
   `advance_line` (in a cutscene, on the `cutscene.advance_action` button);
@@ -472,6 +480,23 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `cutscene.start_blend_max` | 0.3 | Up to this distance an actor is eased into its start place; farther, it walks there. |
 | `cutscene.start_tolerance` | 0.02 | Metres from its declared start an actor may be and still start in place. |
 | `cutscene.start_walk_speed` | 1.5 | Metres per second of the walk to the start place. |
+| `fx.effects` | none | The particle effects fx_start and fx_burst name: sprite, rate and puffs, life, size, speed, gravity, drag, drift, spin, colour keys, intensity and how additive; see docs/fx.md. |
+| `fx.emitters` | 32 | Particle emitters alive at once, bursts and fading ones included; one more is refused with E_FX_FULL. |
+| `fx.path_points` | 32 | Points an emitter's path may have; more are refused with E_FX_POINTS. |
+| `fx.highlights` | 16 | Highlighted actors and nodes at once, fading ones included; one more is refused with E_FX_FULL. |
+| `fx.pool` | 64 | Particles one emitter keeps alive, unless its effect gives its own pool; the ones past it are not born. |
+| `fx.pulse_depth` | 0.4 | How far a pulsing highlight dims at the bottom of a pulse: 0.4 dims it to 60%. |
+| `fx.trail.additive` | 1 | 1 adds the dots' light to the floor, 0 covers it, between both. |
+| `fx.trail.lift` | 0.02 | Metres the dots lie above the route, so they never sink into the floor. |
+| `fx.trail.sprite` | `disc` | The sprite of every trail's dots: dot, star, disc or spark. |
+| `fx.trail.wave_every` | 8 | Metres between one wave's crest and the next. |
+| `fx.trail.wave_gain` | 1 | How much brighter a dot is at the crest: 1 is twice as bright. |
+| `fx.trail.wave_grow` | 0.25 | How much larger a dot is at the crest: 0.25 is a quarter larger. |
+| `fx.trail.wave_alpha` | 0.4 | How much of its opacity a dot far from every crest loses: 0.4 leaves it at 60%. |
+| `fx.trail.wave_length` | 1 | Metres from a wave's crest to where it has fallen to e^-2 of it. |
+| `fx.trail_dots` | 256 | Dots one trail draws at most, counted from its goal. |
+| `fx.trail_points` | 64 | Points a trail's route may have; more are refused with E_FX_POINTS. |
+| `fx.trails` | 4 | Trails shown at once, fading ones included; one more is refused with E_FX_FULL. |
 | `input.axes` | the input table above | Move axes: name, keys for up, down, left and right, an optional stick, whether the touch joystick drives it, and a dead zone. |
 | `input.buffer_steps` | 6 | Steps a button press stays buffered for the game to consume. |
 | `input.buttons` | the input table above | Buttons: name, keys and gamepad buttons. |
