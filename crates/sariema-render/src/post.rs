@@ -775,7 +775,7 @@ fn group<'a>(
 /// The centre and one side of a blur of `taps` bilinear samples, as (offset
 /// in texels, weight). The weights are binomial, of row 2r + 4 less the two
 /// smallest at each end, r = taps − 1, as in Rákos's linear-sampling
-/// Gaussian; 5 taps give the Origem game's kernel.
+/// Gaussian; 5 taps give the ported game's kernel.
 fn kernel(taps: u32) -> Vec<[f32; 2]> {
     let radius = taps.max(1) as usize - 1;
     let middle = (radius + 2) as f64;

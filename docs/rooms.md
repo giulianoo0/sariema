@@ -277,9 +277,9 @@ these numbers are the frame's CPU, not its GPU.
   active one, and the time spent integrating it on the main thread is a
   budget per frame. Here: rooms are slots added to what is drawn, and
   decode, upload and world building each have a budget per frame.
-- **Celeste, Hollow Knight.** Celeste keeps a level's rooms loaded and
-  slides the camera between them; Hollow Knight loads the next scene behind
-  a short fade at the doorway. Here: `Continuous` inside a house, `Dissolve`
+- **Room-by-room side-scrollers.** Some keep a level's rooms loaded and
+  slide the camera between them; others load the next scene behind a
+  short fade at the doorway. Here: `Continuous` inside a house, `Dissolve`
   or a fade between places that do not continue each other.
 - **Godot, Unity (screen-space transitions).** A common scene transition
   there captures the last frame (`get_viewport().get_texture()`, a

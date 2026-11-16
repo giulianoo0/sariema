@@ -26,7 +26,7 @@ one more run with every render pass timed on the GPU. Frame `n` is drawn at
 | `--no-shadows` | off | neither the sun nor any light casts a shadow |
 | `--no-ao` | off | no ambient occlusion |
 
-`--msaa 1 --no-shadows --no-ao` matches the Origem three.js game's
+`--msaa 1 --no-shadows --no-ao` matches the ported three.js game's
 settings: no anti-aliasing, no shadows, no occlusion. It does not match its
 content: the game also draws its characters and runs its logic every frame,
 and its post-processing is shorter (one bloom level, 6–7 passes against the
@@ -159,12 +159,12 @@ Passes per frame, shadows already drawn:
 
 ## Reference numbers
 
-Apple M5, Metal, `medium`, the Origem rooms, with frustum culling and
+Apple M5, Metal, `medium`, the ported game's rooms, with frustum culling and
 actors in the renderer; medians of three repetitions of three runs of 300
 frames, with the load average between 6 and 16 (the machine was shared),
 so timings carry about ±10%. Wall is the time from a run's first frame to
 the GPU finishing its last, per frame. "Like for like" is `--msaa 1
---no-shadows --no-ao` on one room. The three.js column is the Origem game
+--no-shadows --no-ao` on one room. The three.js column is that game
 in Chrome with ANGLE on Metal, measured in the same session: its frame's
 render call alone, called back to back, with the game's tick not run and
 its characters hidden, up to one `readPixels`, per frame.

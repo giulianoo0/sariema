@@ -228,13 +228,13 @@ Packs store colour textures as ASTC 4×4 or as RGBA8. `sariema web <project>
 `capabilities().texture_variants` (`["astc", "rgba8"]` where ASTC samples,
 `["rgba8"]` elsewhere) and fetches the first the game has.
 
-Sizes of the Origem rooms (MB):
+Sizes of the ported game's rooms (MB):
 
 | Pack | ASTC raw / gzip / brotli | RGBA8 raw / gzip / brotli |
 |---|---|---|
-| origem-s5 | 4.17 / 1.39 / 1.23 | 10.92 / 1.46 / 1.28 |
-| origem-base-s11 | 17.36 / 6.14 / 4.96 | 61.40 / 11.62 / 9.61 |
-| origem-base-s12 | 17.36 / 6.14 / 4.96 | 61.40 / 11.62 / 9.61 |
+| backyard | 4.17 / 1.39 / 1.23 | 10.92 / 1.46 / 1.28 |
+| tree-house | 17.36 / 6.14 / 4.96 | 61.40 / 11.62 / 9.61 |
+| tree-house-s12 | 17.36 / 6.14 / 4.96 | 61.40 / 11.62 / 9.61 |
 
 ASTC is a quarter of the GPU memory and about half the download of the
 textured rooms; RGBA8 compresses well over the wire but not in memory.
@@ -277,7 +277,7 @@ sariema.on("lost", () => console.log("moving to a new GPU"));
 A folder of a project without a game is shown on the Stage:
 
 ```ts
-await sariema.loadGame("/games/origem/");      // sariema-web.json, start room, sounds, UI
+await sariema.loadGame("/games/my-game/");      // sariema-web.json, start room, sounds, UI
 const tito = sariema.spawnActor(await sariema.loadGameActor("tito"));
 sariema.setActor(tito, { transform, clip: "walk", speed: 1 });
 sariema.on("ui", (e) => console.log(e.type, e.node));
@@ -359,7 +359,7 @@ goldens' own: no channel more than 6 apart, or at most 0.5% of pixels.
 native frame the fixtures example writes beside it.
 
 ```sh
-node test/bench.mjs --pack origem-s5.srma --backend webgl2 \
+node test/bench.mjs --pack backyard.srma --backend webgl2 \
   --viewport 844,390,3 --msaa 1 --no-shadows --no-ao --reps 3
 ```
 
@@ -520,7 +520,7 @@ tick's 200 M fuel: 543–556 ms in Chromium, 321–349 ms in WebKit, the
 longest gap a 10 ms timer saw 298–522 ms; later ticks have a tenth of
 that budget.
 
-**Time to first frame** of an Origem room at the medium look, measured
+**Time to first frame** of a ported room at the medium look, measured
 with the build before games, a phone-sized
 page (844×390 at pixel ratio 3, drawn at 1266×585), served over loopback
 (so the fetch has no network in it), a cold browser for each run, medians
@@ -549,7 +549,7 @@ the fetch and load, and on WebGL2 about 85 ms more in the first frame.
 Over a network the fetch dominates: a phone downloads the brotli sizes in
 [Textures](#textures).
 
-**Frame time against three.js.** The Origem rooms in one Chromium
+**Frame time against three.js.** The ported game's rooms in one Chromium
 session (three.js on WebGL2, as the game ships), interleaved, three
 repetitions of 300 frames, medians; load average 6.3–14.7. three.js's side
 is the perf lane's render-only burst of the game (the render call alone,

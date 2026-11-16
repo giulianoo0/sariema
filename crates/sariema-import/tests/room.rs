@@ -613,10 +613,10 @@ fn result_survives_format_roundtrip() {
 }
 
 #[test]
-#[ignore = "needs the Origem assets in SARIEMA_ORIGEM_ASSETS"]
+#[ignore = "needs a game's kit assets in SARIEMA_KIT_ASSETS"]
 fn builds_real_quintal() {
-    let root = std::env::var_os("SARIEMA_ORIGEM_ASSETS")
-        .expect("set SARIEMA_ORIGEM_ASSETS to the Origem assets directory, the one holding casa/");
+    let root = std::env::var_os("SARIEMA_KIT_ASSETS")
+        .expect("set SARIEMA_KIT_ASSETS to a game's assets directory, the one holding casa/");
     let sala = with(
         sala_min(),
         json!({
@@ -633,10 +633,10 @@ fn builds_real_quintal() {
 }
 
 #[test]
-#[ignore = "needs the Origem assets in SARIEMA_ORIGEM_ASSETS"]
+#[ignore = "needs a game's kit assets in SARIEMA_KIT_ASSETS"]
 fn real_cozinha_shows_instance_states() {
-    let root = std::env::var_os("SARIEMA_ORIGEM_ASSETS")
-        .expect("set SARIEMA_ORIGEM_ASSETS to the Origem assets directory, the one holding casa/");
+    let root = std::env::var_os("SARIEMA_KIT_ASSETS")
+        .expect("set SARIEMA_KIT_ASSETS to a game's assets directory, the one holding casa/");
     let sala = with(
         sala_min(),
         json!({
@@ -653,11 +653,10 @@ fn real_cozinha_shows_instance_states() {
 }
 
 #[test]
-#[ignore = "needs the Origem assets in SARIEMA_ORIGEM_ASSETS"]
+#[ignore = "needs a game's kit assets in SARIEMA_KIT_ASSETS"]
 fn builds_whole_tree_house() {
-    let root = std::env::var_os("SARIEMA_ORIGEM_ASSETS").expect(
-        "set SARIEMA_ORIGEM_ASSETS to the Origem assets directory, the one holding arvore/",
-    );
+    let root = std::env::var_os("SARIEMA_KIT_ASSETS")
+        .expect("set SARIEMA_KIT_ASSETS to a game's assets directory, the one holding arvore/");
     let show = [
         "quarto_janela",
         "tunel_entrada",

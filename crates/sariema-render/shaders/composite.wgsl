@@ -103,7 +103,7 @@ fn hejl(c: vec3<f32>) -> vec3<f32> {
     return x * (6.2 * x + 0.5) / (x * (6.2 * x + 1.7) + 0.06);
 }
 
-// The Origem game's grade of display-encoded colour: 62% of the saturation
+// The ported game's grade of display-encoded colour: 62% of the saturation
 // by day, 45% by night, cooler and darker, under a light vignette.
 fn real_world(c: vec3<f32>, uv: vec2<f32>) -> vec3<f32> {
     let grey = vec3(dot(c, vec3(0.299, 0.587, 0.114)));

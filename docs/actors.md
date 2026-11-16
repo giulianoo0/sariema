@@ -286,7 +286,7 @@ sariema run demo.srma --headless --frames 1 --screenshot strip.png \
 
 ## Renderer CPU work
 
-Profiling `origem-s5` and `origem-base-s11` (macOS `sample`) showed where a
+Profiling `backyard` and `tree-house` (macOS `sample`) showed where a
 frame's CPU went before this work: 56–66 % in wgpu's
 `CommandEncoder::finish`, which replays each of the frame's 20–25 render
 passes into a new Metal encoder; 6–13 % staging the per-frame
@@ -300,15 +300,15 @@ renderer's own code (culling, binning, sorting, recording draws). Changes:
 - light culling, binning, shadow slot assignment and draw ordering reuse
   their buffers, and sort without allocating.
 
-Images do not change: the golden tests pass unchanged and `origem-s5` and
-`origem-base-s11` render identically (largest channel difference 0) before
+Images do not change: the golden tests pass unchanged and `backyard` and
+`tree-house` render identically (largest channel difference 0) before
 and after.
 
 ## Numbers
 
-Mac M5, 1920×1080, `sariema run --headless --frames 300` as in the Origem
-benchmark (the packs `origem-s5.srma`, the backyard, and
-`origem-base-s11.srma`, the tree house with its nine rooms). The machine was
+Mac M5, 1920×1080, `sariema run --headless --frames 300` as in the ported game's
+benchmark (the packs `backyard.srma`, the backyard, and
+`tree-house.srma`, the tree house with its nine rooms). The machine was
 busy for every run, with a load average of 18–39 from an Android emulator
 and other builds. On a quiet machine the same room measured 0.92–1.20 ms;
 here it measured 1.7–3.9 ms, so absolute figures run about 2–3× high.
@@ -321,14 +321,14 @@ skipped uploads and the actors.
 
 | room, quality | before | after | draws culled |
 |---|---|---|---|
-| origem-s5, medium | 2.25 / 3.87 | 2.53 / 3.36 | 30 of 32 |
-| origem-s5, high | 2.22 / 2.95 | 2.50 / 3.16 | 30 of 32 |
-| origem-base-s11, medium | 1.77 / 2.31 | 2.45 / 3.15 | 106 of 114 |
-| origem-base-s11, high | 1.78 / 2.06 | 2.13 / 2.86 | 106 of 114 |
+| backyard, medium | 2.25 / 3.87 | 2.53 / 3.36 | 30 of 32 |
+| backyard, high | 2.22 / 2.95 | 2.50 / 3.16 | 30 of 32 |
+| tree-house, medium | 1.77 / 2.31 | 2.45 / 3.15 | 106 of 114 |
+| tree-house, high | 1.78 / 2.06 | 2.13 / 2.86 | 106 of 114 |
 
 These minimums do not show a CPU gain: every "after" minimum is 0.3 to
 0.7 ms above "before", and the medians go both ways. Fifteen more
-interleaved pairs on `origem-base-s11` high gave a minimum of 2.06 ms before
+interleaved pairs on `tree-house` high gave a minimum of 2.06 ms before
 against 2.16 ms after, and a median of 3.30 against 2.92 ms, with "after"
 faster in 11 of the 15 pairs. At this load the runs cannot tell a gain from
 a small loss. The absolute before and after waits for a rerun on a quiet
@@ -341,10 +341,10 @@ build:
 
 | room, quality | encoder finish | renderer's `prepare` | `write_buffer` | post |
 |---|---|---|---|---|
-| origem-s5, medium | 66 → 74 % | 12.9 → 6.0 % | 12.7 → 4.2 % | 3.1 → 1.1 % |
-| origem-s5, high | 60 → 67 % | 16.4 → 12.2 % | 12.9 → 7.6 % | 2.7 → 0.9 % |
-| origem-base-s11, medium | 56 → 72 % | 6.3 → 2.1 % | 6.2 → 0 % | 1.9 → 1.4 % |
-| origem-base-s11, high | 65 → 82 % | 13.1 → 3.8 % | 11.1 → 0 % | 3.0 → 1.7 % |
+| backyard, medium | 66 → 74 % | 12.9 → 6.0 % | 12.7 → 4.2 % | 3.1 → 1.1 % |
+| backyard, high | 60 → 67 % | 16.4 → 12.2 % | 12.9 → 7.6 % | 2.7 → 0.9 % |
+| tree-house, medium | 56 → 72 % | 6.3 → 2.1 % | 6.2 → 0 % | 1.9 → 1.4 % |
+| tree-house, high | 65 → 82 % | 13.1 → 3.8 % | 11.1 → 0 % | 3.0 → 1.7 % |
 
 On s11 no buffer is written in a settled frame. s5 still writes its light
 data every frame because its lights flicker.
@@ -364,8 +364,8 @@ the same quiet rerun to show.
 
 ### Actors
 
-Actors walking (`--clip walk --time 5`) in `origem-s5`, alternating Lumo
-(23 joints) and Pain (25 joints) in a grid in view. `cpu_ms_per_frame` is
+Actors walking (`--clip walk --time 5`) in `backyard`, alternating two characters
+(23 and 25 joints) in a grid in view. `cpu_ms_per_frame` is
 minimum / median of 5 runs. Posing is `actors_ms_per_frame`, the time to
 sample, blend and skin every actor's palette and hand it to the renderer
 (minimum / median across the three qualities).
@@ -399,7 +399,7 @@ the median:
 
 ```sh
 for i in $(seq 1 7); do for bin in ./before ./after; do
-  $bin run origem-s5.srma --headless --frames 300 --screenshot x.png \
+  $bin run backyard.srma --headless --frames 300 --screenshot x.png \
     --width 1920 --height 1080 --quality high --json
 done; done
 ```
