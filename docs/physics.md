@@ -350,6 +350,10 @@ room with 135 colliders in 0.2 s.
   target.
 - Platforms move and turn about Y only (`Pose` is a translation and a yaw);
   a platform that tilts or rolls is not supported.
+- Rounding a convex corner met nearly head-on, the slowest step keeps about
+  0.43 of the walk speed with the default 25° assist angle (0.20 without the
+  assist): above the assist angle the plain slide takes over. A
+  `corner_assist_angle_deg` of 37° raises that to about 0.58.
 - Actors push each other apart as vertical circles (radius of the body
   capsule, overlapping heights); head spheres do not push.
 - `check` uses the default controller settings; a game that tunes them should
