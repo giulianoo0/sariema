@@ -225,6 +225,21 @@ collision, every actor in `actors`, the sound bank of `audio`, and the HUD
 `game.hud` describes with its fonts and images. An entity spawned with an
 actor's name id as its `asset` is drawn and animated with that actor.
 
+Rustc embeds source paths in the logic, in its panic locations, and the
+logic's memory is part of the state hash. So the pack and its hashes are the
+same on every machine, `sariema build` passes `--remap-path-prefix`: the
+checkout the CLI was built from becomes `/sariema` and cargo's registry
+sources `/cargo`. The flags go after any in `CARGO_ENCODED_RUSTFLAGS`,
+`RUSTFLAGS` or `CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS`, and with none
+of those set they join `build.rustflags` in cargo's config. Two cases are
+not remapped, and the build reports each in `warnings` when the `.wasm`
+still names the checkout, the home directory or cargo's:
+
+- a `target.wasm32-unknown-unknown.rustflags` in cargo's config, which
+  replaces `build.rustflags`; set those flags in `RUSTFLAGS` instead;
+- an SDK from another checkout than the CLI's; build with that checkout's
+  `sariema`.
+
 ## Budgets and the sandbox
 
 Every tick runs under limits from the `vm.*` settings:

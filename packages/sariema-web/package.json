@@ -10,7 +10,7 @@
   "files": ["dist"],
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node test/run.mjs",
+    "test": "node --test test/remap.test.mjs && node test/run.mjs",
     "serve": "node scripts/serve.mjs"
   },
   "devDependencies": {

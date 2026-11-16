@@ -399,7 +399,7 @@ npx playwright install chromium webkit   # once; Playwright 1.64.1 uses chromium
 npm run build      # dist/: the .wasm (wasm-opt -Oz), bindings, typed API, worklet,
                    # probe page and the demo game (examples/climb); prints the
                    # .wasm's sizes (--speed: opt-level 3 and wasm-opt -O3 instead)
-npm test           # test/run.mjs, about a minute
+npm test           # test/remap.test.mjs, then test/run.mjs, about a minute
 ```
 
 A game project becomes a folder the package plays with `sariema web`:
@@ -407,6 +407,14 @@ A game project becomes a folder the package plays with `sariema web`:
 ```sh
 sariema web ../../examples/climb -o dist/demo --json   # game.srmg (ASTC), game.rgba8.srmg, sariema-web.json
 ```
+
+`npm run build` names the repository `/sariema` and cargo's registry
+sources `/cargo` in the `.wasm`, with the same `--remap-path-prefix` flags
+as `sariema build` (see [the game API](game-api.md#the-rust-sdk)).
+`npm test` first checks how those flags join the user's
+(`test/remap.test.mjs`), and later that the engine's `.wasm`, its counting
+build and the climb's packs name neither the repository, the home directory
+nor cargo's.
 
 `npm test` writes the fixtures and native references with `cargo run
 --example fixtures`, builds `examples/demo`, `examples/climb` and

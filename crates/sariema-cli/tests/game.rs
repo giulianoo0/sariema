@@ -535,31 +535,95 @@ fn the_climb_example_replays_through_the_whole_engine_to_pinned_events_and_state
     }
 }
 
+const RUSTFLAGS_VARS: [&str; 3] = [
+    "RUSTFLAGS",
+    "CARGO_ENCODED_RUSTFLAGS",
+    "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS",
+];
+
+/// `sariema build` of the climb with only `env` of the rustflags variables
+/// set: its reply and its logic.
+fn build_climb(pack: &Path, env: &[(&str, &str)]) -> (Value, Vec<u8>) {
+    let mut cmd = cargo_bin_cmd!("sariema");
+    for var in RUSTFLAGS_VARS {
+        cmd.env_remove(var);
+    }
+    cmd.envs(env.iter().copied());
+    let climb = repo().join("examples/climb");
+    let out = (cmd.args(["build", arg(&climb), "-o", arg(pack), "--json"]))
+        .output()
+        .unwrap();
+    let built: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(built["ok"], true, "{env:?}: {built}");
+    (built, decode_game(&fs::read(pack).unwrap()).unwrap().wasm)
+}
+
 /// Panic locations in the logic name the checkout and cargo's registry by
 /// fixed prefixes, so the climb's hashes hold on any machine and its
-/// published pack names no local directory.
+/// published pack names no local directory: without flags of the user's,
+/// with `RUSTFLAGS`, with `CARGO_ENCODED_RUSTFLAGS`, with the target's
+/// rustflags in the environment, and with a cargo home outside the home
+/// directory.
 #[test]
 fn the_climbs_logic_names_no_local_directory() {
     let tmp = TempDir::new().unwrap();
-    let pack = tmp.path().join("climb.srmg");
-    ok(&[
-        "build",
-        arg(&repo().join("examples/climb")),
-        "-o",
-        arg(&pack),
-    ]);
-    let wasm = decode_game(&fs::read(&pack).unwrap()).unwrap().wasm;
-    let mut local = vec![repo().canonicalize().unwrap()];
-    local.extend(std::env::home_dir().filter(|home| home.parent().is_some()));
-    for dir in local {
-        let dir = dir.to_str().unwrap().as_bytes();
-        assert!(
-            !wasm.windows(dir.len()).any(|w| w == dir),
-            "the climb's .wasm names {}",
-            String::from_utf8_lossy(dir)
-        );
+    let cargo_home = TempDir::new().unwrap();
+    let cargo_home = cargo_home.path().canonicalize().unwrap();
+    let home = std::env::home_dir().filter(|home| home.parent().is_some());
+    assert!(
+        home.as_ref()
+            .is_none_or(|home| !cargo_home.starts_with(home))
+    );
+    let cases: [(&str, &[(&str, &str)]); 5] = [
+        ("none", &[]),
+        (
+            "rustflags",
+            &[(RUSTFLAGS_VARS[0], "-C debug-assertions=off")],
+        ),
+        (
+            "encoded",
+            &[(RUSTFLAGS_VARS[1], "-C\x1fdebug-assertions=off")],
+        ),
+        ("target", &[(RUSTFLAGS_VARS[2], "-C debug-assertions=off")]),
+        (
+            "cargo_home",
+            &[("CARGO_HOME", cargo_home.to_str().unwrap())],
+        ),
+    ];
+    for (name, env) in cases {
+        let (built, wasm) = build_climb(&tmp.path().join(format!("{name}.srmg")), env);
+        assert_eq!(built["warnings"], json!([]), "{name}");
+        let mut local = vec![repo().canonicalize().unwrap(), cargo_home.clone()];
+        local.extend(home.clone());
+        for dir in local {
+            let dir = dir.to_str().unwrap().as_bytes();
+            assert!(
+                !wasm.windows(dir.len()).any(|w| w == dir),
+                "{name}: the climb's .wasm names {}",
+                String::from_utf8_lossy(dir)
+            );
+        }
+        assert!(wasm.windows(9).any(|w| w == b"/sariema/"), "{name}");
     }
-    assert!(wasm.windows(9).any(|w| w == b"/sariema/"));
+}
+
+/// Target rustflags in cargo's config replace the remap; the build says so.
+#[test]
+fn a_build_whose_remap_cargo_dropped_warns() {
+    let tmp = TempDir::new().unwrap();
+    fs::write(
+        tmp.path().join("config.toml"),
+        "[target.wasm32-unknown-unknown]\nrustflags = [\"-Cdebug-assertions=off\"]\n",
+    )
+    .unwrap();
+    let cargo_home = tmp.path().to_str().unwrap();
+    let pack = tmp.path().join("climb.srmg");
+    let (built, _) = build_climb(&pack, &[("CARGO_HOME", cargo_home)]);
+    let warning = built["warnings"][0].as_str().unwrap_or_default();
+    assert!(
+        warning.contains("target.wasm32-unknown-unknown.rustflags"),
+        "{built}"
+    );
 }
 
 #[test]

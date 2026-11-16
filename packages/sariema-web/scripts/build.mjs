@@ -21,6 +21,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
+import { cargoHome, remapFlags, rustFlags } from "./remap.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = resolve(here, "..");
@@ -47,27 +48,8 @@ function toolchain() {
   return { cargo: join(bin, "cargo"), env: { RUSTC: join(bin, "rustc"), PATH: `${bin}:${process.env.PATH}` } };
 }
 
-/**
- * Has rustc name the repository `/sariema` and cargo's registry sources
- * `/cargo` in what it embeds, such as panic locations, so the .wasm names no
- * local directory. Flags set in CARGO_ENCODED_RUSTFLAGS, RUSTFLAGS or cargo's
- * config are kept.
- */
-function remapPaths() {
-  const cargoHome = process.env.CARGO_HOME ?? join(homedir(), ".cargo");
-  const flags = [`--remap-path-prefix=${repo}=/sariema`, `--remap-path-prefix=${join(cargoHome, "registry", "src")}=/cargo`];
-  const { CARGO_ENCODED_RUSTFLAGS: encoded, RUSTFLAGS: plain } = process.env;
-  if (encoded !== undefined) {
-    return { args: [], env: { CARGO_ENCODED_RUSTFLAGS: [...encoded.split("\x1f").filter(Boolean), ...flags].join("\x1f") } };
-  }
-  if (plain !== undefined) {
-    return { args: [], env: { CARGO_ENCODED_RUSTFLAGS: [...plain.split(/\s+/).filter(Boolean), ...flags].join("\x1f") } };
-  }
-  return { args: ["--config", `build.rustflags=${JSON.stringify(flags)}`], env: {} };
-}
-
 const { cargo, env } = toolchain();
-const remap = remapPaths();
+const remap = rustFlags(remapFlags(repo, cargoHome()));
 const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : join(repo, "target");
 const profile = debug ? "dev" : "release";
 // Set as environment overrides so the workspace's own release profile stays

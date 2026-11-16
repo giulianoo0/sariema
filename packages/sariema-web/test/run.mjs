@@ -30,11 +30,12 @@ import { execFileSync, spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir, loadavg } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { chromium, webkit } from "playwright";
+import { localDirs, namedDirs } from "../scripts/remap.mjs";
 
 const MAX_DELTA = 6;
 const MAX_RATIO = 0.005;
@@ -190,6 +191,16 @@ const checks = [];
 function check(browser, name, pass, detail) {
   checks.push({ browser, name, pass, ...detail });
   console.log(`${pass ? "ok  " : "FAIL"} ${browser} ${name} ${JSON.stringify(detail)}`);
+}
+
+for (const file of [
+  join(pkg, "dist", "wasm", "sariema_web_bg.wasm"),
+  join(pkg, "dist", "wasm", "sariema_web_counting_bg.wasm"),
+  join(climbDir, "game.srmg"),
+  join(climbDir, "game.rgba8.srmg"),
+]) {
+  const named = namedDirs(readFileSync(file), localDirs(repo));
+  check("native", `${relative(pkg, file)} names no local directory`, named.length === 0, { named });
 }
 
 const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];

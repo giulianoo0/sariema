@@ -235,6 +235,9 @@ pub fn build(dir: &Path, output: &Path, textures: Option<TextureMode>) -> Result
         )?,
     };
     pack.wasm = compile_logic(&dir.join(&game.logic), game.toolchain.as_deref())?;
+    let warnings: Vec<String> = local_dirs_warning(&local_dirs_named(&pack.wasm, &local_dirs()))
+        .into_iter()
+        .collect();
     start(pack.clone(), 0).map_err(|e| Failure::new(e.code, format!("{}: {e}", dir.display())))?;
     let bytes = encode_game(&pack);
     fs::write(output, &bytes).map_err(|e| Failure::io(output, e))?;
@@ -253,6 +256,7 @@ pub fn build(dir: &Path, output: &Path, textures: Option<TextureMode>) -> Result
             "actors": pack.assets.actors.iter().map(|(n, _)| n).collect::<Vec<_>>(),
             "sounds": pack.assets.sounds.is_some(),
             "hud": pack.assets.hud.is_some(),
+            "warnings": warnings,
         }),
         text: format!(
             "built {} into {}: {} bytes, {} of logic, {} cutscenes",
@@ -261,7 +265,10 @@ pub fn build(dir: &Path, output: &Path, textures: Option<TextureMode>) -> Result
             bytes.len(),
             pack.wasm.len(),
             cutscenes.len()
-        ),
+        ) + &warnings
+            .iter()
+            .map(|w| format!("\nwarning: {w}"))
+            .collect::<String>(),
     })
 }
 
@@ -343,57 +350,137 @@ fn compile_logic(crate_dir: &Path, toolchain: Option<&str>) -> Result<Vec<u8>, F
     fs::read(&wasm).map_err(|e| Failure::io(&wasm, e))
 }
 
-/// Has rustc name the checkout this CLI was built from `/sariema` and
-/// cargo's registry sources `/cargo` in what it embeds, such as panic
-/// locations, so a game's .wasm is the same wherever it is built and names
-/// no local directory. Flags the user set in `CARGO_ENCODED_RUSTFLAGS`,
-/// `RUSTFLAGS` or cargo's config are kept.
-fn remap_paths(cargo: &mut Command) {
-    let checkout = Path::new(env!("CARGO_MANIFEST_DIR"))
+const WASM_TARGET_RUSTFLAGS: &str = "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS";
+
+/// The checkout this CLI was built from, as `sariema new` points a game's
+/// SDK at it.
+fn checkout() -> Option<PathBuf> {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .map(Path::to_path_buf);
-    let mut prefixes: Vec<(PathBuf, &str)> = Vec::new();
-    if let Some(checkout) = checkout {
-        if let Ok(real) = checkout.canonicalize()
-            && real != checkout
-        {
-            prefixes.push((real, "/sariema"));
-        }
-        prefixes.push((checkout, "/sariema"));
-    }
-    let cargo_home = std::env::var_os("CARGO_HOME")
+        .map(Path::to_path_buf)
+}
+
+fn cargo_home() -> Option<PathBuf> {
+    std::env::var_os("CARGO_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::home_dir().map(|home| home.join(".cargo")));
-    if let Some(home) = cargo_home {
-        prefixes.push((home.join("registry").join("src"), "/cargo"));
+        .or_else(|| std::env::home_dir().map(|home| home.join(".cargo")))
+}
+
+/// Each directory canonical, then as given when that differs.
+fn both_forms(dir: PathBuf) -> Vec<PathBuf> {
+    match dir.canonicalize() {
+        Ok(real) if real != dir => vec![real, dir],
+        _ => vec![dir],
     }
-    let flags: Vec<String> = prefixes
-        .iter()
+}
+
+/// `--remap-path-prefix` flags naming `checkout` `/sariema` and the registry
+/// sources under `cargo_home` `/cargo`.
+fn remap_flags(checkout: Option<&Path>, cargo_home: Option<&Path>) -> Vec<String> {
+    let checkout = checkout
+        .into_iter()
+        .flat_map(|c| both_forms(c.to_path_buf()));
+    let registry = cargo_home
+        .into_iter()
+        .flat_map(|h| both_forms(h.join("registry").join("src")));
+    (checkout.map(|d| (d, "/sariema")))
+        .chain(registry.map(|d| (d, "/cargo")))
         .map(|(from, to)| format!("--remap-path-prefix={}={to}", from.display()))
+        .collect()
+}
+
+/// How the remap reaches rustc without dropping a flag the user set.
+#[derive(Debug, PartialEq)]
+enum RustFlags {
+    /// `CARGO_ENCODED_RUSTFLAGS`, the user's flags first.
+    Encoded(String),
+    /// A `--config` value, which cargo joins to `build.rustflags` in its
+    /// config files.
+    Config(String),
+}
+
+/// `encoded`, `plain` and `target` are the user's `CARGO_ENCODED_RUSTFLAGS`,
+/// `RUSTFLAGS` and `CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS`, in the
+/// order cargo prefers them.
+fn rust_flags(
+    remap: &[String],
+    encoded: Option<&str>,
+    plain: Option<&str>,
+    target: Option<&str>,
+) -> RustFlags {
+    let user: Vec<&str> = match (encoded, plain, target) {
+        (Some(encoded), _, _) => encoded.split('\x1f').filter(|f| !f.is_empty()).collect(),
+        (None, Some(plain), _) | (None, None, Some(plain)) => plain.split_whitespace().collect(),
+        (None, None, None) => {
+            let list: Vec<String> = remap
+                .iter()
+                .map(|f| Value::from(f.as_str()).to_string())
+                .collect();
+            return RustFlags::Config(format!("build.rustflags=[{}]", list.join(",")));
+        }
+    };
+    let all: Vec<&str> = user
+        .into_iter()
+        .chain(remap.iter().map(String::as_str))
         .collect();
-    if let Some(encoded) = std::env::var_os("CARGO_ENCODED_RUSTFLAGS") {
-        let encoded = encoded.to_string_lossy();
-        let all: Vec<&str> = (encoded.split('\x1f'))
-            .filter(|f| !f.is_empty())
-            .chain(flags.iter().map(String::as_str))
-            .collect();
-        cargo.env("CARGO_ENCODED_RUSTFLAGS", all.join("\x1f"));
-    } else if let Some(plain) = std::env::var_os("RUSTFLAGS") {
-        let plain = plain.to_string_lossy();
-        let all: Vec<&str> = (plain.split_whitespace())
-            .chain(flags.iter().map(String::as_str))
-            .collect();
-        cargo.env("CARGO_ENCODED_RUSTFLAGS", all.join("\x1f"));
-    } else {
-        let list: Vec<String> = flags
-            .iter()
-            .map(|f| Value::from(f.as_str()).to_string())
-            .collect();
-        cargo
-            .arg("--config")
-            .arg(format!("build.rustflags=[{}]", list.join(",")));
+    RustFlags::Encoded(all.join("\x1f"))
+}
+
+/// Has rustc name the checkout `/sariema` and cargo's registry sources
+/// `/cargo` in what it embeds, such as panic locations, so a game's .wasm is
+/// the same wherever it is built and names no local directory.
+fn remap_paths(cargo: &mut Command) {
+    let var = |name: &str| std::env::var_os(name).map(|v| v.to_string_lossy().into_owned());
+    let remap = remap_flags(checkout().as_deref(), cargo_home().as_deref());
+    let flags = rust_flags(
+        &remap,
+        var("CARGO_ENCODED_RUSTFLAGS").as_deref(),
+        var("RUSTFLAGS").as_deref(),
+        var(WASM_TARGET_RUSTFLAGS).as_deref(),
+    );
+    match flags {
+        RustFlags::Encoded(flags) => cargo.env("CARGO_ENCODED_RUSTFLAGS", flags),
+        RustFlags::Config(value) => cargo.arg("--config").arg(value),
+    };
+}
+
+/// The local directories `wasm` names: the checkout, the home directory and
+/// cargo's. Any is a remap that did not happen.
+fn local_dirs_named(wasm: &[u8], dirs: &[PathBuf]) -> Vec<String> {
+    let mut named: Vec<String> = Vec::new();
+    for dir in dirs {
+        let text = dir.to_string_lossy();
+        let needle = text.as_bytes();
+        if needle.len() > 1
+            && wasm.windows(needle.len()).any(|w| w == needle)
+            && !named.iter().any(|n| text.starts_with(n.as_str()))
+        {
+            named.push(text.into_owned());
+        }
     }
+    named
+}
+
+fn local_dirs() -> Vec<PathBuf> {
+    let found = [checkout(), cargo_home(), std::env::home_dir()];
+    found.into_iter().flatten().flat_map(both_forms).collect()
+}
+
+/// A warning for a .wasm that names local directories: cargo dropped the
+/// remap, which a `target.wasm32-unknown-unknown.rustflags` in its config
+/// does, or the SDK came from another checkout than this CLI's.
+fn local_dirs_warning(named: &[String]) -> Option<String> {
+    (!named.is_empty()).then(|| {
+        format!(
+            "the logic's .wasm names {}: the pack and its hashes depend on this machine. \
+             A target.wasm32-unknown-unknown.rustflags in cargo's config replaces the \
+             remap sariema build passes; set the flags in RUSTFLAGS instead. An SDK \
+             from a checkout other than {} is not remapped",
+            named.join(", "),
+            checkout().map_or_else(String::new, |c| c.display().to_string())
+        )
+    })
 }
 
 fn toolchain_rustc(toolchain: &str) -> Result<PathBuf, Failure> {
@@ -410,4 +497,77 @@ fn toolchain_rustc(toolchain: &str) -> Result<PathBuf, Failure> {
     }
     let sysroot = String::from_utf8_lossy(&out.stdout).trim().to_string();
     Ok(Path::new(&sysroot).join("bin").join("rustc"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn remap() -> Vec<String> {
+        remap_flags(
+            Some(Path::new("/src/sariema")),
+            Some(Path::new("/opt/cargo")),
+        )
+    }
+
+    #[test]
+    fn the_checkout_and_a_cargo_home_outside_home_are_remapped() {
+        assert_eq!(
+            remap(),
+            [
+                "--remap-path-prefix=/src/sariema=/sariema",
+                "--remap-path-prefix=/opt/cargo/registry/src=/cargo",
+            ]
+        );
+    }
+
+    #[test]
+    fn without_user_flags_the_remap_joins_cargos_config() {
+        assert_eq!(
+            rust_flags(&remap(), None, None, None),
+            RustFlags::Config(
+                "build.rustflags=[\"--remap-path-prefix=/src/sariema=/sariema\",\"--remap-path-prefix=/opt/cargo/registry/src=/cargo\"]".into()
+            )
+        );
+    }
+
+    #[test]
+    fn user_rustflags_come_first_and_stay() {
+        let want = "-Cfoo\x1f-Cbar\x1f--remap-path-prefix=/src/sariema=/sariema\x1f--remap-path-prefix=/opt/cargo/registry/src=/cargo";
+        assert_eq!(
+            rust_flags(&remap(), None, Some(" -Cfoo  -Cbar "), None),
+            RustFlags::Encoded(want.into())
+        );
+        assert_eq!(
+            rust_flags(&remap(), None, None, Some("-Cfoo -Cbar")),
+            RustFlags::Encoded(want.into())
+        );
+    }
+
+    #[test]
+    fn encoded_rustflags_keep_their_spaces_and_win_over_rustflags() {
+        assert_eq!(
+            rust_flags(&remap(), Some("-L\x1f/a b"), Some("-Cignored"), None),
+            RustFlags::Encoded(
+                "-L\x1f/a b\x1f--remap-path-prefix=/src/sariema=/sariema\x1f--remap-path-prefix=/opt/cargo/registry/src=/cargo".into()
+            )
+        );
+        assert_eq!(
+            rust_flags(&remap(), Some(""), None, None),
+            RustFlags::Encoded(remap().join("\x1f"))
+        );
+    }
+
+    #[test]
+    fn a_wasm_naming_a_local_directory_is_warned_about() {
+        let dirs = [PathBuf::from("/home/me"), PathBuf::from("/opt/cargo")];
+        assert!(local_dirs_named(b"/sariema/crates/sariema-sdk/src/lib.rs", &dirs).is_empty());
+        let named = local_dirs_named(b"x/opt/cargo/registry/src/a.rs", &dirs);
+        assert_eq!(named, ["/opt/cargo"]);
+        assert!(
+            local_dirs_warning(&named)
+                .unwrap()
+                .contains("target.wasm32-unknown-unknown.rustflags")
+        );
+    }
 }
