@@ -319,8 +319,10 @@ world hashes and timing.
   `clip_time` is the time at the last step, which `clip_marker` and
   `clip_finished` are judged against; `clip_time_at(alpha)` is the time to
   draw, between the last two steps at the frame's `alpha`, like every pose.
-  In slow motion it still grows every frame, so a clip never shows a still
-  frame.
+  In slow motion it still grows every frame. A clip begun in a step shows
+  its first frame until the next step: the frames drawn then lie between
+  the step before, which had no clip, and the one that started it, so there
+  is no earlier time to show. Start a clip one step before it must move.
 - **Time scale**: `time_scale` plays the world slower or faster than real
   time, reached over `blend` seconds. The display frames' time is scaled
   before it becomes steps: a step stays 1/60 s of world time, so play stays

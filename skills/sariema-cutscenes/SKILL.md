@@ -61,7 +61,7 @@ The engine's directing rules (`docs/cutscenes.md`, "Directing"), as steps:
 | 4 Set pieces keyed to clip time | the leaf (window, door) is a role with its own clip, started in the same `parallel` as the actor's clip; a real hinge binding is limit L4 |
 | 5 Traversal in clip segments | not expressible yet (L8); slow the beat with `time_scale` |
 | 6 Contact authored, not penetration | not expressible yet (L8): the pose is in the clip, the root placement and the contact check come with L8 |
-| 7 Clip time follows the step clock | automatic: clips are sought to `clip_time` (and drawn at `clip_time_at`, interpolated), so they slow with `time_scale` without still frames and `clip_finished` still comes |
+| 7 Clip time follows the step clock | automatic: clips are sought to `clip_time` (and drawn at `clip_time_at`, interpolated), so they slow with `time_scale` without still frames and `clip_finished` still comes; a clip shows frame 0 until the step after it begins, so start it one step before it must move |
 | 8 Cut on the action, position continuous | cuts change the camera only, never `teleport` to hide a move; `wait` counts world time (0.6 s on screen at 0.4× is `wait: 0.24`) |
 | 9 No HUD while covered | the game hides its HUD on `cutscene_started` and while it fades |
 

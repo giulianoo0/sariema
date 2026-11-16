@@ -424,7 +424,12 @@ fn in_slow_motion_the_clip_time_drawn_grows_every_frame() {
         let (_, t) = sim.state().clip_time_at(entity(0), sim.alpha()).unwrap();
         drawn.push(t);
     }
-    let drawn = &drawn[5..];
+    let held = drawn.iter().take_while(|&&t| t == 0.0).count();
+    assert!(
+        held >= 1 && held as f32 <= 1.0 / 0.4,
+        "the clip shows its first frame until the step after it began, and no longer: {drawn:?}"
+    );
+    let drawn = &drawn[held - 1..];
     for pair in drawn.windows(2) {
         assert!(pair[1] > pair[0], "a still frame: {drawn:?}");
     }

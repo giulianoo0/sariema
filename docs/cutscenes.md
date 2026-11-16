@@ -198,8 +198,10 @@ writes for each.
    `clip_time_at(alpha)` to draw, interpolated between the last two steps
    like every pose. The animation module seeks to them, so a clip slows
    with `time_scale` without a still frame, and `wait_for: clip_finished`
-   still comes. Leftover frame time carries into the next step, so a seam
-   never shows a still frame either.
+   still comes. Leftover frame time carries into the next step, so a step
+   boundary shows no still frame either. The one hold is a clip's first
+   frame: a clip begun in a step shows frame 0 until the next step, since
+   the frames drawn then have no earlier clip time to show.
 8. **Insert shot on the contact, cut on the action, position continuous
    across the cut.** The close aims at the contact (`bone`), low, slowed to
    0.4× for about 0.6 s, and cuts back on the fall. A cut never hides a
