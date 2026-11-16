@@ -4,6 +4,7 @@
 //! overrides any of them in its project's `settings`; `sariema api` lists them.
 
 use sariema_format::script::Ease;
+use sariema_physics::Settings as PhysicsSettings;
 use sariema_vm::VmSettings;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -24,6 +25,9 @@ pub struct Settings {
     pub input: InputSettings,
     pub cutscene: CutsceneSettings,
     pub vm: VmSettings,
+    /// The collision module's, for the engine to give it; its step and turn
+    /// cap are the runtime's.
+    pub physics: PhysicsSettings,
 }
 
 impl Settings {
@@ -35,7 +39,7 @@ impl Settings {
                 "min_time_scale ({min}) and max_time_scale ({max}) must be positive, the minimum no larger than the maximum"
             ));
         }
-        Ok(())
+        self.physics.validate()
     }
 }
 
@@ -52,6 +56,7 @@ impl Default for Settings {
             input: InputSettings::default(),
             cutscene: CutsceneSettings::default(),
             vm: VmSettings::default(),
+            physics: PhysicsSettings::default(),
         }
     }
 }
@@ -222,5 +227,138 @@ pub const DOCS: &[(&str, &str)] = &[
     (
         "vm.commands_bytes_per_step",
         "Bytes of commands one tick may submit; more stops the game with E_GAME_BUDGET.",
+    ),
+    (
+        "physics.collision.skin",
+        "Metres left between an actor and what stopped it.",
+    ),
+    (
+        "physics.collision.contact_tolerance",
+        "Metres closer than which shapes count as touching.",
+    ),
+    (
+        "physics.collision.sweep_tolerance",
+        "Metres of gap below which a sweep stops refining.",
+    ),
+    (
+        "physics.collision.sweep_iterations",
+        "Refinement steps per sweep and part.",
+    ),
+    (
+        "physics.collision.tangent_tolerance",
+        "Cosine above which a touching shape moving into a surface is stopped.",
+    ),
+    (
+        "physics.collision.flat_edge_deg",
+        "Degrees: contact normals this close to a face normal become the face normal.",
+    ),
+    (
+        "physics.collision.depenetration_iterations",
+        "Push-out passes after a teleport.",
+    ),
+    (
+        "physics.collision.max_depenetration",
+        "Metres of total push-out before a teleport is rejected.",
+    ),
+    ("physics.controller.gravity", "Downward acceleration, m/s²."),
+    (
+        "physics.controller.max_fall_speed",
+        "Metres per second an actor falls at most.",
+    ),
+    (
+        "physics.controller.slide_iterations",
+        "Sweeps per move; at least 1.",
+    ),
+    (
+        "physics.controller.step_height",
+        "Metres of the tallest ledge an actor walks onto; the walkable grid links floors within it.",
+    ),
+    (
+        "physics.controller.ground_snap",
+        "Metres a standing actor looks down for ground to stay on.",
+    ),
+    (
+        "physics.controller.max_slope_deg",
+        "Steepest walkable ground, degrees below 90.",
+    ),
+    (
+        "physics.controller.corner_assist_angle_deg",
+        "Input this close to head-on, in degrees, may be helped round a corner.",
+    ),
+    (
+        "physics.controller.corner_assist_distance",
+        "Metres sideways the corner may be.",
+    ),
+    (
+        "physics.controller.corner_assist_speed",
+        "Sideways speed of the help, a fraction of the speed.",
+    ),
+    (
+        "physics.controller.corner_assist_probes",
+        "Sideways offsets tried.",
+    ),
+    (
+        "physics.controller.wall_slide_preservation",
+        "Share of the speed kept sliding along a wall at a shallow angle.",
+    ),
+    (
+        "physics.controller.wall_slide_full_angle_deg",
+        "Degrees up to which the full preservation applies.",
+    ),
+    (
+        "physics.controller.stick_dead_zone",
+        "Stick deflection that moves nothing.",
+    ),
+    (
+        "physics.controller.stick_full",
+        "Stick deflection that gives full speed; above the dead zone, at most 1.",
+    ),
+    (
+        "physics.controller.stick_exponent",
+        "Speed curve between the two; 1 is linear.",
+    ),
+    (
+        "physics.controller.accel_steps",
+        "Steps to full speed and to stop; 0 is instant.",
+    ),
+    (
+        "physics.controller.yaw_rate",
+        "Facing closes 1 − e^(−rate·dt) of the remaining angle per step.",
+    ),
+    (
+        "physics.controller.yaw_filter",
+        "Radians: smaller changes of the wanted facing are ignored.",
+    ),
+    (
+        "physics.nav.cell_size",
+        "Metres of a walkable-grid cell's side; positive.",
+    ),
+    (
+        "physics.nav.max_layers",
+        "Floors per grid column; at least 1.",
+    ),
+    (
+        "physics.nav.snap_radius",
+        "Metres a walk's start or target may be from a floor.",
+    ),
+    (
+        "physics.move_to.arrive_distance",
+        "Metres from a scripted move's target that count as arrived.",
+    ),
+    (
+        "physics.move_to.waypoint_distance",
+        "Metres from a waypoint at which the next is taken.",
+    ),
+    (
+        "physics.move_to.face_tolerance",
+        "Radians of facing error that count as turned.",
+    ),
+    (
+        "physics.move_to.stuck_steps",
+        "Steps of too little progress before a scripted move is blocked.",
+    ),
+    (
+        "physics.move_to.stuck_progress",
+        "Share of the expected travel below which progress is too little.",
     ),
 ];

@@ -16,8 +16,8 @@ use sariema_core::STEP_SECONDS;
 use sariema_format::collision::{CollisionPack, Traversal};
 use sariema_format::script::{Anchor, Command, Controller, Entity, Event, Kind, Property, name_id};
 use sariema_physics::{
-    ActorCollider, ActorDesc, ActorId, ColliderId, EventKind, Intent, World, WorldBuild,
-    actor_collider, hinge_turned, wrap_angle,
+    ActorCollider, ActorDesc, ActorId, ColliderId, EventKind, Intent, Settings as PhysicsSettings,
+    World, WorldBuild, actor_collider, hinge_turned, wrap_angle,
 };
 use sariema_runtime::events::Happening;
 use sariema_runtime::motion::Goal;
@@ -141,9 +141,10 @@ impl Physics {
     pub fn new(
         pack: Arc<CollisionPack>,
         settings: &EngineSettings,
+        physics: &PhysicsSettings,
         turn_rate: f32,
     ) -> Result<Physics, String> {
-        let mut build = Physics::start(pack, settings, turn_rate);
+        let mut build = Physics::start(pack, settings, physics, turn_rate);
         loop {
             if let Some(physics) = build.advance(usize::MAX)? {
                 return Ok(physics);
@@ -152,13 +153,16 @@ impl Physics {
     }
 
     /// Starts building the collision of `pack` a share at a time: the
-    /// collision [`Physics::new`] gives.
+    /// collision [`Physics::new`] gives. `physics` are the game's settings
+    /// of the module, stepped at the runtime's step and turning at most
+    /// `turn_rate` degrees a second.
     pub fn start(
         pack: Arc<CollisionPack>,
         settings: &EngineSettings,
+        physics: &PhysicsSettings,
         turn_rate: f32,
     ) -> PhysicsBuild {
-        let mut physics = settings.physics.clone();
+        let mut physics = physics.clone();
         physics.step_seconds = STEP_SECONDS;
         physics.controller.max_yaw_speed = turn_rate.to_radians();
         PhysicsBuild {

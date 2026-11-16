@@ -15,6 +15,7 @@ glam.workspace = true
 libm.workspace = true
 sariema-core = { path = "../sariema-core" }
 sariema-format = { path = "../sariema-format" }
+sariema-physics = { path = "../sariema-physics", features = ["serde"] }
 sariema-vm = { path = "../sariema-vm" }
 serde.workspace = true
 serde_json.workspace = true

@@ -43,10 +43,10 @@ fn rooms() -> Vec<RoomAssets> {
 fn two_rooms<L: Logic>(logic: L) -> Engine<L> {
     let mut assets = assets();
     assets.rooms = rooms();
-    let sim = Simulation::new(wired(), Vec::new(), logic, 1);
-    let mut settings = EngineSettings::default();
+    let mut settings = wired();
     settings.physics.controller.accel_steps = 30;
-    Engine::new(sim, assets, settings).unwrap()
+    let sim = Simulation::new(settings, Vec::new(), logic, 1);
+    Engine::new(sim, assets, EngineSettings::default()).unwrap()
 }
 
 struct Walk {

@@ -2460,6 +2460,7 @@ dependencies = [
  "libm",
  "sariema-core",
  "sariema-format",
+ "sariema-physics",
  "sariema-vm",
  "serde",
  "serde_json",

@@ -164,8 +164,13 @@ impl<L: Logic> Engine<L> {
             .iter()
             .map(|(name, pack)| Model::new(name, pack).map_err(failed("E_SCHEMA")))
             .collect::<Result<Vec<_>, _>>()?;
-        let rooms = Rooms::new(assets.rooms, &settings, s.settings.motion.turn_rate)
-            .map_err(failed("E_SCHEMA"))?;
+        let rooms = Rooms::new(
+            assets.rooms,
+            &settings,
+            &s.settings.physics,
+            s.settings.motion.turn_rate,
+        )
+        .map_err(failed("E_SCHEMA"))?;
         let audio_failed = |e: sariema_audio::AudioError| LoadError {
             code: e.code(),
             message: e.to_string(),

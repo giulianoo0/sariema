@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use sariema_format::collision::CollisionPack;
-use sariema_physics::{ActorCollider, GridBuild};
+use sariema_physics::{ActorCollider, GridBuild, Settings as PhysicsSettings};
 use sariema_runtime::scenery::RoomRequest;
 use sariema_runtime::state::State;
 
@@ -36,6 +36,7 @@ pub struct WorldJob {
     pub room: usize,
     pack: Arc<CollisionPack>,
     settings: EngineSettings,
+    world_settings: PhysicsSettings,
     turn_rate: f32,
     building: Option<Box<PhysicsBuild>>,
     physics: Option<Box<Physics>>,
@@ -50,6 +51,7 @@ impl WorldJob {
             room,
             pack,
             settings: rooms.settings.clone(),
+            world_settings: rooms.world_settings.clone(),
             turn_rate: rooms.turn_rate,
             building: None,
             physics: None,
@@ -76,6 +78,7 @@ impl WorldJob {
                 Box::new(Physics::start(
                     self.pack.clone(),
                     &self.settings,
+                    &self.world_settings,
                     self.turn_rate,
                 ))
             });
@@ -121,6 +124,8 @@ pub(crate) struct Rooms {
     out: Vec<bool>,
     active: usize,
     settings: EngineSettings,
+    /// The collision module's settings, the game's.
+    world_settings: PhysicsSettings,
     turn_rate: f32,
     /// A grid of a built world being built, and the world's room.
     growing: Option<(usize, GridBuild)>,
@@ -130,6 +135,7 @@ impl Rooms {
     pub fn new(
         assets: Vec<RoomAssets>,
         settings: &EngineSettings,
+        world_settings: &PhysicsSettings,
         turn_rate: f32,
     ) -> Result<Rooms, String> {
         let worlds: Vec<World> = (assets.iter())
@@ -144,6 +150,7 @@ impl Rooms {
             worlds,
             active: 0,
             settings: settings.clone(),
+            world_settings: world_settings.clone(),
             turn_rate,
             growing: None,
         };
@@ -197,8 +204,13 @@ impl Rooms {
 
     fn build_now(&mut self, room: usize) {
         if let World::Waiting(pack) = &self.worlds[room] {
-            let physics = Physics::new(pack.clone(), &self.settings, self.turn_rate)
-                .expect("a collision pack the engine loaded builds");
+            let physics = Physics::new(
+                pack.clone(),
+                &self.settings,
+                &self.world_settings,
+                self.turn_rate,
+            )
+            .expect("a collision pack the engine loaded builds");
             self.worlds[room] = World::Built(Box::new(physics));
         }
     }
@@ -268,7 +280,13 @@ mod tests {
         let text = std::fs::read_to_string(root.join("rooms/sill.json")).unwrap();
         let source = RoomSource::from_json(&text).unwrap();
         let pack = build_collision(&source, &root).unwrap().unwrap();
-        let rooms = Rooms::new(Vec::new(), &EngineSettings::default(), 360.0).unwrap();
+        let rooms = Rooms::new(
+            Vec::new(),
+            &EngineSettings::default(),
+            &PhysicsSettings::default(),
+            360.0,
+        )
+        .unwrap();
         let built = WorldJob::new(0, Arc::new(pack), &rooms).build().unwrap();
         assert_eq!(
             built.physics.world.grids(),
