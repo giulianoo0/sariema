@@ -3,7 +3,8 @@
 //! The collision part of `check`: every action spot must hold its actor's
 //! collider clear of the room and over walkable ground, every route must have
 //! a path, every traversal must end on free floor with its contact points on
-//! a surface, and every actor's model should fit its collider.
+//! a surface and within the actor's reach, and every actor's model should fit
+//! its collider.
 
 use glam::Vec3;
 use sariema_format::collision::CollisionPack;
@@ -46,6 +47,7 @@ pub fn check_room(
     let physics = Settings::default();
     let limits = Limits {
         max_slope_deg: physics.controller.max_slope_deg,
+        cos_max_slope: physics.controller.max_slope_deg.to_radians().cos(),
         lift: physics.controller.step_height,
         settings: *settings,
     };
@@ -117,8 +119,17 @@ pub fn check_room(
             None => {}
         }
         let tolerance = settings.contact_tolerance;
+        let (bounds, whose) = match visual_bounds(body) {
+            Some(b) => (b, "visual bounds"),
+            None => (actor_collider(body).bounds(), "collider bounds"),
+        };
+        let stands: Vec<Vec3> = std::iter::once(from.position)
+            .chain(t.points.iter().copied())
+            .map(Vec3::from)
+            .collect();
         for contact in &t.contacts {
-            let off = match world.closest_point(contact.point.into(), tolerance) {
+            let point = Vec3::from(contact.point);
+            let off = match world.closest_point(point, tolerance) {
                 None => Some(format!("is not within {tolerance} m of a surface")),
                 Some(c) if c.distance < -tolerance => Some(format!(
                     "is {:.3} m inside {}",
@@ -133,6 +144,18 @@ pub fn check_room(
                     format!(
                         "room {room}: traversal {}: contact {} {off}",
                         t.name, contact.name
+                    ),
+                ));
+            }
+            if !stands
+                .iter()
+                .any(|&feet| within_any_facing(bounds, point - feet, tolerance))
+            {
+                findings.push(error(
+                    "E_CONTACT_OUT_OF_REACH",
+                    format!(
+                        "room {room}: traversal {}: contact {} lies outside {}'s {whose} at every point of the traversal",
+                        t.name, contact.name, body.name
                     ),
                 ));
             }
@@ -169,6 +192,7 @@ pub fn check_room(
 
 struct Limits {
     max_slope_deg: f32,
+    cos_max_slope: f32,
     /// How far above a sunk placement to look for where it would rest.
     lift: f32,
     settings: SpotCheckSettings,
@@ -211,7 +235,7 @@ fn placement(
         Vec3::NEG_Y * settings.ground_depth,
     );
     match ground {
-        Some(hit) if hit.normal.y >= limits.max_slope_deg.to_radians().cos() => None,
+        Some(hit) if hit.normal.y >= limits.cos_max_slope => None,
         Some(hit) => Some(Misplaced::NoGround(format!(
             "stands on {}, steeper than {}°",
             world.collider_name(hit.collider),
@@ -247,6 +271,18 @@ fn resting_height(
         .actor_overlap(collider, rest, yaw)
         .is_none_or(|(_, separation)| separation >= -settings.penetration_tolerance)
         .then_some(rest.y)
+}
+
+/// Whether `offset`, from the feet, lies within `bounds` turned to some
+/// facing (the traversal does not say which), give or take `tolerance`.
+fn within_any_facing(bounds: LocalBounds, offset: Vec3, tolerance: f32) -> bool {
+    let radius = [bounds.min.x, bounds.max.x]
+        .into_iter()
+        .flat_map(|x| [bounds.min.z, bounds.max.z].map(|z| x.hypot(z)))
+        .fold(0.0, f32::max);
+    offset.x.hypot(offset.z) <= radius + tolerance
+        && offset.y >= bounds.min.y - tolerance
+        && offset.y <= bounds.max.y + tolerance
 }
 
 /// How far `model` reaches past `collider`, and on which side.

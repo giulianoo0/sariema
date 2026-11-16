@@ -381,3 +381,19 @@ fn a_contact_off_the_sill_or_sunk_into_it_fails() {
     ]);
     assert_eq!(code, 0, "{out}");
 }
+
+#[test]
+fn a_contact_on_a_surface_out_of_the_actors_reach_fails() {
+    let tmp = TempDir::new().unwrap();
+    let dir = project_with(
+        &tmp,
+        sill_with(|t| t["contacts"][0]["at"] = json!([0.5, 0.0, -0.5])),
+    );
+    let (code, message) = failure(&["check", arg(&dir), "--room", "hall"]);
+    assert_eq!(code, "E_CONTACT_OUT_OF_REACH");
+    assert!(
+        message.contains("room hall: traversal window: contact foot ")
+            && message.contains("hero's visual bounds"),
+        "{message}"
+    );
+}
