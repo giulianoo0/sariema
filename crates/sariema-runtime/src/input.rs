@@ -314,10 +314,15 @@ impl Input {
     }
 
     /// Takes this step's actions and reports what changed: axes that moved,
-    /// button edges, then every press still buffered.
+    /// button edges, then every press still buffered. Actions past the
+    /// settings' are ignored; missing ones count as released.
     pub fn step<'a>(&mut self, actions: &Actions, mut emit: impl FnMut(Event<'a>)) {
         std::mem::swap(&mut self.previous, &mut self.current);
         self.current.clone_from(actions);
+        self.current
+            .axes
+            .resize(self.settings.axes.len(), Vec2::ZERO);
+        self.current.buttons.resize(self.buffer.len(), false);
         for (i, (now, before)) in self
             .current
             .axes

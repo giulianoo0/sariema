@@ -126,3 +126,19 @@ fn a_log_naming_an_unknown_action_is_refused() {
     .unwrap();
     assert!(Replay::new(&log, &InputSettings::default()).is_err());
 }
+
+#[test]
+fn actions_of_another_length_count_as_released() {
+    let mut input = Input::new(InputSettings::default());
+    let buttons = input.settings().buttons.len();
+    let short = Actions {
+        axes: Vec::new(),
+        buttons: vec![true],
+    };
+    assert_eq!(run(&mut input, &short), ["button 0 true", "buffered 0 0"]);
+    let long = Actions {
+        axes: vec![Vec2::ZERO; 4],
+        buttons: vec![false; buttons + 3],
+    };
+    assert_eq!(run(&mut input, &long), ["button 0 false", "buffered 0 1"]);
+}

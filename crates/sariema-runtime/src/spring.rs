@@ -17,7 +17,8 @@ pub struct Spring {
 
 impl Spring {
     /// `frequency` in Hz (undamped); `damping` 1 is critical, below
-    /// oscillates, above creeps. A frequency of 0 or less never moves.
+    /// oscillates, above creeps. A frequency of 0 or less pulls nothing:
+    /// the value coasts at the velocity it has.
     pub fn new(frequency: f32, damping: f32, dt: f32) -> Spring {
         let omega = TAU * frequency.max(0.0);
         let zeta = damping.max(0.0);
