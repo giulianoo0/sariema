@@ -65,6 +65,9 @@ pub(crate) struct NavGrid {
     /// Feet height of each node.
     height: Vec<f32>,
     node_column: Vec<u32>,
+    /// Nodes joined by links, either way, share an island; a search between
+    /// two islands has no path and is refused before it starts.
+    island: Vec<u32>,
     dirty: Vec<Bounds>,
     g: Vec<f32>,
     parent: Vec<u32>,
@@ -108,6 +111,7 @@ impl NavGrid {
             column: Vec::with_capacity(nx * nz + 1),
             height: Vec::new(),
             node_column: Vec::new(),
+            island: Vec::new(),
             dirty: Vec::new(),
             g: Vec::new(),
             parent: Vec::new(),
@@ -127,12 +131,13 @@ impl NavGrid {
             grid.height.extend_from_slice(&layers);
             grid.column.push(grid.height.len() as u32);
         }
-        grid.scratch();
+        grid.scratch(ctx.settings.controller.step_height);
         grid
     }
 
-    fn scratch(&mut self) {
+    fn scratch(&mut self, step: f32) {
         let n = self.height.len();
+        self.label_islands(step);
         self.g = vec![0.0; n];
         self.parent = vec![u32::MAX; n];
         self.seen = vec![0; n];
@@ -168,6 +173,7 @@ impl NavGrid {
             let feet = floor + skin;
             if hit.normal.y >= ctx.derived.cos_max_slope
                 && out.last().is_none_or(|&last| last - feet > skin)
+                && self.uncovered(ctx, Vec3::new(x, feet, z))
                 && self.fits(ctx, Vec3::new(x, feet, z))
             {
                 out.push(feet);
@@ -178,6 +184,14 @@ impl NavGrid {
             y = floor - skin;
         }
         out.reverse();
+    }
+
+    /// Whether nothing lies right above `feet` within the step height, where
+    /// the raised fit test does not look: a floor under a low solid, such as
+    /// the ground inside a dais, is no floor.
+    fn uncovered(&self, ctx: &NavCtx, feet: Vec3) -> bool {
+        let lift = ctx.settings.controller.step_height;
+        ctx.scene.raycast(feet, Vec3::Y, lift, STATIC).is_none()
     }
 
     fn fits(&self, ctx: &NavCtx, feet: Vec3) -> bool {
@@ -226,7 +240,31 @@ impl NavGrid {
         self.column = column;
         self.height = height;
         self.node_column = node_column;
-        self.scratch();
+        self.scratch(ctx.settings.controller.step_height);
+    }
+
+    fn label_islands(&mut self, step: f32) {
+        fn root(of: &mut [u32], mut n: u32) -> u32 {
+            while of[n as usize] != n {
+                of[n as usize] = of[of[n as usize] as usize];
+                n = of[n as usize];
+            }
+            n
+        }
+        let mut of: Vec<u32> = (0..self.height.len() as u32).collect();
+        for node in 0..self.height.len() as u32 {
+            let col = self.node_column[node as usize] as usize;
+            let (ix, iz) = ((col % self.nx) as i32, (col / self.nx) as i32);
+            for (dx, dz) in DIRS {
+                if let Some(next) = self.link(ix + dx, iz + dz, self.height[node as usize], step) {
+                    let (a, b) = (root(&mut of, node), root(&mut of, next));
+                    of[a.max(b) as usize] = a.min(b);
+                }
+            }
+        }
+        self.island = (0..self.height.len() as u32)
+            .map(|n| root(&mut of, n))
+            .collect();
     }
 
     fn column_at(&self, x: f32, z: f32) -> Option<usize> {
@@ -256,13 +294,14 @@ impl NavGrid {
         Vec3::new(x, self.height[node as usize], z)
     }
 
-    fn nearest(&self, ctx: &NavCtx, p: Vec3) -> Option<u32> {
+    /// The node within the snap radius closest to `p`, preferring those on `island`.
+    fn nearest(&self, ctx: &NavCtx, p: Vec3, island: Option<u32>) -> Option<u32> {
         let snap = ctx.settings.nav.snap_radius;
         let reach_y = ctx.settings.controller.step_height + ctx.settings.controller.ground_snap;
         let r = (snap / self.cell).ceil() as i32;
         let ix = ((p.x - self.origin.0) / self.cell).round() as i32;
         let iz = ((p.z - self.origin.1) / self.cell).round() as i32;
-        let mut best: Option<(f32, u32)> = None;
+        let mut best: Option<(bool, f32, u32)> = None;
         for dz in -r..=r {
             for dx in -r..=r {
                 let (cx, cz) = (ix + dx, iz + dz);
@@ -272,17 +311,25 @@ impl NavGrid {
                 let c = cz as usize * self.nx + cx as usize;
                 for n in self.column[c]..self.column[c + 1] {
                     let q = self.position(n);
-                    let d = (q.x - p.x).powi(2) + (q.z - p.z).powi(2);
-                    if d <= snap * snap
+                    let flat = (q.x - p.x).powi(2) + (q.z - p.z).powi(2);
+                    let key = (
+                        island.is_some_and(|i| self.island[n as usize] != i),
+                        flat + (q.y - p.y).powi(2),
+                        n,
+                    );
+                    if flat <= snap * snap
                         && (q.y - p.y).abs() <= reach_y
-                        && best.is_none_or(|(bd, bn)| d < bd || (d == bd && n < bn))
+                        && best.is_none_or(|b| {
+                            (key.0, key.1, key.2).partial_cmp(&(b.0, b.1, b.2))
+                                == Some(Ordering::Less)
+                        })
                     {
-                        best = Some((d, n));
+                        best = Some(key);
                     }
                 }
             }
         }
-        best.map(|(_, n)| n)
+        best.map(|(_, _, n)| n)
     }
 
     fn astar(&mut self, step: f32, start: u32, goal: u32) -> bool {
@@ -386,9 +433,15 @@ impl NavGrid {
     pub fn find(&mut self, ctx: &NavCtx, from: Vec3, to: Vec3, out: &mut Vec<Vec3>) -> bool {
         out.clear();
         self.refresh(ctx);
-        let (Some(start), Some(goal)) = (self.nearest(ctx, from), self.nearest(ctx, to)) else {
+        let Some(start) = self.nearest(ctx, from, None) else {
             return false;
         };
+        let Some(goal) = self.nearest(ctx, to, Some(self.island[start as usize])) else {
+            return false;
+        };
+        if self.island[start as usize] != self.island[goal as usize] {
+            return false;
+        }
         if !self.astar(ctx.settings.controller.step_height, start, goal) {
             return false;
         }

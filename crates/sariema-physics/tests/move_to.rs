@@ -211,3 +211,22 @@ fn a_door_closed_after_planning_ends_in_blocked() {
         &mut path
     ));
 }
+
+#[test]
+fn the_ground_under_a_dais_is_no_floor_and_its_top_is_reachable() {
+    let mut world = fixture().world(Settings::default());
+    let start = Vec3::new(2.0, 0.0, -1.0);
+    let id = actor(&mut world, start);
+    let over: Vec<Vec3> = world
+        .walkable_cells(id)
+        .filter(|c| (c.x + 3.5).abs() < 1.0 && (c.z + 3.5).abs() < 1.0)
+        .collect();
+    assert!(
+        !over.is_empty() && over.iter().all(|c| c.y > 0.15),
+        "{over:?}"
+    );
+    let mut path = Vec::new();
+    for target in [Vec3::new(-3.5, 0.16, -3.5), Vec3::new(-3.5, 0.0, -3.5)] {
+        assert!(world.find_path(id, start, target, &mut path), "{target}");
+    }
+}

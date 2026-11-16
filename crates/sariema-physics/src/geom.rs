@@ -264,4 +264,19 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn a_ray_down_the_shared_edge_of_two_triangles_hits_one() {
+        let (a, b) = (Vec3::new(0.0, 0.02, 0.0), Vec3::new(0.5, 0.06, -0.5));
+        let (left, right) = (Vec3::new(0.0, 0.05, -0.5), Vec3::new(0.5, 0.03, 0.0));
+        let mut missed = 0;
+        for k in 0..=1000 {
+            let p = a.lerp(b, k as f32 / 1000.0);
+            let origin = Vec3::new(p.x, 2.0, p.z);
+            let hit = ray_triangle(origin, Vec3::NEG_Y, 5.0, a, left, b)
+                .or_else(|| ray_triangle(origin, Vec3::NEG_Y, 5.0, a, b, right));
+            missed += usize::from(hit.is_none());
+        }
+        assert_eq!(missed, 0);
+    }
 }
