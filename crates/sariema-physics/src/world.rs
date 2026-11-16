@@ -11,7 +11,7 @@ use glam::{Vec2, Vec3};
 use crate::actor::{ActorCollider, ActorDesc};
 use crate::controller::{Derived, Ground, Mover};
 use crate::intent::{ActorId, BlockReason, ColliderId, Event, EventKind, Intent, TriggerId};
-use crate::math::{flat, wrap_angle, yaw_matrix, yaw_of};
+use crate::math::{Bounds, flat, wrap_angle, yaw_matrix, yaw_of};
 use crate::narrow::Tolerance;
 use crate::nav::{NavCtx, NavGrid};
 use crate::scene::{Filter, NewCollider, Pose, Scene};
@@ -186,6 +186,15 @@ impl World {
             .iter()
             .position(|c| c.name == name)
             .map(|i| ColliderId(i as u32))
+    }
+
+    pub fn collider_enabled(&self, id: ColliderId) -> bool {
+        self.scene.colliders[id.0 as usize].enabled
+    }
+
+    /// The box around every static collider, enabled or not.
+    pub fn static_bounds(&self) -> Bounds {
+        self.scene.static_bounds()
     }
 
     pub fn add_trigger(&mut self, name: &str, shape: Shape) -> Result<TriggerId, BuildError> {

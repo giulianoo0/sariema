@@ -49,6 +49,39 @@ pub fn build(
     output: &Path,
     textures: Option<TextureMode>,
 ) -> Result<Done, Failure> {
+    let (mut source, assets_root) = room_source(dir, room)?;
+    source.textures = textures.or(source.textures);
+    let pack = build_room(&source, &assets_root)?;
+    let bytes = encode(&pack);
+    fs::write(output, &bytes).map_err(|e| Failure::io(output, e))?;
+    let (collision, collision_text) = crate::collision::bake_beside(&source, &assets_root, output)?;
+    let stats = &pack.stats;
+    Ok(Done {
+        json: json!({
+            "room": room,
+            "output": output.display().to_string(),
+            "bytes": bytes.len(),
+            "stats": stats,
+            "collision": collision,
+        }),
+        text: format!(
+            "built {room} into {}: {} bytes, {} triangles in {} draws, {} texture bytes{collision_text}",
+            output.display(),
+            bytes.len(),
+            stats.triangles,
+            stats.draws,
+            stats.texture_bytes
+        ),
+    })
+}
+
+/// The project's room ids, in order.
+pub(crate) fn room_ids(dir: &Path) -> Result<Vec<String>, Failure> {
+    Ok(load(dir)?.rooms.into_keys().collect())
+}
+
+/// Room `room`'s description, and the assets root its paths are relative to.
+pub(crate) fn room_source(dir: &Path, room: &str) -> Result<(RoomSource, PathBuf), Failure> {
     let project = load(dir)?;
     let description = project.rooms.get(room).ok_or_else(|| {
         let ids: Vec<&str> = project.rooms.keys().map(String::as_str).collect();
@@ -63,27 +96,7 @@ pub fn build(
     })?;
     let description = dir.join(description);
     let text = fs::read_to_string(&description).map_err(|e| Failure::io(&description, e))?;
-    let mut source = RoomSource::from_json(&text)
+    let source = RoomSource::from_json(&text)
         .map_err(|e| Failure::new(e.code(), format!("{}: {e}", description.display())))?;
-    source.textures = textures.or(source.textures);
-    let pack = build_room(&source, &dir.join(&project.assets_root))?;
-    let bytes = encode(&pack);
-    fs::write(output, &bytes).map_err(|e| Failure::io(output, e))?;
-    let stats = &pack.stats;
-    Ok(Done {
-        json: json!({
-            "room": room,
-            "output": output.display().to_string(),
-            "bytes": bytes.len(),
-            "stats": stats,
-        }),
-        text: format!(
-            "built {room} into {}: {} bytes, {} triangles in {} draws, {} texture bytes",
-            output.display(),
-            bytes.len(),
-            stats.triangles,
-            stats.draws,
-            stats.texture_bytes
-        ),
-    })
+    Ok((source, dir.join(&project.assets_root)))
 }

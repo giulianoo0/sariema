@@ -16,7 +16,12 @@ pub fn read(path: &Path) -> Result<RoomPack, Failure> {
 }
 
 pub fn inspect(path: &Path) -> Result<Done, Failure> {
-    let room = read(path)?;
+    let bytes = fs::read(path).map_err(|e| Failure::io(path, e))?;
+    if bytes.starts_with(&sariema_format::collision::MAGIC) {
+        return crate::collision::inspect(path, &bytes);
+    }
+    let room =
+        decode(&bytes).map_err(|e| Failure::new(e.code(), format!("{}: {e}", path.display())))?;
     let lights: Vec<&str> = room.lights.iter().map(|l| l.name.as_str()).collect();
     let materials: Vec<&str> = room.materials.iter().map(|m| m.name.as_str()).collect();
     // shortcut: the pack has no loose flag yet, so this relies on the importer naming
