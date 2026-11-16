@@ -54,7 +54,17 @@ impl Headless {
     }
 
     pub fn render(&mut self, camera: &Camera, time_s: f32) -> RgbaImage {
+        self.draw(camera, time_s);
+        self.image()
+    }
+
+    /// Draws a frame without reading it back.
+    pub fn draw(&mut self, camera: &Camera, time_s: f32) {
         self.renderer.render(camera, time_s, &self.view);
+    }
+
+    /// The last frame drawn, read back from the GPU.
+    pub fn image(&self) -> RgbaImage {
         let (width, height) = (self.target.width(), self.target.height());
         let texels = read_back(self.renderer.gpu(), &self.target, wgpu::TextureAspect::All);
         RgbaImage::from_raw(width, height, texels).expect("4 bytes per texel")

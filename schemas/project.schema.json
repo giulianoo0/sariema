@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sariema project",
+  "description": "A game project's sariema.json: where its assets are and which rooms it has.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "assets_root", "rooms"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "assets_root": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory the room descriptions' kit, montagem and luz paths are relative to. A relative path is resolved from the project directory."
+    },
+    "rooms": {
+      "type": "object",
+      "description": "Room id to the path of its room description (schemas/room.schema.json), relative to the project directory.",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    }
+  }
+}
