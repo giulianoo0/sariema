@@ -133,9 +133,17 @@ impl Tweens {
         self.list.is_empty()
     }
 
-    /// Drops every animation under `id` or on `target`.
-    fn release(&mut self, id: u32, target: &Target) {
-        self.list.retain(|a| a.id != id && !a.target.same(target));
+    fn take(&mut self, id: u32, target: &Target) -> Option<Anim> {
+        let at = self
+            .list
+            .iter()
+            .position(|a| a.id == id || a.target.same(target))?;
+        Some(self.list.remove(at))
+    }
+
+    /// Drops every animation on `target`.
+    fn release(&mut self, target: &Target) {
+        self.list.retain(|a| !a.target.same(target));
     }
 
     pub fn tween(
@@ -148,7 +156,7 @@ impl Tweens {
         ease: Ease,
     ) -> Result<(), Reject> {
         let from = read(world, store, scenery, &target)?;
-        self.release(id, &target);
+        self.take(id, &target);
         self.list.push(Anim {
             id,
             target,
@@ -178,7 +186,7 @@ impl Tweens {
         let steps = steps_of(duration);
         for (target, to) in targets {
             let from = read(world, store, scenery, &target)?;
-            self.list.retain(|a| !a.target.same(&target));
+            self.release(&target);
             self.list.push(Anim {
                 id,
                 target,
@@ -215,7 +223,7 @@ impl Tweens {
     ) -> Result<(), Reject> {
         let now = read(world, store, scenery, &target)?;
         let velocity = self.velocity(id, &target, now);
-        self.release(id, &target);
+        self.take(id, &target);
         self.list.push(Anim {
             id,
             target,
