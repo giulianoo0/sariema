@@ -1,6 +1,6 @@
 ---
 name: sariema-cutscenes
-description: Use when writing or fixing a Sariema cutscene JSON, when sariema check or build fails with E_CUTSCENE_TELEPORT, E_CUTSCENE_COVER, E_CUTSCENE_START, E_CUTSCENE_ABSENT, E_CUTSCENE_SPAWN, E_CUTSCENE_RACE or E_CUTSCENE_ROLE, or when a cutscene_play is rejected with E_CUTSCENE_UNBOUND, E_CUTSCENE_UNKNOWN or E_CUTSCENE_BUSY.
+description: Use when writing, directing or fixing a Sariema cutscene JSON (traversals, insert shots, slow motion, clip markers, camera shake), when sariema check or build fails with E_CUTSCENE_TELEPORT, E_CUTSCENE_COVER, E_CUTSCENE_START, E_CUTSCENE_ABSENT, E_CUTSCENE_SPAWN, E_CUTSCENE_RACE or E_CUTSCENE_ROLE, or when a cutscene_play is rejected with E_CUTSCENE_UNBOUND, E_CUTSCENE_UNKNOWN or E_CUTSCENE_BUSY.
 ---
 
 # Sariema cutscenes
@@ -49,6 +49,60 @@ sariema run --headless --game hello.srmg --input examples/hello-game/input/walk.
 In the run, look for `cutscene_started`, `arrived` (the walks), `line_done`,
 `flag_changed`, `control` and `cutscene_ended`.
 
+## Directing a physical action
+
+Rules 10–18 of the owner, as steps:
+
+| Rule | Write |
+|---|---|
+| 10 Whole action, cause to consequence | one `clip` per phase (reach, open, climb, land, get up), chained by `wait_for: clip_finished`; never start mid-way, never cut away a phase |
+| 11 Anticipation, impact, recovery | clips for the stumble, the fall and getting up; `camera_shake` on the impact marker |
+| 12 Insert shot on the beat | `wait_for: { clip_marker: { role, clip, marker } }`, then a `shot` with `"blend": 0` and `"bone"`/`"socket"`; cut back to the wide shot the same way |
+| 13 Set pieces keyed to clip time | the leaf (window, door) is a role with its own clip, started in the same `parallel` as the actor's clip; a real hinge binding is limit L4 |
+| 14 Traversal in clip segments | not expressible yet (L8); slow the beat with `time_scale` |
+| 15 Contact authored, not penetration | not expressible yet (L8): the pose is in the clip, the root placement and the contact check come with L8 |
+| 16 Clip time follows the step clock | automatic: clips run at `clip_time`, so they slow with `time_scale` and `clip_finished` still comes |
+| 17 Cut on the action, position continuous | cuts change the camera only, never `teleport` to hide a move; `wait` counts world time (0.6 s on screen at 0.4× is `wait: 0.24`) |
+| 18 No HUD while covered | the game hides its HUD on `cutscene_started` and while it fades |
+
+Entering through a window, the foot catching the sill
+(`crates/sariema-runtime/tests/fixtures/cutscenes/window_entry.json`, passes
+`sariema check`):
+
+```json
+{
+  "name": "window_entry",
+  "roles": {
+    "hero": { "start": { "position": [0, 0, 2], "yaw": 0 } },
+    "window": { "start": { "position": [0, 1, 0], "yaw": 0 } }
+  },
+  "steps": [
+    { "letterbox": { "to": 1, "duration": 0.4 } },
+    { "shot": { "frame": ["hero", "window"], "pitch": 12, "yaw": 35, "blend": 0.6 } },
+    { "walk": { "role": "hero", "to": [0, 0, 0.6] } },
+    { "parallel": [
+      [ { "clip": { "role": "hero", "clip": "reach_open" } } ],
+      [ { "clip": { "role": "window", "clip": "swing_open", "mode": "hold" } },
+        { "sound": { "sound": "window_creak", "at": "window" } } ]
+    ] },
+    { "wait_for": { "clip_finished": "hero" } },
+    { "clip": { "role": "hero", "clip": "climb_trip", "blend": 0 } },
+    { "wait_for": { "clip_marker": { "role": "hero", "clip": "climb_trip", "marker": "foot_catches" } } },
+    { "shot": { "follow": "hero", "bone": "foot_l", "distance": 0.9, "pitch": 5, "yaw": 90, "height": 0, "fov": 35, "blend": 0 } },
+    { "time_scale": { "scale": 0.4 } },
+    { "wait": 0.24 },
+    { "shot": { "frame": ["hero", "window"], "pitch": 12, "yaw": 35, "blend": 0 } },
+    { "time_scale": { "scale": 1, "blend": 0.15 } },
+    { "wait_for": { "clip_marker": { "role": "hero", "clip": "climb_trip", "marker": "lands" } } },
+    { "camera_shake": { "amplitude": 0.03, "duration": 0.25 } },
+    { "wait_for": { "clip_finished": "hero" } },
+    { "clip": { "role": "hero", "clip": "get_up" } },
+    { "wait_for": { "clip_finished": "hero" } },
+    { "letterbox": { "to": 0, "duration": 0.4 } }
+  ]
+}
+```
+
 ## Fixing a failed check
 
 The message names the file, cutscene and step: `cutscene meet, steps[4].teleport: …`.
@@ -76,6 +130,9 @@ that `name` was built), `E_CUTSCENE_BUSY` (wait for `cutscene_ended`).
   walks there in view first. Put the start where the trigger fires.
 - Expecting `wait_for` to see a signal sent before the wait began: only
   later ones count.
+- Hiding a move with a cut: a cut is not a cover for a walk you skipped;
+  rule 10 wants the walk on screen.
+- Waiting real seconds in slow motion: `wait` counts world time.
 - Skipping: `cutscene_skip` (or the `skip` button) lands the same end state
   as playing through, under a fade; do not undo the cutscene's effects in
   the game after `cutscene_ended { skipped: true }`.
