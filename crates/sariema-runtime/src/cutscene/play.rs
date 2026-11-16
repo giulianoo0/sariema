@@ -31,6 +31,7 @@ use crate::events::Happening;
 use crate::motion::yaw_of;
 use crate::no_jump;
 use crate::outbox::PhysicsIntent;
+use crate::settings::CutsceneSettings;
 use crate::state::{CutsceneRequest, State};
 use crate::tween::steps_of;
 use crate::world::Reject;
@@ -99,8 +100,12 @@ struct List {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Placing {
     Done,
+    /// Waiting a step for a teleport the collision module carries out.
+    Settling,
     Easing,
-    Walking { since: u64 },
+    Walking {
+        since: u64,
+    },
     Turning,
 }
 
@@ -355,61 +360,86 @@ impl Sequencer {
 
 fn begin_placing(s: &mut State, cutscene: &Cutscene, run: &mut Run) {
     let settings = s.settings.cutscene.clone();
-    for (i, role) in cutscene.roles.iter().enumerate() {
-        let Some(Place { position, yaw }) = role.start else {
-            continue;
+    for i in 0..cutscene.roles.len() {
+        if cutscene.roles[i].start.is_some() {
+            run.placing[i] = begin_role(s, cutscene, run, i, &settings);
+        }
+    }
+}
+
+/// Starts bringing role `i` to its start. A role a collision module has
+/// still to teleport this step waits for the next, so it is judged from
+/// where that teleport lands, or from where it stood if refused.
+fn begin_role(
+    s: &mut State,
+    cutscene: &Cutscene,
+    run: &mut Run,
+    i: usize,
+    settings: &CutsceneSettings,
+) -> Placing {
+    let Some(Place { position, yaw }) = cutscene.roles[i].start else {
+        return Placing::Done;
+    };
+    let e = run.roles[i];
+    if teleporting(s, e) {
+        return Placing::Settling;
+    }
+    let to = Vec3::from_array(position);
+    let mut ctx = ctx!(s, cutscene, run, false);
+    let at = ctx.position(e);
+    let visible = ctx.s.world.node(e).is_some_and(|n| n.visible) || ctx.s.world.was_visible(e);
+    let distance = at.distance(to);
+    if !visible {
+        ctx.place(e, to, yaw);
+        Placing::Done
+    } else if distance <= settings.start_tolerance {
+        ctx.issue(Command::Face { entity: e, yaw });
+        Placing::Turning
+    } else if distance <= settings.start_blend_max {
+        for (k, property) in [
+            Property::PositionX,
+            Property::PositionY,
+            Property::PositionZ,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            ctx.issue(Command::Tween {
+                tween: TWEENS + 3 * i as u32 + k as u32,
+                entity: e,
+                property,
+                var: 0,
+                to: to[k],
+                duration: settings.start_blend,
+                ease: Ease::Smoothstep,
+            });
+        }
+        ctx.issue(Command::Face { entity: e, yaw });
+        Placing::Easing
+    } else {
+        let since = ctx.s.happenings;
+        let fastest = ctx.s.settings.motion.max_visible_speed / no_jump::walk_speed(ctx.s, e, 1.0);
+        let walk = Command::MoveTo {
+            entity: e,
+            target: position,
+            speed: settings.start_walk_speed.min(fastest),
         };
-        let e = run.roles[i];
-        let to = Vec3::from_array(position);
-        let mut ctx = ctx!(s, cutscene, run, false);
-        let at = ctx.position(e);
-        let visible = ctx.s.world.node(e).is_some_and(|n| n.visible) || ctx.s.world.was_visible(e);
-        let distance = at.distance(to);
-        let placing = if !visible {
-            ctx.place(e, to, yaw);
-            Placing::Done
-        } else if distance <= settings.start_tolerance {
+        if ctx.try_issue(walk) {
+            Placing::Walking { since }
+        } else {
             ctx.issue(Command::Face { entity: e, yaw });
             Placing::Turning
-        } else if distance <= settings.start_blend_max {
-            for (k, property) in [
-                Property::PositionX,
-                Property::PositionY,
-                Property::PositionZ,
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                ctx.issue(Command::Tween {
-                    tween: TWEENS + 3 * i as u32 + k as u32,
-                    entity: e,
-                    property,
-                    var: 0,
-                    to: to[k],
-                    duration: settings.start_blend,
-                    ease: Ease::Smoothstep,
-                });
-            }
-            ctx.issue(Command::Face { entity: e, yaw });
-            Placing::Easing
-        } else {
-            let since = ctx.s.happenings;
-            let fastest =
-                ctx.s.settings.motion.max_visible_speed / no_jump::walk_speed(ctx.s, e, 1.0);
-            let walk = Command::MoveTo {
-                entity: e,
-                target: position,
-                speed: settings.start_walk_speed.min(fastest),
-            };
-            if ctx.try_issue(walk) {
-                Placing::Walking { since }
-            } else {
-                ctx.issue(Command::Face { entity: e, yaw });
-                Placing::Turning
-            }
-        };
-        run.placing[i] = placing;
+        }
     }
+}
+
+/// Whether a collision module has a teleport of `e` to carry out this step,
+/// which it may refuse.
+fn teleporting(s: &State, e: Entity) -> bool {
+    !s.settings.motion.builtin
+        && (s.outbox.physics)
+            .iter()
+            .any(|i| matches!(*i, PhysicsIntent::Teleport { entity, .. } if entity == e))
 }
 
 /// Advances every role towards its start; whether all are there.
@@ -420,6 +450,10 @@ fn place_step(s: &mut State, cutscene: &Cutscene, run: &mut Run) -> bool {
         let yaw = cutscene.roles[i].start.map_or(0.0, |p| p.yaw);
         let easing = (0..3).any(|k| s.tweens.active(TWEENS + 3 * i as u32 + k));
         let next = match run.placing[i] {
+            Placing::Settling => {
+                let settings = s.settings.cutscene.clone();
+                begin_role(s, cutscene, run, i, &settings)
+            }
             Placing::Easing if easing => Placing::Easing,
             Placing::Walking { since } if !walked(s, e, since) => Placing::Walking { since },
             Placing::Easing | Placing::Walking { .. } => {
@@ -435,16 +469,15 @@ fn place_step(s: &mut State, cutscene: &Cutscene, run: &mut Run) -> bool {
     all
 }
 
-/// Whether a walk of `e` that began at happening `since` ended: the runtime's
-/// mover stopped, or, when another module moves actors, it reported the
-/// arrival or the block. A walk the no-jump measurement stops ends with a
-/// block in both cases.
+/// Whether a walk of `e` that began at happening `since` ended: its goal is
+/// no longer a walk (it arrived, or the game stopped it, teleported it or
+/// gave it another goal), or, when another module moves actors, that module
+/// reported the arrival or the block. A walk the no-jump measurement stops
+/// ends with a block in both cases.
 fn walked(s: &State, e: Entity, since: u64) -> bool {
-    if s.settings.motion.builtin {
-        !s.motion.walking(e)
-    } else {
-        s.saw(Happening::Arrived(e), since) || s.saw(Happening::Blocked(e), since)
-    }
+    !s.motion.walking(e)
+        || !s.settings.motion.builtin
+            && (s.saw(Happening::Arrived(e), since) || s.saw(Happening::Blocked(e), since))
 }
 
 /// Whether `e` faces where it was told. When another module moves actors the

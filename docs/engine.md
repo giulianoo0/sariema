@@ -71,7 +71,8 @@ on (`E_SETTINGS`), since every actor would move twice.
    contact the pose names; a contact its pose lacks falls back to the feet),
    steps the world and writes positions and yaws back. A teleport drops the
    moves given before it and keeps those given after it, in the same step
-   too. A `SkippedWalk` whose place has no path from where the role stood
+   too; once it lands the runtime's walk is dropped with it, so a
+   cutscene's `walk` ends, while a teleport the module refuses keeps it. A `SkippedWalk` whose place has no path from where the role stood
    puts it back there and ends the walk `blocked`.
 6. **The runtime** finishes its step: followers, tweens, timers, screen,
    dialogue, `World::resolve`, then the no-jump measurement (anything that

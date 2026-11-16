@@ -54,7 +54,10 @@ Then, in order:
    (0.02 m) only turns; one within `cutscene.start_blend_max` (0.3 m) is
    eased there over `cutscene.start_blend` (0.25 s); a farther one walks
    there at `cutscene.start_walk_speed` (1.5 m/s). Each then turns to its
-   start yaw. The steps begin when every role is in place.
+   start yaw. The steps begin when every role is in place. A role the game
+   teleported in the same tick it played the cutscene, with a collision
+   module, is judged a step later, from where the teleport landed, or from
+   where it stood if the module refused it.
 3. **The steps** run in order. A step that takes time (a walk, a line, a
    wait, a blend) holds the next one until it ends.
 4. **The end.** The hero goes back to whoever had it, where the cutscene
@@ -82,7 +85,7 @@ world afterwards is the one playing it through would have left.
 | `wait_for: { signal \| arrived \| clip_finished \| clip_marker, timeout }` | waits for the game's `signal`, a role's arrival, a role's clip to finish, or a marker of a role's clip (`{ role, clip, marker }`); only what happens after the wait began counts | on it, or after `timeout` |
 | `branch: { flag, then, else }` | runs `then` when the flag is set | after the branch taken |
 | `shot: { follow \| frame \| fixed, bone \| socket, …, blend, ease }` | moves the camera: follow one role, frame two, or a fixed pose; `blend` 0 is a cut; `bone` or `socket` aims at that point of the subject (a name for `follow`, a pair with `null` for the origin for `frame`) | at once; the blend runs on |
-| `walk: { role, to, speed, face }` | walks a role to a point | when it arrives |
+| `walk: { role, to, speed, face }` | walks a role to a point | when it arrives, is blocked, or the game takes the walk away (`stop`, a `teleport` that lands, `move_intent`, `move_to` elsewhere ends at that target) |
 | `face: { role, toward \| yaw }` | turns a role toward another or to a yaw | when it faces it |
 | `look_at: { role, target }` | points a role's head at another | at once |
 | `clip: { role, clip, mode, blend, speed }` | plays an animation clip at `speed` times its rate; its time follows the steps | at once |

@@ -128,7 +128,8 @@ that `name` was built), `E_CUTSCENE_BUSY` (wait for `cutscene_ended`).
 A `walk` goes at its speed times the role's speed scale (`set_speed_scale`,
 which the check cannot see): too fast at that scale, it arrives as a
 `rejected` `E_TELEPORT_VISIBLE` with the `move_to` opcode and ends where the
-role stands, played or skipped alike.
+role stands, played or skipped alike. A `walk` the game takes away (`stop`,
+a `teleport` that lands, `move_intent`) ends there and the cutscene goes on.
 
 ## Common mistakes
 

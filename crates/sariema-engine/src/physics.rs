@@ -161,14 +161,35 @@ impl Physics {
             let intent = self.intents[k];
             self.apply(s, intent);
         }
-        self.intents.clear();
         self.drive_hero(s);
         self.traverse(s, anim);
         self.events.clear();
         self.world.step(&mut self.events);
         self.write_back(s);
         self.report(s);
+        self.landed(s);
+        self.intents.clear();
         self.finish_traversals(s);
+    }
+
+    /// A teleport that landed drops the walk given before it, as the
+    /// collision module does, so the runtime's walk ends with it; a walk
+    /// given after it goes on, and a refused teleport changes nothing.
+    fn landed(&self, s: &mut State) {
+        for (k, intent) in self.intents.iter().enumerate() {
+            let PhysicsIntent::Teleport { entity, .. } = *intent else {
+                continue;
+            };
+            let walks_after = self.intents[k + 1..]
+                .iter()
+                .any(|i| matches!(*i, PhysicsIntent::MoveTo { entity: e, .. } if e == entity));
+            let refused = self.events.iter().any(|e| {
+                e.kind == EventKind::TeleportRejected && self.owners[e.actor.0 as usize] == entity
+            });
+            if !walks_after && !refused && s.motion.walking(entity) {
+                s.motion.mover_mut(entity).goal = Goal::Idle;
+            }
+        }
     }
 
     /// The teleports and stops the runtime gave after this step's collision

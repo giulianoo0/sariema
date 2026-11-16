@@ -254,6 +254,11 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         Kind::Rejected,
         "more HUD animations at once than the HUD's settings allow",
     ),
+    (
+        "E_UI_TEXT_TOO_LONG",
+        Kind::Rejected,
+        "a ui_text or say line longer than the engine's hud.max_text_bytes; a cutscene's line that is fails the load",
+    ),
     ("E_NOT_ACTOR", Kind::Rejected, Reject::NotActor.message()),
     (
         "E_RIG_UNKNOWN",
