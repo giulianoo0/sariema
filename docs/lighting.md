@@ -148,9 +148,10 @@ night sky turned on over a room keeps the sideways light it had.
 to `end`, whichever is thicker, where `d` is the distance from the camera.
 At `density` 0 and `end` at or before `start` the room has none, and the
 frame pays one uniform test per fragment. A glow (an additive material)
-fades in fog instead of turning the fog's colour, and the ambient
-occlusion fades with the surface it darkens, judged at the pixel's view
-depth. The background is not fogged: a room that wants its sky hazed sets
+fades in fog instead of turning the fog's colour, a highlight
+([fx](fx.md#highlights)) is added before the fog and fades with the surface
+it lights, and the ambient occlusion fades with the surface it darkens,
+judged at the pixel's view depth. The background is not fogged: a room that wants its sky hazed sets
 the background to the fog's colour. A room describes its fog in its
 description (`schemas/room.schema.json`):
 

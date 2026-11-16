@@ -182,6 +182,10 @@ How much to use: a faint `fill` (0.1 to 0.25) and a `rim` two or three
 times that read as "this can be used" on dark and light pieces alike;
 more washes a dark piece towards its lightest tone under the tone curve.
 
+In a room with fog the glow is added before the fog, so a far highlight
+fades with the piece it lights and thick fog hides both
+(`tests/fog.rs` in `sariema-render`).
+
 Refusals: `E_SCENE_UNKNOWN` (no node of that name in the active room),
 `E_ENTITY_STALE`, `E_FX_FULL` (every one of `fx.highlights` is lit).
 Turning off one never lit is not an error. A highlight on an entity that

@@ -11,7 +11,7 @@ use common::downlevel;
 use image::RgbaImage;
 use sariema_core::{Camera, room_camera};
 use sariema_format::demo::demo_room;
-use sariema_format::{AlphaMode, Fog, RoomPack, Shading};
+use sariema_format::{AlphaMode, Fog, Node, RoomPack, Shading};
 use sariema_render::{Headless, Lighting, Quality, compare_images};
 
 fn paths() -> [Quality; 2] {
@@ -133,6 +133,51 @@ fn fog_thickens_with_distance_and_leaves_the_background() {
             render(&empty, Some(thick(green.color)), None, q),
             render(&empty, None, None, q),
             "the background takes no fog on {:?}",
+            q.path
+        );
+    }
+}
+
+#[test]
+fn a_glow_fades_in_the_fog_with_the_surface_it_lights() {
+    let mut room = demo_room();
+    let red = (room.draws.iter())
+        .position(|d| d.name.as_deref() == Some("box_red"))
+        .unwrap() as u32;
+    room.nodes.push(Node {
+        name: "red".into(),
+        pivot: glam::Mat4::IDENTITY.to_cols_array(),
+        draws: vec![red],
+        visible: true,
+        hinge: None,
+    });
+    let node = room.nodes.len() - 1;
+    let draw = |fog: Option<Fog>, glow: bool, q: &Quality| {
+        let mut h = Headless::new(W, H, q.clone()).unwrap();
+        h.renderer().load_room(&room).unwrap();
+        if let Some(fog) = fog {
+            h.renderer().set_lighting(Some(Lighting {
+                fog,
+                ..Lighting::of(&room)
+            }));
+        }
+        if glow {
+            assert!(h.renderer().set_node_glow(0, node, 0.4, 0.8));
+        }
+        h.render(&camera_of(&room), 0.0)
+    };
+    for q in &paths() {
+        let clear = compare_images(&draw(None, true, q), &draw(None, false, q)).unwrap();
+        assert!(
+            clear.max_channel_delta > 20,
+            "{:?}: it glows: {clear:?}",
+            q.path
+        );
+        let fog = Some(thick([0.15, 0.3, 0.2]));
+        let fogged = compare_images(&draw(fog, true, q), &draw(fog, false, q)).unwrap();
+        assert!(
+            fogged.max_channel_delta <= 2,
+            "{:?}: thick fog hides the glow with the box: {fogged:?}",
             q.path
         );
     }
