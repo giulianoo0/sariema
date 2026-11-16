@@ -157,52 +157,56 @@ that, skipping lands every role and flag where playing would have.
 
 ## Directing
 
-The owner's directing rules, and what a cutscene writes for each.
+The engine's directing rules for physical action, and what a cutscene
+writes for each.
 
-10. **Show the whole action, cause to consequence.** A traversal is never
-    started mid-way: entering through a window is reaching it, opening it,
-    climbing onto the sill, going through and landing. No step is skipped or
-    hidden by a cut unless the cut shows the next step. Write each step as
-    its own `clip`, chained by `wait_for: clip_finished`.
-11. **Physical action has character.** A jump can catch a foot, stumble,
-    fall and get up; the body anticipates, takes the impact and recovers
-    instead of gliding. Each phase is a clip; `camera_shake` sells the
-    impact.
-12. **Insert shots for the beat that matters.** The key detail gets its own
-    close shot, cut on the action, then back to the wide shot: a `shot` with
-    `blend` 0 right after `wait_for: clip_marker` on the beat, aimed at the
-    detail with `bone` or `socket`.
-13. **Moving set pieces are keyed to clip time.** A hinged leaf (window,
-    door) turns over a frame range of the actor's clip, its sound on the
-    same range; nothing opens by itself or pops open. Until hinges exist
-    (see the limits), cast the leaf as a role with its own clip and start
-    both clips in the same step, in one `parallel`: both follow the step
-    clock, so they stay together.
-14. **Traversal in clip segments.** The root moves only within given spans
-    of the clip and is still outside them (anticipation, settling); a span
-    may carry its own time scale. Not expressible yet (see the limits);
-    today `time_scale` slows the whole world around the beat.
-15. **Intended contact is authored, not penetration.** A catching foot is a
-    pose of the clip plus a point that places the root so the ankle sits on
-    the edge. The traversal ignores collision for its spans and ends on free
-    floor. Not expressible yet (see the limits).
-16. **Clip time follows the step clock.** A clip is sought to the time of
-    its steps, never left to run on a clock of its own: in slow motion a
-    free-running clip can freeze, and a landing waiting on it never starts.
-    The runtime gives every actor's clip time (`clip_time`) and the
-    animation module seeks to it, so a clip slows with `time_scale` and
-    `wait_for: clip_finished` still comes. Leftover frame time carries into
-    the next step, so a seam never shows a still frame.
-17. **Insert shot on the contact, cut on the action, position continuous
-    across the cut.** The close aims at the contact (`bone`), low, slowed to
-    0.4× for about 0.6 s, and cuts back on the fall. A cut never hides a
-    jump: the cut changes the camera only, and every role keeps moving
-    continuously across it. Waits count world time: 0.6 s on screen at 0.4×
-    is `wait: 0.24`.
-18. **No HUD while covered.** The HUD stays hidden while the screen is
-    covered and returns with the first frame after it. No step hides the
-    HUD; the game hides it on `cutscene_started` and while it fades the
-    screen.
+1. **Show the whole action, cause to consequence.** A traversal is never
+   started mid-way: entering through a window is reaching it, opening it,
+   climbing onto the sill, going through and landing. No step is skipped or
+   hidden by a cut unless the cut shows the next step. Write each step as
+   its own `clip`, chained by `wait_for: clip_finished`.
+2. **Physical action has character.** A jump can catch a foot, stumble,
+   fall and get up; the body anticipates, takes the impact and recovers
+   instead of gliding. Each phase is a clip; `camera_shake` sells the
+   impact.
+3. **Insert shots for the beat that matters.** The key detail gets its own
+   close shot, cut on the action, then back to the wide shot: a `shot` with
+   `blend` 0 right after `wait_for: clip_marker` on the beat, aimed at the
+   detail with `bone` or `socket`.
+4. **Moving set pieces are keyed to clip time.** A hinged leaf (window,
+   door) turns over a frame range of the actor's clip, its sound on the
+   same range; nothing opens by itself or pops open. Until hinges exist
+   (see the limits), cast the leaf as a role with its own clip and start
+   both clips in the same step, in one `parallel`: both follow the step
+   clock, so they stay together.
+5. **Traversal in clip segments.** The root moves only within given spans
+   of the clip and is still outside them (anticipation, settling); a span
+   may carry its own time scale. Not expressible yet (see the limits);
+   today `time_scale` slows the whole world around the beat.
+6. **Intended contact is authored, not penetration.** A catching foot is a
+   pose of the clip plus a point that places the root so the ankle sits on
+   the edge. The traversal ignores collision for its spans and ends on free
+   floor. Not expressible yet (see the limits).
+7. **Clip time follows the step clock.** A clip is sought to the time of
+   its steps, never left to run on a clock of its own: in slow motion a
+   free-running clip can freeze, and a landing waiting on it never starts.
+   The runtime gives every actor's clip time: `clip_time` at the last step,
+   which markers and the clip's end are judged against, and
+   `clip_time_at(alpha)` to draw, interpolated between the last two steps
+   like every pose. The animation module seeks to them, so a clip slows
+   with `time_scale` without a still frame, and `wait_for: clip_finished`
+   still comes. Leftover frame time carries into the next step, so a seam
+   never shows a still frame either.
+8. **Insert shot on the contact, cut on the action, position continuous
+   across the cut.** The close aims at the contact (`bone`), low, slowed to
+   0.4× for about 0.6 s, and cuts back on the fall. A cut never hides a
+   jump: the cut changes the camera only, and every role keeps moving
+   continuously across it. Waits count world time: 0.6 s on screen at 0.4×
+   is `wait: 0.24`.
+9. **No HUD while covered.** The HUD stays hidden while the screen is
+   covered and returns with the first frame after it. No step hides the
+   HUD; the game hides it on `cutscene_started` and while it fades the
+   screen.
 
 ### Worked example: entering through a window
 
@@ -246,17 +250,17 @@ its own, an actor whose `swing_open` clip turns the leaf.
 
 | Steps | Rule |
 |---|---|
-| walk to the wall, `reach_open`, `climb_trip`, `get_up`, each waiting for the last | 10: the whole action, no step skipped |
-| `swing_open` and its sound in a `parallel` with `reach_open` | 13: the leaf moves with the hand, on the same clock |
-| `climb_trip` holds the stumble and the fall; `camera_shake` on `lands` | 11: anticipation, impact, recovery |
-| `wait_for: clip_marker foot_catches`, then a `shot` with `blend` 0 on `bone: foot_l` | 12 and 17: the close cuts on the beat, aimed at the contact |
-| `time_scale` 0.4 for `wait: 0.24`, then back to 1 over 0.15 s with the wide shot | 17: 0.6 s of slow motion on screen |
-| no `teleport`, no `hide` | 17: the cuts change the camera only |
+| walk to the wall, `reach_open`, `climb_trip`, `get_up`, each waiting for the last | 1: the whole action, no step skipped |
+| `swing_open` and its sound in a `parallel` with `reach_open` | 4: the leaf moves with the hand, on the same clock |
+| `climb_trip` holds the stumble and the fall; `camera_shake` on `lands` | 2: anticipation, impact, recovery |
+| `wait_for: clip_marker foot_catches`, then a `shot` with `blend` 0 on `bone: foot_l` | 3 and 8: the close cuts on the beat, aimed at the contact |
+| `time_scale` 0.4 for `wait: 0.24`, then back to 1 over 0.15 s with the wide shot | 8: 0.6 s of slow motion on screen |
+| no `teleport`, no `hide` | 8: the cuts change the camera only |
 
 It passes `sariema check`
 (`crates/sariema-runtime/tests/fixtures/cutscenes/window_entry.json`). Two
-parts wait on the limits below: the hero's root crossing the sill (14, 15)
-and the leaf bound to the hero's clip (13).
+parts wait on the limits below: the hero's root crossing the sill (5, 6)
+and the leaf bound to the hero's clip (4).
 
 ## Writing one that passes
 
@@ -286,10 +290,11 @@ and the leaf bound to the hero's clip (13).
 - **Bones and sockets** are data until the animation module is integrated:
   `rig_anchor` names them and the camera lists them (`Camera::anchors`), but
   it aims at the subject's origin until the animation module resolves them.
-- **Clip time** is the runtime's (`State::clip_time`): the animation module
-  must seek every clip to it and report `clip_marker` and `clip_finished`
-  from it; a module that runs clips on its own clock breaks rule 16.
-- **The HUD** has no step: the game hides and shows it (rule 18).
+- **Clip time** is the runtime's (`State::clip_time`, and
+  `State::clip_time_at` to draw): the animation module must seek every clip
+  to it and report `clip_marker` and `clip_finished` from it; a module that
+  runs clips on its own clock breaks rule 7.
+- **The HUD** has no step: the game hides and shows it (rule 9).
 - **One cutscene at a time**; a second `cutscene_play` is refused with
   `E_CUTSCENE_BUSY`. Skipping drops sounds and shakes.
 

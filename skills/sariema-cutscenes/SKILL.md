@@ -51,19 +51,19 @@ In the run, look for `cutscene_started`, `arrived` (the walks), `line_done`,
 
 ## Directing a physical action
 
-Rules 10–18 of the owner, as steps:
+The engine's directing rules (`docs/cutscenes.md`, "Directing"), as steps:
 
 | Rule | Write |
 |---|---|
-| 10 Whole action, cause to consequence | one `clip` per phase (reach, open, climb, land, get up), chained by `wait_for: clip_finished`; never start mid-way, never cut away a phase |
-| 11 Anticipation, impact, recovery | clips for the stumble, the fall and getting up; `camera_shake` on the impact marker |
-| 12 Insert shot on the beat | `wait_for: { clip_marker: { role, clip, marker } }`, then a `shot` with `"blend": 0` and `"bone"`/`"socket"`; cut back to the wide shot the same way |
-| 13 Set pieces keyed to clip time | the leaf (window, door) is a role with its own clip, started in the same `parallel` as the actor's clip; a real hinge binding is limit L4 |
-| 14 Traversal in clip segments | not expressible yet (L8); slow the beat with `time_scale` |
-| 15 Contact authored, not penetration | not expressible yet (L8): the pose is in the clip, the root placement and the contact check come with L8 |
-| 16 Clip time follows the step clock | automatic: clips run at `clip_time`, so they slow with `time_scale` and `clip_finished` still comes |
-| 17 Cut on the action, position continuous | cuts change the camera only, never `teleport` to hide a move; `wait` counts world time (0.6 s on screen at 0.4× is `wait: 0.24`) |
-| 18 No HUD while covered | the game hides its HUD on `cutscene_started` and while it fades |
+| 1 Whole action, cause to consequence | one `clip` per phase (reach, open, climb, land, get up), chained by `wait_for: clip_finished`; never start mid-way, never cut away a phase |
+| 2 Anticipation, impact, recovery | clips for the stumble, the fall and getting up; `camera_shake` on the impact marker |
+| 3 Insert shot on the beat | `wait_for: { clip_marker: { role, clip, marker } }`, then a `shot` with `"blend": 0` and `"bone"`/`"socket"`; cut back to the wide shot the same way |
+| 4 Set pieces keyed to clip time | the leaf (window, door) is a role with its own clip, started in the same `parallel` as the actor's clip; a real hinge binding is limit L4 |
+| 5 Traversal in clip segments | not expressible yet (L8); slow the beat with `time_scale` |
+| 6 Contact authored, not penetration | not expressible yet (L8): the pose is in the clip, the root placement and the contact check come with L8 |
+| 7 Clip time follows the step clock | automatic: clips are sought to `clip_time` (and drawn at `clip_time_at`, interpolated), so they slow with `time_scale` without still frames and `clip_finished` still comes |
+| 8 Cut on the action, position continuous | cuts change the camera only, never `teleport` to hide a move; `wait` counts world time (0.6 s on screen at 0.4× is `wait: 0.24`) |
+| 9 No HUD while covered | the game hides its HUD on `cutscene_started` and while it fades |
 
 Entering through a window, the foot catching the sill
 (`crates/sariema-runtime/tests/fixtures/cutscenes/window_entry.json`, passes
@@ -131,7 +131,7 @@ that `name` was built), `E_CUTSCENE_BUSY` (wait for `cutscene_ended`).
 - Expecting `wait_for` to see a signal sent before the wait began: only
   later ones count.
 - Hiding a move with a cut: a cut is not a cover for a walk you skipped;
-  rule 10 wants the walk on screen.
+  rule 1 wants the walk on screen.
 - Waiting real seconds in slow motion: `wait` counts world time.
 - Skipping: `cutscene_skip` (or the `skip` button) lands the same end state
   as playing through, under a fade; do not undo the cutscene's effects in
