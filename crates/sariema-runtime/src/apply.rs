@@ -562,7 +562,12 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             center,
             radius,
             height,
-        } => s.zones.set_cylinder(zone, v3(center), radius, height),
+        } => {
+            if radius < 0.0 || height < 0.0 {
+                return Err(refuse(Entity::NONE)(Reject::ZoneSize));
+            }
+            s.zones.set_cylinder(zone, v3(center), radius, height);
+        }
         C::Locate { entity } => {
             s.world.check(entity).map_err(refuse(entity))?;
             s.locates.push(entity);

@@ -25,10 +25,12 @@ pub enum Reject {
     NotActor,
     /// A turn rate below 0 or faster than `motion.turn_rate`.
     TurnRate,
+    /// A cylinder zone's radius or height below 0.
+    ZoneSize,
 }
 
 impl Reject {
-    pub const ALL: [Reject; 7] = [
+    pub const ALL: [Reject; 8] = [
         Reject::Stale,
         Reject::InUse,
         Reject::Limit,
@@ -36,6 +38,7 @@ impl Reject {
         Reject::TeleportVisible,
         Reject::NotActor,
         Reject::TurnRate,
+        Reject::ZoneSize,
     ];
 
     pub const fn code(self) -> &'static str {
@@ -47,6 +50,7 @@ impl Reject {
             Reject::TeleportVisible => "E_TELEPORT_VISIBLE",
             Reject::NotActor => "E_NOT_ACTOR",
             Reject::TurnRate => "E_TURN_RATE",
+            Reject::ZoneSize => "E_ZONE_SIZE",
         }
     }
 
@@ -63,6 +67,7 @@ impl Reject {
             Reject::TurnRate => {
                 "an actor's turn rate is 0 (the setting) or positive and at most motion.turn_rate"
             }
+            Reject::ZoneSize => "a cylinder zone's radius and height are 0 or more",
         }
     }
 }

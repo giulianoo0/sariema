@@ -256,6 +256,7 @@ const ERRORS: &[(&str, Kind, &str)] = &[
     ),
     ("E_NOT_ACTOR", Kind::Rejected, Reject::NotActor.message()),
     ("E_TURN_RATE", Kind::Rejected, Reject::TurnRate.message()),
+    ("E_ZONE_SIZE", Kind::Rejected, Reject::ZoneSize.message()),
     (
         "E_RIG_UNKNOWN",
         Kind::Rejected,

@@ -187,7 +187,8 @@ batch_table! {
         /// actors whose feet are within `radius` of its axis and between its
         /// bottom and top, entering and leaving: a circle on a floor that
         /// also takes the ramp or step above it. It shares its ids with
-        /// `zone`, each replacing the other; `remove_zone` removes it.
+        /// `zone`, each replacing the other; `remove_zone` removes it. A
+        /// radius or height below 0 is `E_ZONE_SIZE`.
         0x00D1 ZoneCylinder zone_cylinder { zone: u32, center: Vec3, radius: f32, height: f32 }
         /// Asks where `entity` stands: `located` answers at the next step
         /// with its place and yaw in the world as this step left them, after

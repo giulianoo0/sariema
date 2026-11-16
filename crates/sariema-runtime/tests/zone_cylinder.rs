@@ -126,3 +126,44 @@ fn a_sphere_zone_of_the_same_id_replaces_the_cylinder() {
         "the sphere takes the feet above and below the cylinder and leaves those at its rim"
     );
 }
+
+#[test]
+fn a_cylinder_below_zero_is_rejected() {
+    let sizes = [(-1.0, 1.5), (1.0, -0.5), (-0.1, -0.1), (0.0, 0.0)];
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let log = seen.clone();
+    let logic = native(move |n, events, out| {
+        for e in events {
+            if let Event::Rejected { code, opcode, .. } = e {
+                log.borrow_mut().push((code.to_string(), *opcode));
+            }
+        }
+        if n == 0 {
+            for (radius, height) in sizes {
+                send(
+                    out,
+                    Command::ZoneCylinder {
+                        zone: ZONE,
+                        center: CENTRE,
+                        radius,
+                        height,
+                    },
+                );
+            }
+        }
+    });
+    let mut sim = Simulation::new(Settings::default(), Vec::new(), logic, 0);
+    let actions = Actions::for_settings(&sim.state().settings.input);
+    for _ in 0..3 {
+        sim.step(&actions);
+    }
+    drop(sim);
+    let opcode = Command::ZoneCylinder {
+        zone: 0,
+        center: [0.0; 3],
+        radius: 0.0,
+        height: 0.0,
+    }
+    .opcode();
+    assert_eq!(seen.take(), vec![("E_ZONE_SIZE".to_string(), opcode); 3]);
+}

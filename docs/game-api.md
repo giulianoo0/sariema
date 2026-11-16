@@ -374,7 +374,9 @@ without `--headless` the pack plays in a window.
   same at the floor and on a ramp or step within its height, where a
   sphere would bulge out in the middle and miss the rim. Both kinds share
   one set of ids: setting one replaces the other, and `remove_zone`
-  removes either.
+  removes either. A cylinder with a radius or height below 0 is
+  `rejected` with `E_ZONE_SIZE`; a NaN or infinite one, like any
+  non-finite number in a command, stops the game at decoding.
 - **Camera rigs**: follow a subject (dead zone, spring, look-ahead, bounds),
   frame two subjects, or a fixed pose; `camera_use` blends from the pose on
   screen to the new rig over `blend` seconds with an easing. Reframing the
