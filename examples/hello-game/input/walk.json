@@ -1,0 +1,10 @@
+{
+  "changes": [
+    { "step": 30, "axes": { "move": [0, 1] } },
+    { "step": 200, "axes": { "move": [0, 0] } },
+    { "step": 900, "axes": { "move": [0, -1] } },
+    { "step": 1050, "axes": { "move": [0, 0] } },
+    { "step": 1100, "axes": { "move": [0, 1] } },
+    { "step": 1250, "axes": { "move": [0, 0] } }
+  ]
+}

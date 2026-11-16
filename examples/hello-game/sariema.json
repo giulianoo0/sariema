@@ -1,0 +1,10 @@
+{
+  "name": "hello-game",
+  "assets_root": ".",
+  "rooms": { "meadow": "rooms/meadow.json" },
+  "game": {
+    "logic": "game",
+    "cutscenes": "cutscenes",
+    "toolchain": "1.100.0"
+  }
+}

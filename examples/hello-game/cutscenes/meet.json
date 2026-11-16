@@ -1,0 +1,16 @@
+{
+  "name": "meet",
+  "roles": {
+    "hero": { "start": { "position": [0, 0, -5.5], "yaw": 0 } },
+    "friend": { "start": { "position": [0, 0, -8], "yaw": 180 } }
+  },
+  "steps": [
+    { "letterbox": { "to": 1, "duration": 0.4 } },
+    { "shot": { "frame": ["hero", "friend"], "pitch": 25, "blend": 0.8 } },
+    { "walk": { "role": "hero", "to": [0, 0, -6.8], "speed": 1.2 } },
+    { "shot": { "follow": "friend", "distance": 3, "pitch": 12, "yaw": 180, "blend": 0.6 } },
+    { "line": { "speaker": "friend", "text": "Hello! You found the meadow.", "advance": "auto", "duration": 2.5 } },
+    { "set_flag": "met" },
+    { "letterbox": { "to": 0, "duration": 0.4 } }
+  ]
+}
