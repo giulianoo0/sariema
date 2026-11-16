@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use crate::RunArgs;
 use crate::output::{Done, Failure};
-use crate::{pack, player};
+use crate::{pack, player, simulate};
 
 /// What `run` was asked for, with what each way of drawing needs.
 enum Mode<'a> {
@@ -26,36 +26,47 @@ enum Mode<'a> {
 }
 
 impl RunArgs {
-    fn mode(&self) -> Mode<'_> {
+    fn mode(&self) -> Result<Mode<'_>, Failure> {
         match (self.headless, self.frames, &self.screenshot) {
-            (true, Some(frames), Some(screenshot)) => Mode::Headless {
+            (true, Some(frames), Some(screenshot)) => Ok(Mode::Headless {
                 frames,
                 screenshot,
                 max_background: self.max_background,
-            },
-            // clap accepts --headless only with --frames and --screenshot.
-            _ => Mode::Window {
+            }),
+            (true, ..) => Err(Failure::new(
+                "E_USAGE",
+                "--headless needs --frames and --screenshot to draw a room pack",
+            )),
+            // clap accepts --screenshot and --max-background only with --headless.
+            _ => Ok(Mode::Window {
                 frames: self.frames,
-            },
+            }),
         }
     }
 }
 
 pub fn run(args: &RunArgs) -> Result<Done, Failure> {
-    let room = pack::read(&args.pack)?;
-    match args.mode() {
+    if let Some(game) = &args.game.game {
+        return simulate::run(game, &args.game);
+    }
+    // clap requires the pack without --game.
+    let path = args.pack.as_deref().expect("a room pack");
+    let mode = args.mode()?;
+    let room = pack::read(path)?;
+    match mode {
         Mode::Window { frames } => player::play(&room, args, frames),
         Mode::Headless {
             frames,
             screenshot,
             max_background,
-        } => headless(&room, args, frames, screenshot, max_background),
+        } => headless(&room, path, args, frames, screenshot, max_background),
     }
 }
 
 /// Draws `frames` frames at `time_s = frame / 60` and saves the last one.
 fn headless(
     room: &RoomPack,
+    path: &Path,
     args: &RunArgs,
     frames: u32,
     screenshot: &Path,
@@ -90,7 +101,7 @@ fn headless(
             "E_ROOM_VOID",
             format!(
                 "{}: {:.1}% of the frame shows no geometry, more than the {:.1}% allowed",
-                args.pack.display(),
+                path.display(),
                 background * 100.0,
                 max * 100.0
             ),

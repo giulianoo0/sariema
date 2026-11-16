@@ -1,0 +1,12 @@
+{
+  "name": "intro",
+  "roles": {
+    "hero": { "start": { "position": [0, 0, 0], "yaw": 0 } }
+  },
+  "steps": [
+    { "letterbox": { "to": 1, "duration": 0.4 } },
+    { "shot": { "follow": "hero", "distance": 4, "pitch": 20, "yaw": 180, "blend": 1.0 } },
+    { "line": { "speaker": "hero", "text": "Morning. Time to look around.", "advance": "auto", "duration": 2 } },
+    { "letterbox": { "to": 0, "duration": 0.4 } }
+  ]
+}

@@ -19,6 +19,7 @@ sariema-core = { path = "../sariema-core" }
 sariema-format = { path = "../sariema-format" }
 sariema-import = { path = "../sariema-import" }
 sariema-render = { path = "../sariema-render" }
+sariema-runtime = { path = "../sariema-runtime" }
 serde.workspace = true
 serde_json.workspace = true
 wgpu.workspace = true
@@ -26,4 +27,5 @@ winit.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true
+sariema-vm = { path = "../sariema-vm" }
 tempfile.workspace = true

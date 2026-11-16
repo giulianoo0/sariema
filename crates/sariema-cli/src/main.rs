@@ -9,12 +9,16 @@ use clap::{Args, Parser, Subcommand, ValueEnum, value_parser};
 use sariema_import::TextureMode;
 use sariema_render::Quality;
 
+mod api;
+mod game;
 mod golden;
 mod output;
 mod pack;
 mod player;
 mod project;
 mod run;
+mod scaffold;
+mod simulate;
 
 #[derive(Parser)]
 #[command(
@@ -32,18 +36,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Build one room of a project into a pack.
+    /// Build one room of a project into a pack, or without --room its game.
     Build {
         /// Directory holding sariema.json.
         project: PathBuf,
-        /// Room id from the project's `rooms`.
+        /// Room id from the project's `rooms`. Without it, the project's
+        /// `game` is built into a game pack, conventionally `.srmg`.
         #[arg(long)]
-        room: String,
+        room: Option<String>,
         /// Pack to write, conventionally `.srma`.
         #[arg(short, long)]
         output: PathBuf,
         /// How to store colour textures, overriding the room file's `textures`.
-        #[arg(long, value_enum)]
+        #[arg(long, value_enum, requires = "room")]
         textures: Option<Textures>,
     },
     /// Show a pack's stats, lights, materials and loose draws.
@@ -67,13 +72,33 @@ enum Command {
         #[arg(long)]
         update: bool,
     },
+    /// Make a game project that builds, checks and runs as it is.
+    New {
+        /// Directory to create; it must be missing or empty.
+        dir: PathBuf,
+        /// The engine's crates/sariema-sdk, which the game depends on.
+        #[arg(long)]
+        sdk: Option<PathBuf>,
+        /// rustup toolchain the project builds its logic with, such as 1.100.0.
+        #[arg(long)]
+        toolchain: Option<String>,
+    },
+    /// Check a project's cutscenes against the no-teleport and start rules.
+    Check {
+        /// Directory holding sariema.json.
+        project: PathBuf,
+    },
+    /// Describe every command, event, enum, setting and error code of the game API.
+    Api,
 }
 
 #[derive(Args)]
 struct RunArgs {
-    pack: PathBuf,
-    /// Draw offscreen instead of in a window.
-    #[arg(long, requires_all = ["frames", "screenshot"])]
+    /// Room pack to draw.
+    #[arg(required_unless_present = "game")]
+    pack: Option<PathBuf>,
+    /// Draw offscreen instead of in a window; a room pack needs --frames and --screenshot.
+    #[arg(long)]
     headless: bool,
     /// Frames to draw before closing; without it the window stays open until closed.
     #[arg(long, value_parser = value_parser!(u32).range(1..))]
@@ -91,6 +116,8 @@ struct RunArgs {
     /// Fail with E_ROOM_VOID when a larger fraction of the frame shows no geometry.
     #[arg(long, value_parser = fraction, requires = "headless")]
     max_background: Option<f32>,
+    #[command(flatten)]
+    game: simulate::GameRun,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -142,13 +169,26 @@ fn main() -> ExitCode {
     let outcome = output::guarded(|| match &cli.command {
         Command::Build {
             project,
-            room,
+            room: Some(room),
             output,
             textures,
         } => project::build(project, room, output, textures.map(Textures::mode)),
+        Command::Build {
+            project,
+            room: None,
+            output,
+            ..
+        } => game::build(project, output),
         Command::Inspect { pack } => pack::inspect(pack),
         Command::Run(args) => run::run(args),
         Command::Test { dir, update } => golden::test(dir, *update),
+        Command::New {
+            dir,
+            sdk,
+            toolchain,
+        } => scaffold::new(dir, sdk.as_deref(), toolchain.as_deref()),
+        Command::Check { project } => game::check(project),
+        Command::Api => api::api(),
     });
     output::emit(cli.json, outcome)
 }

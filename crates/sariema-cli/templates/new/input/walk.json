@@ -1,0 +1,7 @@
+{
+  "changes": [
+    { "step": 240, "axes": { "move": [0, 1] } },
+    { "step": 360, "axes": { "move": [1, 0] } },
+    { "step": 420, "axes": { "move": [0, 0] } }
+  ]
+}

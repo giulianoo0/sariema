@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use sariema_format::encode;
 use sariema_import::{RoomSource, TextureMode, build_room};
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use crate::output::{Done, Failure, list};
@@ -25,7 +26,7 @@ struct Project {
 }
 
 /// Reads the project in `dir` and checks it against the schema.
-fn load(dir: &Path) -> Result<Project, Failure> {
+pub(crate) fn load<T: DeserializeOwned>(dir: &Path) -> Result<T, Failure> {
     let path = dir.join(FILE);
     let text = fs::read_to_string(&path).map_err(|e| Failure::io(&path, e))?;
     let schema_error = |why: String| Failure::new("E_SCHEMA", format!("{}: {why}", path.display()));
@@ -49,7 +50,7 @@ pub fn build(
     output: &Path,
     textures: Option<TextureMode>,
 ) -> Result<Done, Failure> {
-    let project = load(dir)?;
+    let project: Project = load(dir)?;
     let description = project.rooms.get(room).ok_or_else(|| {
         let ids: Vec<&str> = project.rooms.keys().map(String::as_str).collect();
         Failure::new(

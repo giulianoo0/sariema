@@ -2137,6 +2137,8 @@ dependencies = [
  "sariema-format",
  "sariema-import",
  "sariema-render",
+ "sariema-runtime",
+ "sariema-vm",
  "serde",
  "serde_json",
  "tempfile",
@@ -2198,6 +2200,7 @@ name = "sariema-runtime"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "jsonschema",
  "sariema-core",
  "sariema-format",
  "sariema-vm",
