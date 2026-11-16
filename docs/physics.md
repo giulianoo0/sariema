@@ -132,6 +132,9 @@ block, instead of eroding voxels by a radius. A floor with anything right
 above it within the step height (the ground inside a dais) is no floor.
 Neighbouring floors within the step height are linked; linked floors are
 grouped into islands, so a search between islands is refused in constant time.
+`World::reachable(actor, target)` runs the same search without moving the
+actor: the engine asks it when a skipped cutscene walk would have landed the
+actor somewhere no path leads.
 
 A search snaps the start and target to the nearest floors (preferring the
 start's island for the target), runs A* on 8 neighbours without cutting

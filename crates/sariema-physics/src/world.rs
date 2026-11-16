@@ -282,6 +282,19 @@ impl World {
         nav
     }
 
+    /// Whether a scripted move of `actor` to `target` would find a path
+    /// from where it stands, as [`Intent::MoveTo`] would search it.
+    pub fn reachable(&mut self, actor: ActorId, target: Vec3) -> bool {
+        let nav = self.prepare_paths(actor);
+        let ctx = NavCtx {
+            scene: &self.scene,
+            settings: &self.settings,
+            derived: &self.derived,
+        };
+        let from = self.actors[actor.0 as usize].position;
+        self.navs[nav].find(&ctx, from, target, &mut Vec::new())
+    }
+
     fn build_nav(&mut self, collider: ActorCollider) -> usize {
         let ctx = NavCtx {
             scene: &self.scene,

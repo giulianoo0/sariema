@@ -92,3 +92,26 @@ fn an_inactive_actor_is_left_out_of_steps_and_leaves_its_triggers() {
     world.set_actor_active(a, true, &mut events);
     assert!(world.actor_active(a));
 }
+
+#[test]
+fn reachable_says_whether_a_scripted_move_would_find_a_path() {
+    let mut room = room();
+    room.wall(
+        "north",
+        glam::Vec2::new(0.0, -4.0),
+        Vec3::new(20.0, 2.0, 0.4),
+        0.0,
+    );
+    let mut world = room.world(Settings::default());
+    let id = actor(&mut world, Vec3::ZERO);
+    settle(&mut world, id);
+    assert!(world.reachable(id, Vec3::new(3.0, 0.0, 2.0)));
+    assert!(
+        !world.reachable(id, Vec3::new(0.0, 0.0, -8.0)),
+        "the wall spans the floor, so nothing past it can be walked to"
+    );
+    assert_eq!(
+        world.actor(id).position,
+        Vec3::ZERO.with_y(world.actor(id).position.y)
+    );
+}
