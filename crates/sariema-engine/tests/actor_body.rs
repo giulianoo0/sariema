@@ -113,3 +113,69 @@ fn a_hidden_actor_with_its_body_off_is_no_obstacle() {
         );
     }
 }
+
+/// Where the hero ends walking +x into a wall piece named like the asset
+/// of an actor whose body was switched off in the step it was spawned.
+fn into_a_wall_named_like_an_actor() -> Vec3 {
+    let logic = native(move |n, events, out| match n {
+        _ if events.iter().any(|e| matches!(e, Event::Rejected { .. })) => {
+            panic!("{events:?}")
+        }
+        0 => {
+            spawn_hero(out, [0.0, 0.0, 0.0], -90.0);
+            send(
+                out,
+                Command::Spawn {
+                    entity: entity(1),
+                    kind: Kind::Actor,
+                    asset: name_id("gate"),
+                },
+            );
+            send(
+                out,
+                Command::SetTransform {
+                    entity: entity(1),
+                    position: [0.0, 0.0, 1.5],
+                    yaw: 0.0,
+                },
+            );
+            send(
+                out,
+                Command::SetCollider {
+                    entity: entity(1),
+                    enabled: false,
+                },
+            );
+        }
+        1 => send(
+            out,
+            Command::MoveIntent {
+                entity: entity(0),
+                velocity: [1.5, 0.0, 0.0],
+            },
+        ),
+        _ => {}
+    });
+    let colliders = vec![
+        block("floor", [-2.0, -0.1, -2.0], [12.0, 0.0, 2.0]),
+        block("gate", [3.0, 0.0, -2.0], [3.2, 2.0, 2.0]),
+    ];
+    let mut assets = assets();
+    assets.rooms = vec![RoomAssets::collision(
+        "walled",
+        collision("walled", colliders),
+    )];
+    let sim = Simulation::new(wired(), Vec::new(), logic, 1);
+    let mut engine = Engine::new(sim, assets, EngineSettings::default()).unwrap();
+    let actions = Actions::for_settings(&engine.state().settings.input);
+    for _ in 0..244 {
+        engine.step(&actions);
+    }
+    engine.state().world.node(entity(0)).unwrap().local.position
+}
+
+#[test]
+fn an_actors_body_never_switches_a_room_piece() {
+    let hero = into_a_wall_named_like_an_actor();
+    assert!(hero.x < 3.0, "the hero walked through the wall: {hero}");
+}

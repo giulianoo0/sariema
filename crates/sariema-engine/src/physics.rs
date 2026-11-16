@@ -543,15 +543,20 @@ impl Physics {
                 }
             }
             PhysicsIntent::Collider { entity, enabled } => {
-                if let Some(m) = self.mapped(entity) {
-                    let id = m.id;
-                    self.world.apply(Intent::SetSolid {
-                        actor: id,
-                        solid: enabled,
-                    });
+                let Some(node) = s.world.node(entity) else {
+                    return;
+                };
+                if node.kind == Kind::Actor {
+                    if let Some(m) = self.mapped(entity) {
+                        let id = m.id;
+                        self.world.apply(Intent::SetSolid {
+                            actor: id,
+                            solid: enabled,
+                        });
+                    }
                     return;
                 }
-                let asset = s.world.node(entity).map_or(0, |n| n.asset);
+                let asset = node.asset;
                 if let Some(c) = self
                     .pack
                     .colliders
