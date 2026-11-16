@@ -108,6 +108,16 @@ pub fn load(bytes: &[u8], seed: u64) -> Result<Simulation<WasmLogic>, LoadError>
 
 pub fn start(pack: GamePack, seed: u64) -> Result<Simulation<WasmLogic>, LoadError> {
     let settings = pack_settings(&pack)?;
+    start_with_settings(pack, settings, seed)
+}
+
+/// [`start`] with `settings` in place of the pack's, for a host that
+/// changes some, like an engine whose collision module moves the actors.
+pub fn start_with_settings(
+    pack: GamePack,
+    settings: Settings,
+    seed: u64,
+) -> Result<Simulation<WasmLogic>, LoadError> {
     let mut vm = Vm::load(&pack.wasm, settings.vm)?;
     match vm.batch_version()? {
         Some(v) if v != BATCH_VERSION => {

@@ -66,7 +66,9 @@ Then, in order:
 `cutscene.skip_action` (`skip`) during a skippable cutscene. The screen fades
 out over `cutscene.skip_fade` (0.3 s); under the fade every remaining step
 reaches its end state at once (walks land on their targets, lines and waits
-end, flags are set, sounds are dropped); the fade returns to where the
+end, flags are set, sounds are dropped; with a collision module, a walk to
+where no path leads stays where the role stood and ends with `blocked`, as
+it would have played); the fade returns to where the
 cutscene would have left it, and `cutscene_ended` says `skipped: true`. The
 world afterwards is the one playing it through would have left.
 

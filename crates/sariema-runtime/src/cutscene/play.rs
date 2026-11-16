@@ -30,6 +30,7 @@ use crate::apply::{Source, apply};
 use crate::events::Happening;
 use crate::motion::yaw_of;
 use crate::no_jump;
+use crate::outbox::PhysicsIntent;
 use crate::state::{CutsceneRequest, State};
 use crate::tween::steps_of;
 use crate::world::Reject;
@@ -536,6 +537,12 @@ fn tick_block(current: &mut Option<Box<Running>>, block: &Block, ctx: &mut Ctx<'
             if skip {
                 ctx.issue(Command::Stop { entity: e });
                 ctx.place(e, *to, *yaw);
+                if !ctx.s.settings.motion.builtin {
+                    ctx.s.outbox.physics.push(PhysicsIntent::SkippedWalk {
+                        entity: e,
+                        target: *to,
+                    });
+                }
                 return true;
             }
             if !*turning {

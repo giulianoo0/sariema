@@ -84,6 +84,13 @@ pub enum PhysicsIntent {
         traversal: u32,
         duration: f32,
     },
+    /// A skipped cutscene walk just placed `entity` at `target`. A module
+    /// that could not have walked it there puts it back where it stood and
+    /// reports `blocked`, so the walk ends as it would have played.
+    SkippedWalk {
+        entity: Entity,
+        target: Vec3,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -240,3 +240,56 @@ fn a_collision_module_is_asked_to_traverse_face_and_play_a_hud_animation() {
         yaw: 90.0,
     }));
 }
+
+#[test]
+fn a_skipped_cutscene_walk_tells_the_collision_module_where_it_was_placed() {
+    let walk = r#"{ "name": "stroll", "roles": { "hero": { "start": { "position": [0, 0, 0] } } }, "steps": [
+        { "walk": { "role": "hero", "to": [2, 0, 0], "speed": 1 } } ] }"#;
+    let cutscene = sariema_runtime::cutscene::author::compile_json(walk)
+        .unwrap()
+        .0;
+    let logic = native(|n, _, out| match n {
+        0 => spawned(out),
+        1 => {
+            send(
+                out,
+                Command::CutsceneBind {
+                    role: name_id("hero"),
+                    entity: entity(0),
+                },
+            );
+            send(
+                out,
+                Command::CutscenePlay {
+                    cutscene: name_id("stroll"),
+                },
+            );
+            send(out, Command::CutsceneSkip {});
+        }
+        _ => {}
+    });
+    let settings = no_builtin();
+    let actions = Actions::for_settings(&settings.input);
+    let mut sim = Simulation::new(settings, vec![cutscene], logic, 0);
+    let mut mover = Mover {
+        step: 0.0,
+        intents: Vec::new(),
+    };
+    for _ in 0..120 {
+        sim.step_with(&actions, &mut mover);
+    }
+    let skipped = PhysicsIntent::SkippedWalk {
+        entity: entity(0),
+        target: Vec3::new(2.0, 0.0, 0.0),
+    };
+    let at = mover.intents.iter().position(|i| *i == skipped);
+    let teleport = mover.intents.iter().position(|i| {
+        matches!(i, PhysicsIntent::Teleport { entity: e, position, .. }
+            if *e == entity(0) && *position == Vec3::new(2.0, 0.0, 0.0))
+    });
+    assert!(
+        matches!((teleport, at), (Some(t), Some(s)) if t < s),
+        "{:?}",
+        mover.intents
+    );
+}
