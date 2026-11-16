@@ -134,11 +134,11 @@ fn actors_spots_triggers_and_routes_resolve_by_name() {
         "triggers": [{ "name": "door", "sphere": { "center": [3.0, 1.0, -1.0], "radius": 0.5 } }],
         "actors": [
             { "name": "hero", "radius": 0.3, "height": 1.0, "head": { "radius": 0.34, "height": 1.1 } },
-            { "name": "mila", "visual_bounds": { "min": [-0.25, 0.0, -0.2], "max": [0.25, 1.2, 0.2] } }
+            { "name": "companion", "visual_bounds": { "min": [-0.25, 0.0, -0.2], "max": [0.25, 1.2, 0.2] } }
         ],
         "spots": [
             { "name": "desk", "actor": "hero", "at": [2.0, 0.0, 0.5], "yaw_deg": 90.0 },
-            { "name": "bed", "actor": "mila", "at": [4.0, 0.0, -2.0] }
+            { "name": "bed", "actor": "companion", "at": [4.0, 0.0, -2.0] }
         ],
         "routes": [["desk", "bed"]]
     }));
@@ -146,9 +146,9 @@ fn actors_spots_triggers_and_routes_resolve_by_name() {
     let root = pack.colliders.iter().find(|c| c.name == "root").unwrap();
     assert!(!root.enabled);
     assert_eq!(pack.triggers[0].name, "door");
-    let mila = &pack.actors[1];
+    let companion = &pack.actors[1];
     assert_eq!(
-        (mila.radius, mila.height, mila.head.as_ref()),
+        (companion.radius, companion.height, companion.head.as_ref()),
         (0.25, 1.2, None)
     );
     assert_eq!(pack.actors[0].head.as_ref().unwrap().forward, 0.0);

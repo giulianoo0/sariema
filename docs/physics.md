@@ -411,7 +411,7 @@ Baking (`collision.bake` in the room description):
 ## Performance
 
 `cargo bench -p sariema-physics --bench step` walks actors with random stick
-input through a 39 m × 24 m room (the tree house's size) with partitions,
+input through a 39 m × 24 m room (a house's size) with partitions,
 1 m doors, 160 props (boxes, hulls, roots as capsules, low steps) and a
 7,488-triangle bumpy floor mesh. Times are the thread's CPU time on an Apple
 Silicon Mac under load from other builds; medians, as the range of two runs.

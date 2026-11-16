@@ -89,8 +89,8 @@ and listed in the project file under `actors`:
   their scale is uniform, and refused otherwise.
 - A mesh that is not skinned but sits under a joint becomes a rigid part of
   that joint. A mesh that is neither is an error.
-- Parts are named by the node name before `__` (`corpo__MI_corpo` is part
-  `corpo`), so the game can show or hide `capacete` without knowing its
+- Parts are named by the node name before `__` (`body__MI_body` is part
+  `body`), so the game can show or hide `helmet` without knowing its
   material.
 - Channels on nodes that are not joints, and morph target weights, are
   skipped with a warning. Two channels on one joint property are an error.
@@ -158,15 +158,15 @@ by default the pack's loop flag picks `Loop` or `HoldLast`), `speed` (at least
 
 ```rust
 let model = renderer.load_actor(&pack)?;        // pipelines for its materials
-let pain = renderer.spawn_actor(model)?;          // hidden until set
-renderer.set_actor(pain, &ActorState {
+let hero = renderer.spawn_actor(model)?;          // hidden until set
+renderer.set_actor(hero, &ActorState {
     model: world_from_actor,
     palette: animator.palette(),
     faces: animator.faces(),
     visible: true,
 })?;
-renderer.set_actor_part_visible(pain, "capacete", true);
-renderer.set_actor_disc(pain, Some(DiscShadow::for_height(1.5)))?;
+renderer.set_actor_part_visible(hero, "helmet", true);
+renderer.set_actor_disc(hero, Some(DiscShadow::for_height(1.5)))?;
 ```
 
 A loaded pack is an `ActorModel`; each `ActorId` shows one, so 200 actors of
@@ -285,7 +285,7 @@ sariema run demo.srma --headless --frames 1 --screenshot strip.png \
 
 ## Renderer CPU work
 
-Profiling `origem-s5` and `origem-base-s11` (macOS `sample`) showed where a
+Profiling `s5` and `s11` (macOS `sample`) showed where a
 frame's CPU went before this work: 56–66 % in wgpu's
 `CommandEncoder::finish`, which replays each of the frame's 20–25 render
 passes into a new Metal encoder; 6–13 % staging the per-frame
@@ -299,15 +299,15 @@ renderer's own code (culling, binning, sorting, recording draws). Changes:
 - light culling, binning, shadow slot assignment and draw ordering reuse
   their buffers, and sort without allocating.
 
-Images do not change: the golden tests pass unchanged and `origem-s5` and
-`origem-base-s11` render identically (largest channel difference 0) before
+Images do not change: the golden tests pass unchanged and `s5` and
+`s11` render identically (largest channel difference 0) before
 and after.
 
 ## Numbers
 
-Mac M5, 1920×1080, `sariema run --headless --frames 300` as in the Origem
-benchmark (the packs `origem-s5.srma`, the backyard, and
-`origem-base-s11.srma`, the tree house with its nine rooms). The machine was
+Mac M5, 1920×1080, `sariema run --headless --frames 300` as in the reference
+game's benchmark (the packs `s5.srma`, a yard, and `s11.srma`, a house of
+nine rooms). The machine was
 busy for every run, with a load average of 18–39 from an Android emulator
 and other builds. On a quiet machine the same room measured 0.92–1.20 ms;
 here it measured 1.7–3.9 ms, so absolute figures run about 2–3× high.
@@ -320,14 +320,14 @@ skipped uploads and the actors.
 
 | room, quality | before | after | draws culled |
 |---|---|---|---|
-| origem-s5, medium | 2.25 / 3.87 | 2.53 / 3.36 | 30 of 32 |
-| origem-s5, high | 2.22 / 2.95 | 2.50 / 3.16 | 30 of 32 |
-| origem-base-s11, medium | 1.77 / 2.31 | 2.45 / 3.15 | 106 of 114 |
-| origem-base-s11, high | 1.78 / 2.06 | 2.13 / 2.86 | 106 of 114 |
+| s5, medium | 2.25 / 3.87 | 2.53 / 3.36 | 30 of 32 |
+| s5, high | 2.22 / 2.95 | 2.50 / 3.16 | 30 of 32 |
+| s11, medium | 1.77 / 2.31 | 2.45 / 3.15 | 106 of 114 |
+| s11, high | 1.78 / 2.06 | 2.13 / 2.86 | 106 of 114 |
 
 These minimums do not show a CPU gain: every "after" minimum is 0.3 to
 0.7 ms above "before", and the medians go both ways. Fifteen more
-interleaved pairs on `origem-base-s11` high gave a minimum of 2.06 ms before
+interleaved pairs on `s11` high gave a minimum of 2.06 ms before
 against 2.16 ms after, and a median of 3.30 against 2.92 ms, with "after"
 faster in 11 of the 15 pairs. At this load the runs cannot tell a gain from
 a small loss. The absolute before and after waits for a rerun on a quiet
@@ -340,10 +340,10 @@ build:
 
 | room, quality | encoder finish | renderer's `prepare` | `write_buffer` | post |
 |---|---|---|---|---|
-| origem-s5, medium | 66 → 74 % | 12.9 → 6.0 % | 12.7 → 4.2 % | 3.1 → 1.1 % |
-| origem-s5, high | 60 → 67 % | 16.4 → 12.2 % | 12.9 → 7.6 % | 2.7 → 0.9 % |
-| origem-base-s11, medium | 56 → 72 % | 6.3 → 2.1 % | 6.2 → 0 % | 1.9 → 1.4 % |
-| origem-base-s11, high | 65 → 82 % | 13.1 → 3.8 % | 11.1 → 0 % | 3.0 → 1.7 % |
+| s5, medium | 66 → 74 % | 12.9 → 6.0 % | 12.7 → 4.2 % | 3.1 → 1.1 % |
+| s5, high | 60 → 67 % | 16.4 → 12.2 % | 12.9 → 7.6 % | 2.7 → 0.9 % |
+| s11, medium | 56 → 72 % | 6.3 → 2.1 % | 6.2 → 0 % | 1.9 → 1.4 % |
+| s11, high | 65 → 82 % | 13.1 → 3.8 % | 11.1 → 0 % | 3.0 → 1.7 % |
 
 On s11 no buffer is written in a settled frame. s5 still writes its light
 data every frame because its lights flicker.
@@ -363,8 +363,8 @@ the same quiet rerun to show.
 
 ### Actors
 
-Actors walking (`--clip walk --time 5`) in `origem-s5`, alternating Lumo
-(23 joints) and Pain (25 joints) in a grid in view. `cpu_ms_per_frame` is
+Actors walking (`--clip walk --time 5`) in `s5`, alternating a
+companion (23 joints) and a hero (25 joints) in a grid in view. `cpu_ms_per_frame` is
 minimum / median of 5 runs. Posing is `actors_ms_per_frame`, the time to
 sample, blend and skin every actor's palette and hand it to the renderer
 (minimum / median across the three qualities).
@@ -386,7 +386,7 @@ the frame as follows:
 - drawing their shadows (high only): 2.4 %;
 - the rest is wgpu replaying the extra draws.
 
-The three.js game draws its five or six skinned meshes inside its 0.33 ms
+The reference three.js game draws its five or six skinned meshes inside its 0.33 ms
 on s5. Here two actors add 0.01 ms of posing and a frame cost within the
 noise. Twenty add 0.3–1.5 ms and two hundred add 1.6–1.8 ms (the
 difference of the minimums, at this load).
@@ -398,12 +398,12 @@ the median:
 
 ```sh
 for i in $(seq 1 7); do for bin in ./before ./after; do
-  $bin run origem-s5.srma --headless --frames 300 --screenshot x.png \
+  $bin run s5.srma --headless --frames 300 --screenshot x.png \
     --width 1920 --height 1080 --quality high --json
 done; done
 ```
 
-Actors: the same command with `--actor lumo.srmk@X,0,Z,YAW` repeated (the
+Actors: the same command with `--actor companion.srmk@X,0,Z,YAW` repeated (the
 grid around 18.45, 0, −25.5 with 0.9 m spacing) and `--clip walk --time 5`.
 Profile a 6000-frame run with `sample <pid> 5 -file out.txt` from 1.5 s
 after start. Then compare the inclusive samples of `Renderer::render` with

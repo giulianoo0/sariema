@@ -27,7 +27,7 @@ fn glyphs(ui: &mut Ui) -> Vec<Quad> {
         .collect()
 }
 
-const LONG: &str = "Encurrale o guaxinim perto da casa na árvore";
+const LONG: &str = "Carry the lantern across the bridge before dark";
 
 #[test]
 fn wraps_within_the_width_and_reserves_whole_lines() {

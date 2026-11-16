@@ -49,7 +49,7 @@ The JSON of `run` gives `actors_drawn`, `actors_culled`,
   keep it uniform: a non-uniform scale on a node above the root joint is
   refused.
 - **No transforms on nodes between two joints.** Parent bones directly.
-- **Name parts `part__material`** (`capacete__MI_capacete`): the part name is
+- **Name parts `part__material`** (`helmet__MI_helmet`): the part name is
   what game code shows or hides. Mark parts that start hidden with node
   extras `visible: false`, or list them in `hidden`.
 - **Sockets**: an empty node under a bone becomes a socket of that name; or
@@ -58,7 +58,7 @@ The JSON of `run` gives `actors_drawn`, `actors_culled`,
   `run`) and list the patterns in `loop`; or set glTF `extras.loop`.
 - **Faces**: one atlas per face, a material per eye or mouth. Give `grid`,
   `frames` in cell order from `first_cell`, and `step`. The vertical step
-  may need to be negative (Pain's is `[0.25, -0.25]`, Lumo's
+  may need to be negative (one actor's is `[0.25, -0.25]`, another's
   `[0.25, 0.25]`): check the offsets against the game's own
   (`origin + (c % columns, c / columns) × step`).
 - **Textures**: build from the source GLB. gltfpack's `-tc` output uses

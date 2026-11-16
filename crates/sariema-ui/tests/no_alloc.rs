@@ -63,7 +63,7 @@ fn screen_of(n: usize) -> Value {
         .collect();
     json!({ "fonts": common::font(), "nodes": [
         { "wrap": true, "children": items },
-        { "name": "line", "absolute": true, "bottom": 10, "left": 10, "text": "Ó de casa! Tem alguém aí?",
+        { "name": "line", "absolute": true, "bottom": 10, "left": 10, "text": "Hello? Anyone home? Olá!",
           "reveal": 0 }
     ]})
 }
