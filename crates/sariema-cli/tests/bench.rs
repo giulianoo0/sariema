@@ -142,6 +142,35 @@ fn like_for_like_flags_turn_samples_shadows_and_occlusion_off() {
 }
 
 #[test]
+fn a_room_bench_can_draw_actors_placed_in_it() {
+    let tmp = TempDir::new().unwrap();
+    let pack = demo_pack(tmp.path());
+    let demo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/demo");
+    let arm = tmp.path().join("arm.srmk");
+    let (code, out) = sariema(&[
+        "build",
+        demo.to_str().unwrap(),
+        "--actor",
+        "arm",
+        "-o",
+        arm.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "{out}");
+    let placed = format!("{}@1.5,0,-1.5,0", arm.display());
+    let empty = bench(&pack, &[]);
+    let staged = bench(&pack, &["--actor", &placed, "--clip", "bend"]);
+    assert_eq!(empty["frame_stats"]["actors_drawn"], 0);
+    assert_eq!(staged["frame_stats"]["actors_drawn"], 1, "{staged}");
+    assert_eq!(
+        staged["actors"].as_array().map(Vec::len),
+        Some(1),
+        "{staged}"
+    );
+    let draws = |v: &Value| v["per_frame"]["draws"].as_u64().unwrap();
+    assert!(draws(&staged) > draws(&empty), "{staged}");
+}
+
+#[test]
 fn bench_errors_are_stable_codes() {
     let (code, out) = sariema(&["bench", "nada.srma"]);
     assert_eq!(code, 1);
@@ -151,6 +180,7 @@ fn bench_errors_are_stable_codes() {
         &["bench", "x.srma", "--runs", "0"],
         &["bench", "x.srma", "--msaa", "0"],
         &["bench", "x.srma", "--shadows"],
+        &["bench", "x.srma", "--clip", "bend"],
     ] {
         let (code, out) = sariema(args);
         assert_eq!(code, 1, "{args:?}");
