@@ -17,6 +17,7 @@ pub struct Settings {
     pub max_steps_per_frame: u32,
     pub max_entities: u32,
     pub spring_rest: f32,
+    pub min_time_scale: f32,
     pub motion: MotionSettings,
     pub camera: CameraSettings,
     pub input: InputSettings,
@@ -30,6 +31,7 @@ impl Default for Settings {
             max_steps_per_frame: 5,
             max_entities: 65_536,
             spring_rest: 1e-3,
+            min_time_scale: 0.05,
             motion: MotionSettings::default(),
             camera: CameraSettings::default(),
             input: InputSettings::default(),
@@ -90,6 +92,10 @@ pub const DOCS: &[(&str, &str)] = &[
         "Entity slots a game may use; a spawn at a higher index is rejected with E_ENTITY_LIMIT.",
     ),
     (
+        "min_time_scale",
+        "The slowest a time_scale may play the world; a smaller scale is raised to it, so the world never stops.",
+    ),
+    (
         "spring_rest",
         "A spring stops, exactly on its target, once its offset and velocity are both within this.",
     ),
@@ -99,11 +105,11 @@ pub const DOCS: &[(&str, &str)] = &[
     ),
     (
         "motion.turn_rate",
-        "Degrees per second an actor turns; nothing turns faster.",
+        "Degrees per second an actor turns; nothing turns faster, and a larger turn in one step is a jump.",
     ),
     (
         "motion.arrive_distance",
-        "Metres from a walk target that count as arrived.",
+        "Metres from a walk target that count as arrived; a larger move in one step is a jump.",
     ),
     (
         "motion.camera_relative",

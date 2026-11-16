@@ -148,7 +148,10 @@ impl Checker<'_> {
                 }
             }
             Block::WaitFor { on, .. } => {
-                if let Await::Arrived(r) | Await::ClipFinished(r) = on {
+                if let Await::Arrived(r)
+                | Await::ClipFinished(r)
+                | Await::ClipMarker { role: r, .. } = on
+                {
                     self.uses(k, *r, &format!("{at}.wait_for"));
                 }
                 k.cut = false;
@@ -232,7 +235,9 @@ impl Checker<'_> {
             | Block::Music { .. }
             | Block::Letterbox { .. }
             | Block::SetFlag { .. }
-            | Block::Call { .. } => {}
+            | Block::Call { .. }
+            | Block::TimeScale { .. }
+            | Block::CameraShake { .. } => {}
         }
     }
 

@@ -87,6 +87,11 @@ fn every_role_declares_its_start_unless_spawned() {
 }
 
 #[test]
+fn the_window_entry_example_passes_the_rules() {
+    assert_eq!(codes("window_entry.json"), Vec::<&str>::new());
+}
+
+#[test]
 fn parallel_branches_must_not_move_the_same_role() {
     assert_eq!(codes("race.json"), ["E_CUTSCENE_RACE"]);
 }

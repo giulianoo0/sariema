@@ -18,13 +18,17 @@ pub struct Fader {
 }
 
 impl Fader {
-    pub const ZERO: Fader = Fader {
-        value: 0.0,
-        from: 0.0,
-        to: 0.0,
-        steps: 0,
-        elapsed: 0,
-    };
+    pub const ZERO: Fader = Fader::at(0.0);
+
+    pub const fn at(value: f32) -> Fader {
+        Fader {
+            value,
+            from: value,
+            to: value,
+            steps: 0,
+            elapsed: 0,
+        }
+    }
 
     pub fn value(&self) -> f32 {
         self.value

@@ -91,7 +91,7 @@ impl<L: Logic> Simulation<L> {
 
     /// Runs the steps one display frame owes, sampling `raw` for each.
     pub fn frame(&mut self, dt: Duration, raw: &RawInput) -> Tick {
-        let tick = self.clock.advance(dt);
+        let tick = self.clock.advance(self.world_time(dt));
         for _ in 0..tick.steps {
             let mut actions = std::mem::take(&mut self.actions);
             self.state.input.map(raw, &mut actions);
@@ -104,7 +104,7 @@ impl<L: Logic> Simulation<L> {
     /// Like [`Simulation::frame`], with each step's actions given by
     /// `actions(step, out)`, as when replaying a recorded input log.
     pub fn frame_with(&mut self, dt: Duration, mut actions: impl FnMut(u64, &mut Actions)) -> Tick {
-        let tick = self.clock.advance(dt);
+        let tick = self.clock.advance(self.world_time(dt));
         for _ in 0..tick.steps {
             let mut a = std::mem::take(&mut self.actions);
             actions(self.step, &mut a);
@@ -112,6 +112,10 @@ impl<L: Logic> Simulation<L> {
             self.actions = a;
         }
         tick
+    }
+
+    fn world_time(&self, dt: Duration) -> Duration {
+        dt.mul_f64(f64::from(self.state.time_scale()))
     }
 
     /// How far rendering is between the last two steps.
@@ -168,6 +172,7 @@ impl<L: Logic> Simulation<L> {
         let s = &mut self.state;
         s.world.begin_step();
         s.camera.begin_step();
+        s.clips.step();
         s.outbox.begin_step();
         std::mem::swap(&mut s.seen, &mut s.happened);
         s.happened.clear();
@@ -224,6 +229,7 @@ impl<L: Logic> Simulation<L> {
         s.timers
             .step(|timer| events.push(Event::TimerFired { timer }));
         s.screen.step();
+        s.time_scale.step();
         if let Some(line) = s.dialogue.step() {
             s.end_line(line);
         }
@@ -306,6 +312,15 @@ fn happening(s: &mut State, event: &Event<'_>) {
         Event::Arrived { entity } => s.happen(Happening::Arrived(entity)),
         Event::Blocked { entity } => s.happen(Happening::Blocked(entity)),
         Event::ClipFinished { entity, .. } => s.happen(Happening::ClipFinished(entity)),
+        Event::ClipMarker {
+            entity,
+            clip,
+            marker,
+        } => s.happen(Happening::ClipMarker {
+            entity,
+            clip,
+            marker,
+        }),
         _ => {}
     }
 }

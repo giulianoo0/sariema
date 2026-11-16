@@ -11,13 +11,13 @@
 //! `zone`, `line` and `var` ids are chosen by the game.
 
 use super::wire::{
-    Advance, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,
+    Advance, Anchor, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,
     MessageSpec, Orientation, Property, Reader, Sink, Str, Value, Vec3, Wire, WireError,
 };
 
 batch_table! {
     version 1;
-    enums [Kind, Ease, Property, ClipMode, Bus, Controller, Advance, Orientation]
+    enums [Kind, Ease, Property, ClipMode, Bus, Controller, Advance, Orientation, Anchor]
     commands {
         /// Brings an entity to life in a free slot the game chose. The slot's
         /// generation must be newer than any it had before.
@@ -78,6 +78,11 @@ batch_table! {
         0x0050 Fade fade { to: f32, duration: f32, color: Vec3 }
         /// Cinema bars, 0 none to 1 full.
         0x0051 Letterbox letterbox { to: f32, duration: f32 }
+        /// Plays the world at `scale` times real time, reached over `blend`
+        /// seconds of world time; below 1 is slow motion. A step stays 1/60 s
+        /// of world time, so play stays deterministic: only how many steps
+        /// run per real second changes. At least `min_time_scale`.
+        0x0052 TimeScale time_scale { scale: f32, blend: f32 }
 
         /// Animates a property from its current value. A new tween or spring on
         /// the same property replaces the old one without a jump.
@@ -113,6 +118,10 @@ batch_table! {
         /// only way the camera moves discontinuously.
         0x0075 CameraUse camera_use { rig: u32, blend: f32, ease: Ease }
         0x0076 CameraShake camera_shake { amplitude: f32, frequency: f32, duration: f32 }
+        /// Aims `rig` at a bone or socket of `subject`, while `subject` is in
+        /// its framing, instead of at its origin; `origin` aims at the origin
+        /// again. The animation module resolves `name` to a place.
+        0x0077 RigAnchor rig_anchor { rig: u32, subject: Entity, anchor: Anchor, name: u32 }
 
         /// Binds a cutscene role to an entity for the next `cutscene_play`.
         0x0080 CutsceneBind cutscene_bind { role: u32, entity: Entity }

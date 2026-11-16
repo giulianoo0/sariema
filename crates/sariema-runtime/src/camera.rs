@@ -10,7 +10,7 @@ use std::f32::consts::TAU;
 
 use glam::{EulerRot, Quat, Vec3};
 use sariema_core::STEP_SECONDS;
-use sariema_format::script::Ease;
+use sariema_format::script::{Anchor, Ease};
 use serde::{Deserialize, Serialize};
 
 use crate::ease::ease;
@@ -280,6 +280,8 @@ pub struct Camera {
     pose: Option<CameraPose>,
     previous: Option<CameraPose>,
     cut: bool,
+    /// `(rig, subject, anchor, name)`: where in its subject a rig aims.
+    anchors: Vec<(u32, Entity, Anchor, u32)>,
 }
 
 impl Camera {
@@ -293,6 +295,7 @@ impl Camera {
             pose: None,
             previous: None,
             cut: false,
+            anchors: Vec::new(),
         }
     }
 
@@ -326,6 +329,44 @@ impl Camera {
 
     pub fn active(&self) -> Option<u32> {
         self.active
+    }
+
+    pub fn set_anchor(
+        &mut self,
+        rig: u32,
+        subject: Entity,
+        anchor: Anchor,
+        name: u32,
+    ) -> Result<(), CameraError> {
+        if !self.rigs.contains_key(&rig) {
+            return Err(CameraError::UnknownRig);
+        }
+        self.anchors.retain(|&(r, e, ..)| (r, e) != (rig, subject));
+        if anchor != Anchor::Origin {
+            self.anchors.push((rig, subject, anchor, name));
+        }
+        Ok(())
+    }
+
+    /// The bones and sockets the rig in use aims at, for the animation
+    /// module to resolve. Until it does, the camera aims at the origins.
+    pub fn anchors(&self) -> impl Iterator<Item = (Entity, Anchor, u32)> + '_ {
+        let framed = self
+            .active
+            .and_then(|r| self.rigs.get(&r))
+            .map_or([Entity::NONE; 2], |r| match r.framing {
+                Framing::Follow { subject, .. } => [subject, Entity::NONE],
+                Framing::Frame { a, b, .. } => [a, b],
+                Framing::Fixed(_) => [Entity::NONE; 2],
+            });
+        self.anchors
+            .iter()
+            .filter(move |&&(r, e, ..)| Some(r) == self.active && framed.contains(&e))
+            .map(|&(_, e, anchor, name)| (e, anchor, name))
+    }
+
+    pub fn shaking(&self) -> bool {
+        self.shake.is_some()
     }
 
     /// Switches to `rig` over `blend` seconds; 0, or no pose shown yet, cuts.

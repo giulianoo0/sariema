@@ -5,7 +5,10 @@ mod common;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use sariema_format::script::{Command, Entity, Kind, name_id};
+use std::time::Duration;
+
+use sariema_core::STEP_SECONDS;
+use sariema_format::script::{Anchor, Command, Entity, Kind, name_id};
 use sariema_runtime::cutscene::author::compile_json;
 use sariema_runtime::input::Actions;
 use sariema_runtime::settings::Settings;
@@ -283,4 +286,123 @@ fn a_start_walk_ends_on_a_reported_arrival_when_the_runtime_does_not_move_actors
     let began = at(&calls.take(), &call("began"));
     assert_eq!(began.len(), 1, "the body started once placing ended");
     assert!(began[0] > 10, "not before the arrival: {began:?}");
+}
+
+const ROLE_AT_ORIGIN: &str = r#""roles": { "hero": { "start": { "position": [0, 0, 0] } } }"#;
+
+/// A simulation whose game spawns actor 0 at the origin and, at step 1,
+/// plays `cutscene` with it as `hero`.
+fn playing(cutscene: String) -> Simulation<impl sariema_runtime::sim::Logic> {
+    let compiled = compile_json(&cutscene).unwrap().0;
+    let name = compiled.name.clone();
+    let logic = native(move |step, _, out| match step {
+        0 => send(
+            out,
+            Command::Spawn {
+                entity: entity(0),
+                kind: Kind::Actor,
+                asset: 0,
+            },
+        ),
+        1 => {
+            send(
+                out,
+                Command::CutsceneBind {
+                    role: name_id("hero"),
+                    entity: entity(0),
+                },
+            );
+            send(out, play(&name));
+        }
+        _ => {}
+    });
+    Simulation::new(Settings::default(), vec![compiled], logic, 1)
+}
+
+fn steps(sim: &mut Simulation<impl sariema_runtime::sim::Logic>, n: u32) {
+    let actions = Actions::for_settings(&Settings::default().input);
+    for _ in 0..n {
+        sim.step(&actions);
+    }
+}
+
+#[test]
+fn a_cut_can_wait_for_a_clip_marker() {
+    let cutscene = format!(
+        r#"{{ "name": "beat", {ROLE_AT_ORIGIN}, "steps": [
+            {{ "wait_for": {{ "clip_marker": {{ "role": "hero", "clip": "trip", "marker": "catch" }} }} }},
+            {{ "shot": {{ "follow": "hero", "blend": 0 }} }},
+            {{ "wait": 5 }} ] }}"#
+    );
+    let mut sim = playing(cutscene);
+    let marker = |name: &str| sariema_format::script::Event::ClipMarker {
+        entity: entity(0),
+        clip: name_id("trip"),
+        marker: name_id(name),
+    };
+    steps(&mut sim, 10);
+    sim.report(marker("lift"));
+    steps(&mut sim, 5);
+    assert!(sim.state().camera.active().is_none(), "another marker");
+    sim.report(marker("catch"));
+    steps(&mut sim, 1);
+    assert_eq!(
+        sim.state().camera.active(),
+        Some(sariema_runtime::cutscene::RIG),
+        "the cut lands in the step the marker is delivered"
+    );
+}
+
+#[test]
+fn slow_motion_runs_fewer_steps_per_real_second_and_clips_follow_the_steps() {
+    let cutscene = format!(
+        r#"{{ "name": "slow", {ROLE_AT_ORIGIN}, "steps": [
+            {{ "time_scale": {{ "scale": 0.4 }} }},
+            {{ "clip": {{ "role": "hero", "clip": "trip", "speed": 0.5 }} }},
+            {{ "wait": 1 }} ] }}"#
+    );
+    let mut sim = playing(cutscene);
+    steps(&mut sim, 3);
+    assert_eq!(sim.state().time_scale(), 0.4);
+    assert_eq!(
+        sim.state().clip_time(entity(0)),
+        Some((name_id("trip"), 0.0))
+    );
+    let frame = Duration::from_nanos(16_666_667);
+    let mut ran = 0;
+    for _ in 0..100 {
+        ran += sim.frame_with(frame, |_, _| {}).steps;
+    }
+    assert_eq!(ran, 40, "100 frames at 0.4× owe 40 steps; leftovers carry");
+    let (_, t) = sim.state().clip_time(entity(0)).unwrap();
+    assert!(
+        (t - 40.0 * STEP_SECONDS * 0.5).abs() < 1e-5,
+        "the clip is at {t} s, its steps' time"
+    );
+    for _ in 0..200 {
+        sim.frame_with(frame, |_, _| {});
+    }
+    assert_eq!(
+        sim.state().time_scale(),
+        1.0,
+        "the end of the cutscene gives back the scale it found"
+    );
+}
+
+#[test]
+fn a_shot_can_aim_at_a_bone_and_an_impact_can_shake_the_camera() {
+    let cutscene = format!(
+        r#"{{ "name": "close", {ROLE_AT_ORIGIN}, "steps": [
+            {{ "shot": {{ "follow": "hero", "bone": "foot_l", "distance": 1.2, "blend": 0 }} }},
+            {{ "camera_shake": {{ "amplitude": 0.05, "frequency": 14, "duration": 0.3 }} }},
+            {{ "wait": 1 }} ] }}"#
+    );
+    let mut sim = playing(cutscene);
+    steps(&mut sim, 3);
+    let camera = &sim.state().camera;
+    assert_eq!(
+        camera.anchors().collect::<Vec<_>>(),
+        [(entity(0), Anchor::Bone, name_id("foot_l"))]
+    );
+    assert!(camera.shaking());
 }

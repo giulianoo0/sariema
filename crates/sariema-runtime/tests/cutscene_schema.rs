@@ -46,6 +46,10 @@ fn the_schema_and_the_compiler_refuse_the_same_mistakes() {
         r#"{ "name": "a", "roles": {}, "steps": [ { "wait_for": { "timeout": 1 } } ] }"#,
         r#"{ "name": "a", "roles": { "x": {} }, "steps": [ { "line": { "speaker": "x", "text": "hi", "advance": "auto" } } ] }"#,
         r#"{ "name": "a", "roles": {}, "steps": [ { "shot": { "fixed": { "position": [0,0,0], "look_at": [0,0,1] }, "blend": 0, "ease": "bouncy" } } ] }"#,
+        r#"{ "name": "a", "roles": { "x": {} }, "steps": [ { "wait_for": { "clip_marker": { "role": "x", "clip": "c" } } } ] }"#,
+        r#"{ "name": "a", "roles": { "x": {} }, "steps": [ { "shot": { "frame": ["x", "x"], "bone": "head", "blend": 0 } } ] }"#,
+        r#"{ "name": "a", "roles": {}, "steps": [ { "time_scale": { "blend": 1 } } ] }"#,
+        r#"{ "name": "a", "roles": {}, "steps": [ { "shot": { "fixed": { "position": [0,0,0], "look_at": [0,0,1] }, "socket": "hand", "blend": 0 } } ] }"#,
     ] {
         let value: Value = serde_json::from_str(text).unwrap();
         assert!(

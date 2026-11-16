@@ -5,8 +5,10 @@
 
 use std::collections::BTreeMap;
 
-use sariema_format::script::cutscene::{Await, Block, Cover, Cutscene, Place, Role, Shot, Toward};
-use sariema_format::script::{Advance, Bus, ClipMode, Ease, name_id};
+use sariema_format::script::cutscene::{
+    Await, Block, Cover, Cutscene, Place, Point, Role, Shot, Toward,
+};
+use sariema_format::script::{Advance, Anchor, Bus, ClipMode, Ease, name_id};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -67,6 +69,8 @@ pub enum Step {
     Hide(String),
     Teleport(Teleport),
     Call(String),
+    TimeScale(TimeScale),
+    CameraShake(CameraShake),
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,7 +79,25 @@ pub struct WaitFor {
     pub signal: Option<String>,
     pub arrived: Option<String>,
     pub clip_finished: Option<String>,
+    pub clip_marker: Option<ClipMarker>,
     pub timeout: Option<f32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClipMarker {
+    pub role: String,
+    pub clip: String,
+    pub marker: String,
+}
+
+/// A bone or socket name per subject: one for `follow`, a pair (each may
+/// be null) for `frame`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum Points {
+    One(String),
+    Two([Option<String>; 2]),
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,6 +115,8 @@ pub struct ShotSource {
     pub follow: Option<String>,
     pub frame: Option<[String; 2]>,
     pub fixed: Option<Fixed>,
+    pub bone: Option<Points>,
+    pub socket: Option<Points>,
     #[serde(default = "ShotSource::distance")]
     pub distance: f32,
     #[serde(default = "ShotSource::pitch")]
@@ -164,6 +188,8 @@ pub struct Clip {
     pub mode: String,
     #[serde(default = "Clip::blend")]
     pub blend: f32,
+    #[serde(default = "Clip::speed")]
+    pub speed: f32,
 }
 
 impl Clip {
@@ -172,6 +198,32 @@ impl Clip {
     }
     fn blend() -> f32 {
         0.2
+    }
+    fn speed() -> f32 {
+        1.0
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TimeScale {
+    pub scale: f32,
+    #[serde(default)]
+    pub blend: f32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CameraShake {
+    pub amplitude: f32,
+    #[serde(default = "CameraShake::frequency")]
+    pub frequency: f32,
+    pub duration: f32,
+}
+
+impl CameraShake {
+    fn frequency() -> f32 {
+        12.0
     }
 }
 
@@ -369,15 +421,21 @@ impl Compiler<'_> {
             Step::Wait(t) => Block::Wait(*t),
             Step::WaitFor(w) => {
                 let at = format!("{at}.wait_for");
-                let on = match (&w.signal, &w.arrived, &w.clip_finished) {
-                    (Some(s), None, None) => Await::Signal(self.name(s)),
-                    (None, Some(r), None) => Await::Arrived(self.role(r, &at)?),
-                    (None, None, Some(r)) => Await::ClipFinished(self.role(r, &at)?),
+                let on = match (&w.signal, &w.arrived, &w.clip_finished, &w.clip_marker) {
+                    (Some(s), None, None, None) => Await::Signal(self.name(s)),
+                    (None, Some(r), None, None) => Await::Arrived(self.role(r, &at)?),
+                    (None, None, Some(r), None) => Await::ClipFinished(self.role(r, &at)?),
+                    (None, None, None, Some(m)) => Await::ClipMarker {
+                        role: self.role(&m.role, &at)?,
+                        clip: self.name(&m.clip),
+                        marker: self.name(&m.marker),
+                    },
                     _ => {
                         return Err(self.error(
                             "E_SCHEMA",
                             &at,
-                            "name exactly one of signal, arrived and clip_finished".into(),
+                            "name exactly one of signal, arrived, clip_finished and clip_marker"
+                                .into(),
                         ));
                     }
                 };
@@ -401,6 +459,7 @@ impl Compiler<'_> {
                         yaw: s.yaw,
                         height: s.height,
                         fov: s.fov,
+                        point: self.points(s, 1, &at)?[0],
                     },
                     (None, Some([a, b]), None) => Shot::Frame {
                         a: self.role(a, &at)?,
@@ -410,7 +469,15 @@ impl Compiler<'_> {
                         height: s.height,
                         fov: s.fov,
                         margin: s.margin,
+                        points: self.points(s, 2, &at)?,
                     },
+                    (None, None, Some(_)) if s.bone.is_some() || s.socket.is_some() => {
+                        return Err(self.error(
+                            "E_SCHEMA",
+                            &at,
+                            "a fixed shot has no subject to take a bone or socket of".into(),
+                        ));
+                    }
                     (None, None, Some(f)) => Shot::Fixed {
                         position: f.position,
                         look_at: f.look_at,
@@ -443,6 +510,7 @@ impl Compiler<'_> {
                     clip: self.name(&c.clip),
                     mode: self.pick(&at, "clip mode", ClipMode::from_name, &c.mode)? as u8,
                     blend: c.blend,
+                    speed: c.speed,
                 }
             }
             Step::Face(f) => {
@@ -552,7 +620,58 @@ impl Compiler<'_> {
                 }
             }
             Step::Call(c) => Block::Call { call: self.name(c) },
+            Step::TimeScale(t) => Block::TimeScale {
+                scale: t.scale,
+                blend: t.blend,
+            },
+            Step::CameraShake(c) => Block::CameraShake {
+                amplitude: c.amplitude,
+                frequency: c.frequency,
+                duration: c.duration,
+            },
         })
+    }
+
+    /// The bone or socket of each of a shot's `subjects`.
+    fn points(
+        &mut self,
+        s: &ShotSource,
+        subjects: usize,
+        at: &str,
+    ) -> Result<[Point; 2], AuthorError> {
+        let mut points = [Point::ORIGIN; 2];
+        for (anchor, names) in [(Anchor::Bone, &s.bone), (Anchor::Socket, &s.socket)] {
+            let names: [Option<&str>; 2] = match (names, subjects) {
+                (None, _) => continue,
+                (Some(Points::One(n)), 1) => [Some(n), None],
+                (Some(Points::Two([a, b])), 2) => [a.as_deref(), b.as_deref()],
+                _ => {
+                    return Err(self.error(
+                        "E_SCHEMA",
+                        at,
+                        format!(
+                            "{} takes one name per subject: a name for follow, a pair for frame",
+                            anchor.name()
+                        ),
+                    ));
+                }
+            };
+            for (point, name) in points.iter_mut().zip(names) {
+                let Some(name) = name else { continue };
+                if *point != Point::ORIGIN {
+                    return Err(self.error(
+                        "E_SCHEMA",
+                        at,
+                        "a subject takes a bone or a socket, not both".into(),
+                    ));
+                }
+                *point = Point {
+                    anchor: anchor as u8,
+                    name: self.name(name),
+                };
+            }
+        }
+        Ok(points)
     }
 }
 

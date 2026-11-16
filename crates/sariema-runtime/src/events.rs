@@ -51,6 +51,11 @@ pub enum Happening {
     Arrived(Entity),
     Blocked(Entity),
     ClipFinished(Entity),
+    ClipMarker {
+        entity: Entity,
+        clip: u32,
+        marker: u32,
+    },
     Signal(u32),
     LineDone(u32),
 }

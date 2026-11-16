@@ -176,6 +176,27 @@
                 "timeout": {
                   "$ref": "#/$defs/seconds",
                   "description": "Seconds before giving up; none waits for ever."
+                },
+                "clip_marker": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "role": {
+                      "$ref": "#/$defs/name"
+                    },
+                    "clip": {
+                      "$ref": "#/$defs/name"
+                    },
+                    "marker": {
+                      "$ref": "#/$defs/name"
+                    }
+                  },
+                  "required": [
+                    "role",
+                    "clip",
+                    "marker"
+                  ],
+                  "description": "A marker of a role's clip, reported by the animation module: a beat a cut can land on."
                 }
               },
               "oneOf": [
@@ -193,6 +214,11 @@
                   "required": [
                     "clip_finished"
                   ]
+                },
+                {
+                  "required": [
+                    "clip_marker"
+                  ]
                 }
               ]
             }
@@ -200,7 +226,7 @@
           "required": [
             "wait_for"
           ],
-          "description": "Waits for a game signal, a role's arrival or a role's clip to finish."
+          "description": "Waits for a game signal, a role's arrival, a role's clip to finish or to reach a marker."
         },
         {
           "type": "object",
@@ -266,6 +292,52 @@
                     "look_at"
                   ]
                 },
+                "bone": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/name"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/$defs/name"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    }
+                  ],
+                  "description": "Aims at a bone of the subject instead of its origin: a name for follow, a pair (null for the origin) for frame. The animation module resolves it."
+                },
+                "socket": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/name"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/$defs/name"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    }
+                  ],
+                  "description": "Like bone, for a socket."
+                },
                 "distance": {
                   "type": "number",
                   "exclusiveMinimum": 0,
@@ -321,6 +393,65 @@
                   "required": [
                     "fixed"
                   ]
+                }
+              ],
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "follow"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "bone": {
+                        "type": "string"
+                      },
+                      "socket": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "frame"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "bone": {
+                        "type": "array"
+                      },
+                      "socket": {
+                        "type": "array"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "fixed"
+                    ]
+                  },
+                  "then": {
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": [
+                            "bone"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "socket"
+                          ]
+                        }
+                      ]
+                    }
+                  }
                 }
               ]
             }
@@ -390,6 +521,12 @@
                 "blend": {
                   "$ref": "#/$defs/seconds",
                   "default": 0.2
+                },
+                "speed": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "default": 1,
+                  "description": "Rate of the clip; its time follows the steps, so slow motion slows it too."
                 }
               },
               "required": [
@@ -786,6 +923,69 @@
             "call"
           ],
           "description": "Sends the game a cutscene_call event."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "time_scale": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "World time per real time; below 1 is slow motion."
+                },
+                "blend": {
+                  "$ref": "#/$defs/seconds",
+                  "default": 0,
+                  "description": "Seconds of world time to reach it."
+                }
+              },
+              "required": [
+                "scale"
+              ]
+            }
+          },
+          "required": [
+            "time_scale"
+          ],
+          "description": "Plays the world slower or faster from here; the end of the cutscene gives back the scale it found. Waits count world time. Ends at once."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "camera_shake": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "amplitude": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Metres."
+                },
+                "frequency": {
+                  "type": "number",
+                  "minimum": 0,
+                  "default": 12,
+                  "description": "Hz."
+                },
+                "duration": {
+                  "$ref": "#/$defs/seconds"
+                }
+              },
+              "required": [
+                "amplitude",
+                "duration"
+              ]
+            }
+          },
+          "required": [
+            "camera_shake"
+          ],
+          "description": "Shakes the camera, dying out over its duration: an impact. Ends at once."
         }
       ]
     }

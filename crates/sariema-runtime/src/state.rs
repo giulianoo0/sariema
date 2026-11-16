@@ -6,6 +6,7 @@
 use sariema_format::script::{Controller, Entity, Event};
 
 use crate::camera::Camera;
+use crate::clips::ClipClock;
 use crate::events::{EventQueue, Happening};
 use crate::follow::Followers;
 use crate::hash::StateHasher;
@@ -13,7 +14,7 @@ use crate::input::Input;
 use crate::motion::{Goal, Motion};
 use crate::outbox::Outbox;
 use crate::rng::Pcg32;
-use crate::screen::{Dialogue, Screen};
+use crate::screen::{Dialogue, Fader, Screen};
 use crate::settings::Settings;
 use crate::store::Store;
 use crate::timer::Timers;
@@ -49,6 +50,9 @@ pub struct State {
     pub motion: Motion,
     pub screen: Screen,
     pub dialogue: Dialogue,
+    /// World time per real time; see [`State::time_scale`].
+    pub time_scale: Fader,
+    pub clips: ClipClock,
     pub control: Control,
     pub input: Input,
     pub outbox: Outbox,
@@ -76,6 +80,8 @@ impl State {
             motion: Motion::default(),
             screen: Screen::default(),
             dialogue: Dialogue::default(),
+            time_scale: Fader::at(1.0),
+            clips: ClipClock::default(),
             control: Control {
                 hero: Entity::NONE,
                 speed: 0.0,
@@ -91,6 +97,18 @@ impl State {
             requests: Vec::new(),
             settings,
         }
+    }
+
+    /// How fast the world plays against real time: the display frames'
+    /// time is multiplied by it before it becomes steps.
+    pub fn time_scale(&self) -> f32 {
+        self.time_scale.value()
+    }
+
+    /// The clip `entity` plays and the time the animation module must
+    /// show it at, in seconds.
+    pub fn clip_time(&self, entity: Entity) -> Option<(u32, f32)> {
+        self.clips.time(entity)
     }
 
     pub fn happen(&mut self, h: Happening) {

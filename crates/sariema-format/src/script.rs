@@ -22,12 +22,12 @@ mod wire;
 
 pub use table::{BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Event};
 pub use wire::{
-    Advance, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,
+    Advance, Anchor, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,
     MessageSpec, Orientation, Property, Reader, Sink, Str, Value, VariantSpec, Vec3, Wire,
     WireError, name_id,
 };
 
-use cutscene::{Await, Block, Cutscene, Place, Shot, Toward};
+use cutscene::{Await, Block, Cutscene, Place, Point, Shot, Toward};
 
 pub const GAME_MAGIC: [u8; 4] = *b"SRMG";
 pub const GAME_VERSION: u32 = 1;
@@ -214,7 +214,9 @@ fn validate_block(block: &Block, roles: usize) -> Result<(), String> {
             }
             match on {
                 Await::Signal(_) => Ok(()),
-                Await::Arrived(r) | Await::ClipFinished(r) => role(*r),
+                Await::Arrived(r) | Await::ClipFinished(r) | Await::ClipMarker { role: r, .. } => {
+                    role(*r)
+                }
             }
         }
         Block::Branch {
@@ -234,8 +236,10 @@ fn validate_block(block: &Block, roles: usize) -> Result<(), String> {
                     yaw,
                     height,
                     fov,
+                    point,
                 } => {
                     role(*subject)?;
+                    point_ok(point)?;
                     [distance, pitch, yaw, height, fov]
                         .into_iter()
                         .try_for_each(|v| finite("shot", *v))
@@ -248,9 +252,11 @@ fn validate_block(block: &Block, roles: usize) -> Result<(), String> {
                     height,
                     fov,
                     margin,
+                    points,
                 } => {
                     role(*a)?;
                     role(*b)?;
+                    points.iter().try_for_each(point_ok)?;
                     [pitch, yaw, height, fov, margin]
                         .into_iter()
                         .try_for_each(|v| finite("shot", *v))
@@ -283,11 +289,13 @@ fn validate_block(block: &Block, roles: usize) -> Result<(), String> {
             role: r,
             mode,
             blend,
+            speed,
             ..
         } => {
             role(*r)?;
             known("clip mode", ClipMode::from_u8(*mode).is_some())?;
-            seconds("clip blend", *blend)
+            seconds("clip blend", *blend)?;
+            positive("clip speed", *speed)
         }
         Block::Face { role: r, toward } => {
             role(*r)?;
@@ -341,6 +349,35 @@ fn validate_block(block: &Block, roles: usize) -> Result<(), String> {
             role(*r)?;
             place_ok(to)
         }
+        Block::TimeScale { scale, blend } => {
+            positive("time scale", *scale)?;
+            seconds("time scale blend", *blend)
+        }
+        Block::CameraShake {
+            amplitude,
+            frequency,
+            duration,
+        } => {
+            finite("shake amplitude", *amplitude)?;
+            finite("shake frequency", *frequency)?;
+            seconds("shake duration", *duration)
+        }
+    }
+}
+
+fn positive(what: &str, v: f32) -> Result<(), String> {
+    if v.is_finite() && v > 0.0 {
+        Ok(())
+    } else {
+        Err(format!("{what} is {v}, not above 0"))
+    }
+}
+
+fn point_ok(point: &Point) -> Result<(), String> {
+    if Anchor::from_u8(point.anchor).is_some() {
+        Ok(())
+    } else {
+        Err(format!("bad anchor {}", point.anchor))
     }
 }
 

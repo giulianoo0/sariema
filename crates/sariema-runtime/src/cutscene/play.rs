@@ -16,9 +16,10 @@
 use std::collections::BTreeMap;
 
 use glam::Vec3;
-use sariema_format::script::cutscene::{Await, Block, Cutscene, Place, Shot, Toward};
+use sariema_format::script::cutscene::{Await, Block, Cutscene, Place, Point, Shot, Toward};
 use sariema_format::script::{
-    Advance, Bus, ClipMode, Command, Controller, Ease, Entity, Event, Kind, Property, name_id,
+    Advance, Anchor, Bus, ClipMode, Command, Controller, Ease, Entity, Event, Kind, Property,
+    name_id,
 };
 
 use crate::apply::{Source, apply};
@@ -114,6 +115,7 @@ struct Run {
     body: List,
     rig_before: Option<u32>,
     control_before: Controller,
+    time_scale_before: f32,
     final_fade: f32,
     final_color: [f32; 3],
 }
@@ -288,6 +290,7 @@ impl Sequencer {
             body: List::default(),
             rig_before: s.camera.active(),
             control_before,
+            time_scale_before: s.time_scale.target(),
             final_fade: s.screen.fade.target(),
             final_color: s.screen.fade_color.to_array(),
         };
@@ -323,10 +326,12 @@ impl Sequencer {
         let Some(run) = self.run.take() else { return };
         s.hand_over(run.control_before);
         s.input.clear_buffer();
+        let (blend, ease) = (s.settings.cutscene.end_blend, s.settings.cutscene.end_ease);
         if let Some(rig) = run.rig_before {
-            let (blend, ease) = (s.settings.cutscene.end_blend, s.settings.cutscene.end_ease);
             let _ = s.camera.use_rig(rig, blend, ease);
         }
+        s.time_scale
+            .set(run.time_scale_before, if skipped { 0.0 } else { blend });
         s.events.push(Event::CutsceneEnded {
             cutscene: run.id,
             skipped,
@@ -481,6 +486,11 @@ fn tick_block(current: &mut Option<Box<Running>>, block: &Block, ctx: &mut Ctx<'
                 Await::Signal(id) => Happening::Signal(id),
                 Await::Arrived(r) => Happening::Arrived(e(r)),
                 Await::ClipFinished(r) => Happening::ClipFinished(e(r)),
+                Await::ClipMarker { role, clip, marker } => Happening::ClipMarker {
+                    entity: e(role),
+                    clip,
+                    marker,
+                },
             };
             if skip || ctx.s.saw(h, *since) {
                 return true;
@@ -575,6 +585,11 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
         }),
         Block::Shot { shot, blend, ease } => {
             let r = |i: u16| ctx.role(i);
+            let aims = match *shot {
+                Shot::Follow { subject, point, .. } => [(r(subject), point), (Entity::NONE, point)],
+                Shot::Frame { a, b, points, .. } => [(r(a), points[0]), (r(b), points[1])],
+                Shot::Fixed { .. } => [(Entity::NONE, Point::ORIGIN); 2],
+            };
             let framing = match *shot {
                 Shot::Follow {
                     subject,
@@ -583,6 +598,7 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
                     yaw,
                     height,
                     fov,
+                    ..
                 } => Command::RigFollow {
                     rig: RIG,
                     subject: r(subject),
@@ -600,6 +616,7 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
                     height,
                     fov,
                     margin,
+                    ..
                 } => Command::RigFrame {
                     rig: RIG,
                     a: r(a),
@@ -622,6 +639,14 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
                 },
             };
             ctx.issue(framing);
+            for (subject, point) in aims.into_iter().filter(|(e, _)| !e.is_none()) {
+                ctx.issue(Command::RigAnchor {
+                    rig: RIG,
+                    subject,
+                    anchor: Anchor::from_u8(point.anchor).unwrap_or(Anchor::Origin),
+                    name: point.name,
+                });
+            }
             ctx.issue(Command::CameraUse {
                 rig: RIG,
                 blend: if skip { 0.0 } else { *blend },
@@ -663,14 +688,36 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
             clip,
             mode,
             blend,
+            speed,
         } => {
             ctx.issue(Command::PlayClip {
                 entity: ctx.role(*role),
                 clip: *clip,
                 mode: ClipMode::from_u8(*mode).unwrap_or(ClipMode::Once),
                 blend: *blend,
-                speed: 1.0,
+                speed: *speed,
             });
+            None
+        }
+        Block::TimeScale { scale, blend } => {
+            ctx.issue(Command::TimeScale {
+                scale: *scale,
+                blend: if skip { 0.0 } else { *blend },
+            });
+            None
+        }
+        Block::CameraShake {
+            amplitude,
+            frequency,
+            duration,
+        } => {
+            if !skip {
+                ctx.issue(Command::CameraShake {
+                    amplitude: *amplitude,
+                    frequency: *frequency,
+                    duration: *duration,
+                });
+            }
             None
         }
         Block::Face { role, toward } => {

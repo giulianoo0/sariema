@@ -290,7 +290,20 @@ world hashes and timing.
   rig in use (`rig_follow`, `rig_frame`, `rig_fixed` with a new framing)
   blends the same way over `camera.reframe_blend`. A blend of 0 is a cut,
   the only way the camera moves discontinuously. `camera_shake` is seeded
-  and deterministic.
+  and deterministic. `rig_anchor` aims a rig at a bone or socket of its
+  subject; the camera lists those anchors for the animation module to
+  resolve and aims at the subject's origin until it does.
+- **Clips**: `play_clip` asks the animation module for a clip at a `speed`.
+  The runtime keeps each actor's clip time in steps (`clip_time`); the
+  animation module seeks the clip to it instead of running it on its own
+  clock, and reports `clip_marker` and `clip_finished` from it.
+- **Time scale**: `time_scale` plays the world slower or faster than real
+  time, reached over `blend` seconds. The display frames' time is scaled
+  before it becomes steps: a step stays 1/60 s of world time, so play stays
+  deterministic, and everything that follows the steps (movement, tweens,
+  clips, waits) slows together. Leftover frame time carries into the next
+  step. The scale never goes below `min_time_scale`, so the world never
+  stops.
 - **Screen**: `fade` to a colour, `letterbox`, and dialogue lines (`say`):
   an `auto` line ends after its duration, a `tap` line when the game sends
   `advance_line` (in a cutscene, on the `cutscene.advance_action` button);
@@ -333,10 +346,11 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `input.buttons` | the input table above | Buttons: name, keys and gamepad buttons. |
 | `max_entities` | 65536 | Entity slots a game may use; a spawn at a higher index is rejected with E_ENTITY_LIMIT. |
 | `max_steps_per_frame` | 5 | Fixed steps one display frame may run; the time beyond is dropped, so a stall slows the game instead of freezing it. |
-| `motion.arrive_distance` | 0.01 | Metres from a walk target that count as arrived. |
+| `min_time_scale` | 0.05 | The slowest a time_scale may play the world; a smaller scale is raised to it, so the world never stops. |
+| `motion.arrive_distance` | 0.01 | Metres from a walk target that count as arrived; a larger move in one step is a jump. |
 | `motion.builtin` | true | The runtime moves actors itself; off when a collision module consumes the movement intents. |
 | `motion.camera_relative` | true | The hero's move axis turns with the camera's view direction. |
-| `motion.turn_rate` | 540 | Degrees per second an actor turns; nothing turns faster. |
+| `motion.turn_rate` | 540 | Degrees per second an actor turns; nothing turns faster, and a larger turn in one step is a jump. |
 | `spring_rest` | 0.001 | A spring stops, exactly on its target, once its offset and velocity are both within this. |
 | `vm.commands_bytes_per_step` | 4194304 | Bytes of commands one tick may submit; more stops the game with E_GAME_BUDGET. |
 | `vm.fuel_first_step` | 200000000 | Budget of the first tick, which usually builds the world. |
@@ -360,3 +374,5 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 - Camera rigs with dead zones, look-ahead and eased blends from the pose on
   screen, as in Unity's Cinemachine.
 - Fuel metering for a hard execution budget, from wasmi.
+- A time scale on the clock that feeds the fixed step, from Bevy's
+  `Time<Virtual>` relative speed.

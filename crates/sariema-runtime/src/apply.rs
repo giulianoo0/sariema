@@ -121,6 +121,7 @@ fn place(s: &mut State, e: Entity, position: Vec3, yaw: f32) -> Result<(), Rejec
 }
 
 fn forget(s: &mut State, e: Entity) {
+    s.clips.forget(e);
     s.tweens.forget(e);
     s.followers.forget(e);
     s.motion.forget(e);
@@ -280,6 +281,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
                 blend,
                 speed,
             });
+            s.clips.play(entity, clip, speed);
         }
         C::PlaySound {
             sound,
@@ -350,6 +352,9 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             s.screen.fade_color = v3(color);
         }
         C::Letterbox { to, duration } => s.screen.letterbox.set(to.clamp(0.0, 1.0), duration),
+        C::TimeScale { scale, blend } => s
+            .time_scale
+            .set(scale.max(s.settings.min_time_scale), blend),
         C::Tween {
             tween,
             entity,
@@ -533,6 +538,20 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             frequency,
             duration,
         } => s.camera.shake(amplitude, frequency, duration, &mut s.rng),
+        C::RigAnchor {
+            rig,
+            subject,
+            anchor,
+            name,
+        } => {
+            s.world.check(subject).map_err(refuse(subject))?;
+            s.camera
+                .set_anchor(rig, subject, anchor, name)
+                .map_err(|e| Refusal {
+                    code: e.code(),
+                    entity: Entity::NONE,
+                })?
+        }
         C::CutsceneBind { role, entity } => s.requests.push(CutsceneRequest::Bind { role, entity }),
         C::CutscenePlay { cutscene } => s.requests.push(CutsceneRequest::Play(cutscene)),
         C::CutsceneSkip {} => s.requests.push(CutsceneRequest::Skip),

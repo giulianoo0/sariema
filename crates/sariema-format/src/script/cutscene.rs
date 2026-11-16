@@ -64,11 +64,13 @@ pub enum Block {
         speed: f32,
         face: Option<f32>,
     },
+    /// `speed` scales the clip's rate; its time follows the steps.
     Clip {
         role: u16,
         clip: u32,
         mode: u8,
         blend: f32,
+        speed: f32,
     },
     /// Ends when the actor faces the target.
     Face {
@@ -135,6 +137,29 @@ pub enum Block {
     Call {
         call: u32,
     },
+    /// Plays the world at `scale` times real time from here, reached over
+    /// `blend` seconds; the cutscene's end gives back the scale it found.
+    TimeScale {
+        scale: f32,
+        blend: f32,
+    },
+    CameraShake {
+        amplitude: f32,
+        frequency: f32,
+        duration: f32,
+    },
+}
+
+/// The point of a role a shot aims at: its origin, or a bone or socket
+/// (`anchor` holds an [`Anchor`](super::Anchor) value, `name` its id).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Point {
+    pub anchor: u8,
+    pub name: u32,
+}
+
+impl Point {
+    pub const ORIGIN: Point = Point { anchor: 0, name: 0 };
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -152,6 +177,7 @@ pub enum Shot {
         yaw: f32,
         height: f32,
         fov: f32,
+        point: Point,
     },
     Frame {
         a: u16,
@@ -161,6 +187,7 @@ pub enum Shot {
         height: f32,
         fov: f32,
         margin: f32,
+        points: [Point; 2],
     },
     Fixed {
         position: [f32; 3],
@@ -175,6 +202,12 @@ pub enum Await {
     Signal(u32),
     Arrived(u16),
     ClipFinished(u16),
+    /// A role's clip reached a marker: a beat a cut can land on.
+    ClipMarker {
+        role: u16,
+        clip: u32,
+        marker: u32,
+    },
 }
 
 /// What hides a teleport: a camera cut in the same step, or a full fade.

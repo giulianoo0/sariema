@@ -474,6 +474,16 @@ wire_enum! {
 }
 
 wire_enum! {
+    /// The point of an entity a camera rig aims at. A bone or socket is
+    /// named by id and resolved by the animation module.
+    Anchor {
+        Origin = 0 => "origin",
+        Bone = 1 => "bone",
+        Socket = 2 => "socket",
+    }
+}
+
+wire_enum! {
     /// Screen orientation the game asks the host for.
     Orientation {
         Portrait = 0 => "portrait",
