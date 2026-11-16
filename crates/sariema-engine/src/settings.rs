@@ -54,6 +54,11 @@ pub struct SoundSettings {
     pub emitters: usize,
     /// A followed sound's gain or pan changing by less than this is not sent.
     pub min_change: f32,
+    /// Streamed sounds decode on a thread of their own instead of in the
+    /// step, for a host playing to a device: the decoder allocates as it
+    /// reads. Off, the steps decode them and the mixed sound is the same
+    /// every run. Ignored on wasm32, which has no threads.
+    pub stream_thread: bool,
 }
 
 impl Default for SoundSettings {
@@ -63,6 +68,7 @@ impl Default for SoundSettings {
             rolloff: 1.0,
             emitters: 32,
             min_change: 1e-3,
+            stream_thread: false,
         }
     }
 }

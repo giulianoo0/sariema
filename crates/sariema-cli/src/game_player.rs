@@ -51,6 +51,7 @@ pub fn play(path: &Path, args: &RunArgs, frames: Option<u32>) -> Result<Done, Fa
             Ok(rate) => {
                 let mut settings = EngineSettings::default();
                 settings.mixer.sample_rate = rate;
+                settings.audio.stream_thread = true;
                 let mut engine = load(pack, settings)?;
                 let mixer = engine.take_mixer().expect("a game with sounds has a mixer");
                 match Output::start(mixer, rate) {

@@ -52,7 +52,7 @@ impl Sound {
         let (mixer_settings, defs) = sariema_audio::runtime(bank, base);
         let ids = defs.iter().map(|d| name_id(&d.name)).collect();
         let rate = mixer_settings.sample_rate;
-        let (audio, mixer) = Audio::new(mixer_settings, defs, Feeding::Manual)?;
+        let (audio, mixer) = Audio::new(mixer_settings, defs, feeding(settings.stream_thread))?;
         Ok(Sound {
             audio,
             mixer: Some(mixer),
@@ -241,6 +241,20 @@ impl Sound {
 
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn feeding(thread: bool) -> Feeding {
+    if thread {
+        Feeding::Thread
+    } else {
+        Feeding::Manual
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn feeding(_: bool) -> Feeding {
+    Feeding::Manual
+}
 
 /// Whole frames, so that the mixer clock never drifts from the steps.
 fn frame(step: u64, rate: u32) -> u64 {
