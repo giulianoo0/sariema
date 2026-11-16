@@ -153,7 +153,7 @@ The message names the file, cutscene and step: `cutscene meet, steps[4].teleport
 | `E_CUTSCENE_START` | give the role `"start": { "position": […], "yaw": … }`, or `spawn` it before its first use |
 | `E_CUTSCENE_SPAWN` | spawn only roles without `start`, or after their `despawn` |
 | `E_CUTSCENE_ABSENT` | do not use a role after `despawn` |
-| `E_CUTSCENE_RACE` | move each role, set each flag and tween each scene parameter in one `parallel` branch only |
+| `E_CUTSCENE_RACE` | move each role, set each flag and tween each scene parameter (a `scene` step's, or a `hinge` step's `hinge.<node>`) in one `parallel` branch only |
 | `E_CUTSCENE_SPEED` | slow the `walk` (or `cutscene.start_walk_speed`), or widen the `path` span (or lower its `rate`), to `motion.max_visible_speed` or less; to cross faster, hide it or cut |
 | `E_CUTSCENE_PATH_CUT` | give the path's first `then` clip an `after` at or past the last span's end, or 0 (the clip's end) |
 | `E_SETTINGS` | in `game.settings`, keep `min_time_scale` and `max_time_scale` positive, the minimum no larger |

@@ -13,8 +13,8 @@
 //! - Every role declares its start place, unless the cutscene spawns it
 //!   before using it. (`E_CUTSCENE_START`, `E_CUTSCENE_ABSENT`, `E_CUTSCENE_SPAWN`)
 //! - Parallel branches never move the same role, set the same flag or tween
-//!   the same scene parameter, so skipping gives the same end state as
-//!   playing. (`E_CUTSCENE_RACE`)
+//!   the same scene parameter (with a `scene` or a `hinge` step), so
+//!   skipping gives the same end state as playing. (`E_CUTSCENE_RACE`)
 //! - No walk is faster than an actor may be seen to move: neither a `walk`
 //!   nor, for a role with a start, `cutscene.start_walk_speed` exceeds the
 //!   project's `motion.max_visible_speed`. (`E_CUTSCENE_SPEED`)
@@ -467,6 +467,9 @@ fn collect(blocks: &[Block], w: &mut Writes) {
             }
             Block::Scene { values, .. } => {
                 w.params.extend(values.iter().map(|(param, _)| param));
+            }
+            Block::Hinge { hinge, .. } => {
+                w.params.insert(*hinge);
             }
             Block::Fade { .. } => w.fade = true,
             _ => {}

@@ -180,7 +180,8 @@ jump, wherever the game left it.
 
 Two branches of one `parallel` never move the same role (walk, face,
 teleport, spawn, despawn), set the same flag or tween the same scene
-parameter (`E_CUTSCENE_RACE`). With that, skipping lands every role, flag
+parameter, with a `scene` step or a `hinge` step turning its leaf
+(`E_CUTSCENE_RACE`). With that, skipping lands every role, flag
 and scene parameter where playing would have.
 
 ## Directing

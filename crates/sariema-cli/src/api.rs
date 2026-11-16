@@ -198,7 +198,7 @@ const ERRORS: &[(&str, Kind, &str)] = &[
     (
         "E_CUTSCENE_RACE",
         Kind::Failure,
-        "parallel branches move the same role or set the same flag",
+        "parallel branches move the same role, set the same flag or tween the same scene parameter",
     ),
     (
         "E_CUTSCENE_SPEED",

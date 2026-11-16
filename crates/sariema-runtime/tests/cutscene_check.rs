@@ -175,3 +175,21 @@ fn parallel_branches_must_not_tween_the_same_scene_parameter() {
     assert_eq!(e[0].code, "E_CUTSCENE_RACE");
     assert!(e[0].message.contains("branches 0 and 1"), "{}", e[0]);
 }
+
+#[test]
+fn a_hinge_and_a_scene_step_must_not_turn_the_same_leaf_in_parallel() {
+    let text = |set: &str| {
+        format!(
+            r#"{{"name":"x","roles":{{"hero":{{"start":{{"position":[0,0,0]}}}}}},"steps":[{{"parallel":[
+            [{{"hinge":{{"node":"a.door_leaf","role":"hero","clip":"push","span":[0.2,0.6],"to":90}}}}],
+            [{{"scene":{{"set":{{"{set}":45}},"duration":1}}}}]]}}]}}"#
+        )
+    };
+    let (cutscene, _) = compile_json(&text("hinge.a.door_leaf")).unwrap();
+    let e = check(&cutscene, &Settings::default());
+    assert_eq!(e.len(), 1, "{e:?}");
+    assert_eq!(e[0].code, "E_CUTSCENE_RACE");
+    assert!(e[0].message.contains("branches 0 and 1"), "{}", e[0]);
+    let (cutscene, _) = compile_json(&text("hinge.a.window_leaf")).unwrap();
+    assert_eq!(check(&cutscene, &Settings::default()), Vec::new());
+}
