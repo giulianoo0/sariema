@@ -44,8 +44,9 @@ pub struct GameHost {
     live: Option<Live>,
     replay: Option<Replay>,
     shadows: bool,
-    /// Made by replayed steps, counted with the `alloc-count` feature.
-    step_allocations: u64,
+    /// Each replayed step that allocated and how often, counted with the
+    /// `alloc-count` feature.
+    step_allocations: Vec<(u64, u64)>,
     /// Made by page frames' steps and audio feeds, likewise.
     frame_allocations: u64,
 }
@@ -114,7 +115,7 @@ impl GameHost {
             live,
             replay: None,
             shadows,
-            step_allocations: 0,
+            step_allocations: Vec::new(),
             frame_allocations: 0,
         };
         host.resize(size.0, size.1);
@@ -193,7 +194,10 @@ impl GameHost {
         for step in self.engine.steps()..to {
             let before = allocations();
             self.engine.step(replay.actions(step));
-            self.step_allocations += allocations() - before;
+            let made = allocations() - before;
+            if made > 0 {
+                self.step_allocations.push((step, made));
+            }
             self.engine.feed_audio();
         }
         self.alpha = 1.0;
@@ -262,7 +266,7 @@ impl GameHost {
             "hero": hero,
             "stopped": self.engine.simulation().stopped().map(|s| s.code),
             "audio_queued_frames": self.live.as_ref().map(|l| l.feed.queued()),
-            "step_allocations": cfg!(feature = "alloc-count").then_some(self.step_allocations),
+            "step_allocations": cfg!(feature = "alloc-count").then_some(&self.step_allocations),
             "frame_allocations": cfg!(feature = "alloc-count").then_some(self.frame_allocations),
         })
     }

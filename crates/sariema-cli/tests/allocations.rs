@@ -62,38 +62,23 @@ fn counted(f: impl FnOnce()) -> u64 {
 
 const STEPS: u64 = 1200;
 
-/// Every step of the climb that allocates, with its count; the others
-/// allocate nothing. Step 0 spawns the hero, whose body builds its walkable
-/// grid; 186 starts the cutscene, which plans the hero's walk; 340 shows
-/// its line, which lays the HUD out again. The rest grow a step buffer to
-/// a size it had not reached. `docs/engine.md` lists them by site.
-const PINNED: &[(u64, u64)] = &[
-    (0, 74),
-    (20, 2),
-    (30, 5),
-    (31, 2),
-    (50, 2),
-    (65, 1),
-    (66, 1),
-    (98, 1),
-    (185, 1),
-    (186, 12),
-    (213, 1),
-    (214, 1),
-    (243, 1),
-    (259, 1),
-    (266, 2),
-    (340, 20),
-    (436, 1),
-    (460, 1),
-];
+/// The pins, shared with the web package's browser tests: every step of
+/// the climb that allocates, with its count (the others allocate nothing),
+/// and the feed's allocations in each second.
+///
+/// Step 0 spawns the hero, whose body builds its walkable grid; 186 starts
+/// the cutscene, which plans the hero's walk; 340 shows its line, which
+/// lays the HUD out again. The rest grow a step buffer to a size it had not
+/// reached. The feed's first and sixth seconds open the music stream and
+/// decode the sounds loaded on demand; in every second the music decoder
+/// allocates per packet. `docs/engine.md` lists them by site.
+const PINS: &str = include_str!("climb-allocations.json");
 
-/// The feed's allocations in each second: the music stream opening and the
-/// sounds loaded on demand decoding in the first and sixth, and the music
-/// decoder's packets in all of them.
-const FEED_PER_SECOND: &[u64] = &[
-    660, 45, 45, 45, 45, 151, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45,
-];
+#[derive(serde::Deserialize)]
+struct Pins {
+    steps: Vec<(u64, u64)>,
+    feed_per_second: Vec<u64>,
+}
 
 #[test]
 fn the_climbs_steps_allocate_only_where_pinned() {
@@ -129,13 +114,10 @@ fn the_climbs_steps_allocate_only_where_pinned() {
     }
     assert_eq!(format!("{:016x}", engine.state_hash()), ENGINE_HASH_1200);
     let seconds: Vec<u64> = feeds.chunks(60).map(|s| s.iter().sum()).collect();
-    assert_eq!(
-        steps,
-        PINNED,
-        "{} allocations",
-        steps.iter().map(|s| s.1).sum::<u64>()
-    );
-    assert_eq!(seconds, FEED_PER_SECOND);
+    let pins: Pins = serde_json::from_str(PINS).unwrap();
+    let total: u64 = steps.iter().map(|s| s.1).sum();
+    assert_eq!(steps, pins.steps, "{total} allocations");
+    assert_eq!(seconds, pins.feed_per_second);
 }
 
 const ENGINE_HASH_1200: &str = "6089a9215eee7875";

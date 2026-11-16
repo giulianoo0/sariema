@@ -9,7 +9,8 @@
 // with the native frames, plays a sound through the audio worklet, taps a
 // UI button and loses and restores the GPU. Then it plays the climb game
 // (examples/climb): its replay reaches the native hashes and frames, its
-// steps allocate nothing (the counting build, which this command builds),
+// steps allocate where and as much as natively and nothing once steady
+// (the counting build, which this command builds),
 // its music plays without underruns, a touch on its joystick moves the
 // hero, a game that never returns is stopped by its budget, and a lost GPU
 // leaves the game at its step. Results land in test/out/results.json; the
@@ -365,16 +366,32 @@ async function climbChecks(name, page) {
   await page.goto(new URL("test/page.html?counting", base).href);
   await page.waitForFunction(() => window.suite);
   await page.evaluate(() => window.suite.start());
-  // By step 600 the climb has run every event it has; the steps before
-  // allocate as natively (the HUD's relayouts, the line's first shaping).
-  const allocs = await page.evaluate(() => window.suite.climbAllocations([120, 600, 1200]));
-  const [warm, steady, end] = allocs.step_allocations;
+  // The native pins: each step of the climb that allocates, and the audio
+  // feed's allocations in each second (crates/sariema-cli/tests).
+  const pins = JSON.parse(readFileSync(join(repo, "crates", "sariema-cli", "tests", "climb-allocations.json"), "utf8"));
+  const allocs = await page.evaluate(() => window.suite.climbAllocations(1200));
   numbers.browsers[name].allocations = allocs;
-  check(name, "the climb's steps allocate nothing once steady", end !== null && end - steady === 0, {
-    "120..600": steady - warm,
-    "600..1200": end - steady,
+  const stepsIn = (list, from, to) => list.filter(([step]) => step >= from && step < to);
+  check(name, "the climb's steps allocate as natively, step by step, through its events (0..600)", JSON.stringify(stepsIn(allocs.steps, 0, 600)) === JSON.stringify(stepsIn(pins.steps, 0, 600)), {
+    browser: stepsIn(allocs.steps, 0, 600),
+    native: stepsIn(pins.steps, 0, 600),
+  });
+  check(name, "the climb's steps allocate nothing once steady (600..1200)", stepsIn(allocs.steps, 600, 1200).length === 0, { steps: stepsIn(allocs.steps, 600, 1200) });
+  // The cinema bars slide in over 215..237 and out over 486..507, the
+  // objective's panel animating with them; nothing else happens then.
+  const sliding = allocs.steps.filter(([step]) => (step >= 215 && step <= 237) || (step >= 486 && step <= 507));
+  check(name, "steps that only animate the HUD allocate nothing", sliding.length === 0, { steps: sliding });
+  // Live frames step the game and feed the audio; the feed's typical
+  // second (the music decoder's packets) bounds them, scaled to the steps
+  // run, with a few packets of slack for where the seconds cut.
+  const seconds = [...pins.feed_per_second].sort((a, b) => a - b);
+  const steady = seconds[seconds.length >> 1];
+  const cap = Math.ceil((steady * allocs.live_steps) / 60) + Math.ceil(steady / 10);
+  check(name, "a second of live frames allocates no more than the audio feed's steady second", allocs.live_frame_allocations <= cap, {
     live_frame_allocations: allocs.live_frame_allocations,
     live_steps: allocs.live_steps,
+    live_seconds: allocs.live_seconds,
+    cap,
   });
 }
 

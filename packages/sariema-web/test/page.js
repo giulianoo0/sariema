@@ -143,22 +143,21 @@ window.suite = {
   },
 
   /**
-   * With the counting build: the allocations the replayed steps have made
-   * by each of `steps`, then those of a second of live frames (steps and
-   * audio feed) after the last.
+   * With the counting build: each step of the climb replayed to `to` that
+   * allocated, as [step, count], then the allocations of a second of live
+   * frames (steps and audio feed) after it.
    */
-  async climbAllocations(steps) {
+  async climbAllocations(to) {
     await playClimb({ audio: false });
-    const at_ = [];
-    for (const n of steps) {
-      sariema.replayGame(playLog, n);
-      at_.push(sariema.stats().game.step_allocations);
-    }
+    sariema.replayGame(playLog, to);
+    const steps = sariema.stats().game.step_allocations;
     sariema.start();
+    const t0 = performance.now();
     await sleep(1000);
     const live = sariema.stats().game;
+    const seconds = (performance.now() - t0) / 1000;
     sariema.stop();
-    return { steps, step_allocations: at_, live_frame_allocations: live.frame_allocations, live_steps: live.steps - steps.at(-1) };
+    return { steps, live_frame_allocations: live.frame_allocations, live_steps: live.steps - to, live_seconds: seconds };
   },
 
   /** The climb played live for `ms`, its music through the worklet. */
