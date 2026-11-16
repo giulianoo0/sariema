@@ -310,15 +310,15 @@ impl NavGrid {
                 }
                 let c = cz as usize * self.nx + cx as usize;
                 for n in self.column[c]..self.column[c + 1] {
-                    let q = self.position(n);
-                    let flat = (q.x - p.x).powi(2) + (q.z - p.z).powi(2);
+                    let d = self.position(n) - p;
+                    let flat = d.x * d.x + d.z * d.z;
                     let key = (
                         island.is_some_and(|i| self.island[n as usize] != i),
-                        flat + (q.y - p.y).powi(2),
+                        flat + d.y * d.y,
                         n,
                     );
                     if flat <= snap * snap
-                        && (q.y - p.y).abs() <= reach_y
+                        && d.y.abs() <= reach_y
                         && best.is_none_or(|b| {
                             (key.0, key.1, key.2).partial_cmp(&(b.0, b.1, b.2))
                                 == Some(Ordering::Less)
