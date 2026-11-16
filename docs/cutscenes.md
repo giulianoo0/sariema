@@ -373,11 +373,11 @@ passes `sariema check`
   `E_TELEPORT_BLOCKED` and the root stays. Declared contacts that `check`
   proves (a foot placed on an edge by its socket) are the collision pack's
   traversals, carried by the `traverse` command.
-- **A room switch inside a cutscene** (port item L1): a cutscene plays
-  inside one room.
-- **Bones and sockets** are data until the animation module is integrated:
-  `rig_anchor` names them and the camera lists them (`Camera::anchors`), but
-  it aims at the subject's origin until the animation module resolves them.
+- **A room switch inside a cutscene**: the cutscene JSON has no step for
+  it; the game switches rooms under the cutscene's fade with `Cut`.
+- **Bones and sockets** are placed by the animation module every step, for
+  each anchor the camera lists (`Camera::anchors`); a name the actor's rig
+  lacks leaves the camera on the subject's origin.
 - **Clip time** is the runtime's (`State::clip_time`, and
   `State::clip_time_at` to draw): the animation module must seek every clip
   to it and report `clip_marker` and `clip_finished` from it; a module that
