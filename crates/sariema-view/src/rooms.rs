@@ -20,12 +20,14 @@
 use std::sync::Arc;
 
 use glam::{Mat4, Quat, Vec3};
+use sariema_core::STEP_SECONDS;
 use sariema_engine::{Engine, WorldJob};
 use sariema_format::scenery::{Channel, LightField, NodeIndex, RoomIndex, Target, sun_direction};
-use sariema_format::script::RoomTransition;
+use sariema_format::script::{Ease, RoomTransition};
 use sariema_format::stream::RoomDecoder;
 use sariema_format::{Background, Look, RoomCamera, RoomPack, Sun};
 use sariema_render::{Lighting, Renderer};
+use sariema_runtime::ease::ease;
 use sariema_runtime::scenery::{Binding, RoomScene};
 use sariema_runtime::sim::Logic;
 
@@ -53,6 +55,11 @@ pub struct ViewSettings {
     pub grid_columns_per_share: usize,
     /// Off, no light casts a shadow, as for a device without the budget.
     pub shadows: bool,
+    /// Seconds the picture of the room left takes to fade out over the next
+    /// one in a dissolve whose `room_switch` gives no duration.
+    pub dissolve_s: f32,
+    /// The curve of that fade.
+    pub dissolve_ease: Ease,
 }
 
 impl Default for ViewSettings {
@@ -65,6 +72,8 @@ impl Default for ViewSettings {
             world_ms_per_frame: 2.0,
             grid_columns_per_share: 32,
             shadows: true,
+            dissolve_s: 0.5,
+            dissolve_ease: Ease::InOutSine,
         }
     }
 }
@@ -144,6 +153,10 @@ pub(crate) struct Rooms {
     worlds: (Sender<Built>, Receiver<Built>),
     /// The world built a share a frame.
     job: Option<WorldJob>,
+    /// The step of the last switch drawn.
+    switched: Option<u64>,
+    /// The dissolve under way: the step that switched, and its seconds.
+    dissolve: Option<(u64, f32)>,
 }
 
 fn light_params(index: &RoomIndex) -> Vec<[usize; 5]> {
@@ -184,6 +197,8 @@ impl Rooms {
             #[cfg(not(target_arch = "wasm32"))]
             worlds: std::sync::mpsc::channel(),
             job: None,
+            switched: None,
+            dissolve: None,
         }
     }
 
@@ -418,6 +433,7 @@ impl Rooms {
     /// The drawn rooms, their presence and lighting, and every change the
     /// game made to a resident room.
     fn show<L: Logic>(&mut self, renderer: &mut Renderer, engine: &Engine<L>, alpha: f32) {
+        self.fade(renderer, engine, alpha);
         let state = engine.state();
         let scenery = &state.scenery;
         let active = scenery.active();
@@ -433,7 +449,7 @@ impl Rooms {
         };
         let switch = scenery
             .switch()
-            .filter(|s| resident(s.from) && s.kind != RoomTransition::Cut);
+            .filter(|s| resident(s.from) && s.kind == RoomTransition::Continuous);
         self.drawn.clear();
         if resident(active) {
             self.drawn.push(active as u32);
@@ -447,17 +463,12 @@ impl Rooms {
         let (lighting, look) = match (switch, lit(active)) {
             (Some(switch), Some(to)) => {
                 let p = switch.progress(alpha);
-                // A room beside the next one stays drawn whole, its light its own.
-                let (whole, inverted) = match switch.kind {
-                    _ if beside.contains(&(switch.from as u32)) => (true, false),
-                    RoomTransition::Dissolve => (false, true),
-                    _ => (true, false),
-                };
+                // A room beside the next one keeps its light its own.
                 let lights_cross = !beside.contains(&(switch.from as u32));
                 self.drawn.push(switch.from as u32);
                 let (into, out) = (active as u32, switch.from as u32);
-                renderer.set_room_presence(into, if whole { 1.0 } else { p }, false);
-                renderer.set_room_presence(out, if whole { 1.0 } else { 1.0 - p }, inverted);
+                renderer.set_room_presence(into, 1.0, false);
+                renderer.set_room_presence(out, 1.0, false);
                 renderer.set_room_light_scale(into, if lights_cross { p } else { 1.0 });
                 renderer.set_room_light_scale(out, if lights_cross { 1.0 - p } else { 1.0 });
                 match lit(switch.from) {
@@ -488,6 +499,41 @@ impl Rooms {
             renderer.set_look(&look);
             self.look = Some(look);
         }
+    }
+
+    /// A dissolve shows the frame drawn last, of the room left, fading out
+    /// over the next room as its own camera and light show it; the room
+    /// left is not drawn. A frame that runs a whole dissolve's steps still
+    /// shows it from its start.
+    fn fade<L: Logic>(&mut self, renderer: &mut Renderer, engine: &Engine<L>, alpha: f32) {
+        let switched = engine.switched();
+        if switched.map(|s| s.step) != self.switched {
+            self.switched = switched.map(|s| s.step);
+            let dissolve = switched.and_then(|s| Some((s.step, s.switch?)));
+            self.dissolve = match dissolve {
+                Some((step, s)) if s.kind == RoomTransition::Dissolve => {
+                    renderer.hold_frame();
+                    let seconds = match s.steps {
+                        0 | 1 => self.settings.dissolve_s,
+                        steps => steps as f32 * STEP_SECONDS,
+                    };
+                    Some((step, seconds))
+                }
+                _ => None,
+            };
+        }
+        let opacity = match self.dissolve {
+            Some((start, seconds)) => {
+                let t = ((engine.steps() - start) as f32 - 1.0 + alpha) * STEP_SECONDS;
+                let t = (t / seconds.max(STEP_SECONDS)).clamp(0.0, 1.0);
+                if t >= 1.0 {
+                    self.dissolve = None;
+                }
+                1.0 - ease(self.settings.dissolve_ease, t)
+            }
+            None => 0.0,
+        };
+        renderer.set_held_frame(opacity);
     }
 }
 

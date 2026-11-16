@@ -25,7 +25,7 @@ use sariema_format::script::{Event, GamePack};
 use sariema_runtime::clock::Tick;
 use sariema_runtime::game::{LoadError, WasmLogic};
 use sariema_runtime::input::{Actions, RawInput};
-use sariema_runtime::scenery::RoomScene;
+use sariema_runtime::scenery::{RoomRequest, RoomScene, Switch};
 use sariema_runtime::sim::{Logic, Modules, Simulation};
 use sariema_runtime::state::State;
 use sariema_ui::SafeArea;
@@ -66,6 +66,16 @@ pub struct Engine<L> {
     rejected: Vec<Event<'static>>,
     /// The rooms wanted, kept between feeds.
     wanted: Vec<usize>,
+    switched: Option<Switched>,
+}
+
+/// The last room switch, for a host that draws fewer frames than it steps.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Switched {
+    /// The step that switched.
+    pub step: u64,
+    /// How it is shown, as it was at the end of that step; none for a cut.
+    pub switch: Option<Switch>,
 }
 
 /// The modules run inside the runtime's step, where its built-in mover
@@ -215,6 +225,7 @@ impl<L: Logic> Engine<L> {
             hud,
             rejected: Vec::new(),
             wanted: Vec::new(),
+            switched: None,
             sim,
         })
     }
@@ -284,6 +295,12 @@ impl<L: Logic> Engine<L> {
         };
         self.sim.step_with(&self.actions, &mut stages);
         let s = self.sim.state();
+        if (s.scenery.requests.iter()).any(|r| matches!(r, RoomRequest::Switch(_))) {
+            self.switched = Some(Switched {
+                step: n,
+                switch: s.scenery.switch(),
+            });
+        }
         if let Some(physics) = self.rooms.active_mut() {
             physics.after_step(s);
         }
@@ -317,6 +334,11 @@ impl<L: Logic> Engine<L> {
 
     pub fn steps(&self) -> u64 {
         self.sim.steps()
+    }
+
+    /// The last room switch, kept after its transition is over.
+    pub fn switched(&self) -> Option<Switched> {
+        self.switched
     }
 
     pub fn alpha(&self) -> f32 {

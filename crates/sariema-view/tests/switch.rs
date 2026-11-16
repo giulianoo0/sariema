@@ -157,10 +157,21 @@ fn play(settings: ViewSettings, frames: u64, hall_red: bool) -> Vec<Frame> {
 }
 
 fn play_with(settings: ViewSettings, frames: u64, hall_red: bool, beside: bool) -> Vec<Frame> {
+    run(settings, frames, (hall_red, beside), script(), 1)
+}
+
+/// `frames` frames of `steps` steps each.
+fn run(
+    settings: ViewSettings,
+    frames: u64,
+    (hall_red, beside): (bool, bool),
+    script: Script,
+    steps: u64,
+) -> Vec<Frame> {
     let (drawn, assets) = hero(hall_red, beside);
     let mut runtime = Settings::default();
     runtime.motion.builtin = false;
-    let sim = Simulation::new(runtime, Vec::new(), script(), 1);
+    let sim = Simulation::new(runtime, Vec::new(), script, 1);
     let mut engine = Engine::new(sim, assets, EngineSettings::default()).unwrap();
     let mut h = Headless::new(W, H, Quality::high()).unwrap();
     let mut view = GameView::load_with(h.renderer(), &drawn, &engine, settings).unwrap();
@@ -168,7 +179,9 @@ fn play_with(settings: ViewSettings, frames: u64, hall_red: bool, beside: bool) 
     let aspect = W as f32 / H as f32;
     (0..frames)
         .map(|_| {
-            engine.step(&actions);
+            for _ in 0..steps {
+                engine.step(&actions);
+            }
             h.paint(|r, target| view.world(r, &mut engine, 1.0, aspect, target))
                 .unwrap();
             Frame {
@@ -269,7 +282,7 @@ fn the_neighbour_loads_a_share_a_frame_before_the_switch() {
 }
 
 #[test]
-fn a_dissolve_mixes_the_rooms() {
+fn a_dissolve_fades_the_last_frame_of_the_room_left_over_the_next() {
     let frames = play(spread(), 240, true);
     let (sill, hall) = (&frames[85].image, &frames[150].image);
     let red = |p: &image::Rgba<u8>| p[0] as f32 - p[1] as f32;
@@ -308,15 +321,51 @@ fn a_dissolve_mixes_the_rooms() {
     );
     for pair in dissolve.windows(2) {
         assert!(
-            pair[1] - pair[0] < 0.2,
+            pair[1] - pair[0] < 0.2 && pair[1] >= pair[0] - 0.02,
             "the dissolve moves smoothly: {dissolve:?}"
         );
-        assert!(pair[1] >= pair[0] - 0.05, "and one way: {dissolve:?}");
     }
-    let alone = frames[175].draws.max(frames[214].draws);
+    let alone = frames[150].draws;
     assert!(
-        (182..208).all(|n| frames[n].draws > alone),
-        "both rooms are drawn while it lasts"
+        frames[91..119].iter().all(|f| f.draws == alone + 1),
+        "only the hall is drawn, and the frame held over it: {:?} against {alone}",
+        frames[91..119].iter().map(|f| f.draws).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_dissolve_with_no_duration_shows_on_a_host_drawing_every_other_step() {
+    let mut script = script();
+    script.0.retain(|(n, _)| *n < 90);
+    script.0.push((
+        90,
+        Command::RoomSwitch {
+            room: name_id("hall"),
+            transition: RoomTransition::Dissolve,
+            duration: 0.0,
+        },
+    ));
+    let frames = run(spread(), 80, (true, false), script, 2);
+    let alone = frames[70].draws;
+    let draws: Vec<u32> = frames[44..62].iter().map(|f| f.draws).collect();
+    assert!(
+        frames[45].draws > alone && frames[46..59].iter().all(|f| f.draws == alone + 1),
+        "the frame of steps 90 and 91 and the next ones show the sill held over the hall for \
+         dissolve_s: {draws:?} against {alone}"
+    );
+    assert_eq!(frames[59].draws, alone, "over after 30 steps: {draws:?}");
+    let apart = |a: &RgbaImage, b: &RgbaImage| -> f32 {
+        let sum: f32 = (a.pixels().zip(b.pixels()))
+            .map(|(p, q)| (p[0] as f32 - q[0] as f32).abs())
+            .sum();
+        sum / (a.width() * a.height()) as f32
+    };
+    let (before, switched, after) = (&frames[44].image, &frames[45].image, &frames[70].image);
+    assert!(
+        apart(switched, before) < apart(switched, after) / 4.0,
+        "the switch's frame is the sill's: {} from it, {} from the hall",
+        apart(switched, before),
+        apart(switched, after)
     );
 }
 

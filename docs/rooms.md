@@ -88,9 +88,14 @@ on. The transition says how it is shown:
 - **`Continuous`**: both rooms are drawn whole for `duration` while their
   light, sky, sun, ambient light and look blend from one to the other. For
   rooms that occupy one space, usually `beside` each other.
-- **`Dissolve`**: the two rooms dissolve into each other over `duration`
-  with a complementary dither, so no pixel shows both; the lighting blends
-  the same way. For rooms that do not continue each other.
+- **`Dissolve`**: a dissolve in screen space. The last frame shown of the
+  room left, as its own camera and light saw it, fades out over the next
+  room, which is drawn alone by its own camera and light from the switch's
+  frame on. It lasts `duration`, or `ViewSettings::dissolve_s` when the
+  switch gives none, along `dissolve_ease`. The room left is never drawn
+  through the next room's camera. For places that do not continue each
+  other, and for a jump in the story's time (night to day): the light of
+  one room never rises into the other's.
 
 ## Loading without a seam
 
@@ -108,8 +113,7 @@ budget:
    same errors.
 2. **Upload.** `Renderer::begin_room` creates the room's pipelines and
    buffers; `upload_room` writes `upload_bytes_per_frame` bytes of meshes
-   and texture mips a frame into a slot not drawn yet. The pipelines a
-   dissolve needs are created here too, never on the switch's frame.
+   and texture mips a frame into a slot not drawn yet.
 3. **Collision world.** A `WorldJob` builds the room's world and the
    walkable grid of each body: whole on a thread, or a share at a time
    (`grid_columns_per_share` columns) until `world_ms_per_frame` is spent.
@@ -126,8 +130,32 @@ either way, so the run is too.
 
 `ViewSettings` (defaults): `max_resident` 3, `decode_bytes_per_frame` 4 MiB,
 `upload_bytes_per_frame` 4 MiB, `threads` true, `world_ms_per_frame` 2,
-`grid_columns_per_share` 32, `shadows` true. `SoundSettings::ambience_fade_s`
-(0.5) is the crossfade between ambiences when the switch has no duration.
+`grid_columns_per_share` 32, `shadows` true, `dissolve_s` 0.5,
+`dissolve_ease` `in_out_sine`. `SoundSettings::ambience_fade_s` (0.5) is the
+crossfade between ambiences when the switch has no duration.
+
+## A dissolve in screen space
+
+The renderer keeps the frame drawn last (`Renderer::hold_frame`): before
+anything of the switch's frame is drawn, the last frame's scene, bloom and
+ambient occlusion are still in the renderer's own targets, and they are
+composited again, with the uniform of the composite that drew them, into a
+texture the size of the target. The HUD is drawn after the composite, so
+it is not in the frame held. Each frame of the dissolve then draws that
+texture over its own composite in one blended full-screen pass
+(`Renderer::set_held_frame`); at opacity 0 the pass is skipped. The blend
+mixes the colour as the target stores it: linear on an sRGB target,
+encoded on the others.
+
+What it costs: one full-screen composite on the switch's frame, one
+blended full-screen pass a frame while the dissolve lasts, and a texture
+the size of the target, created on the first dissolve and kept until the
+target is resized.
+
+The view follows `Engine::switched`, the last switch kept after its
+transition is over, so a frame that runs several steps (a frame late on
+the web) still shows a dissolve from its start, even one that lasts a
+single step because it gave no duration.
 
 ## Numbers
 
@@ -155,6 +183,24 @@ GPU's `finish` on a shared machine, not loading. Reproduce with
 `sariema build examples/rooms -o rooms.srmg` and
 `sariema bench rooms.srmg --warmup 0 --runs 1 --frames 500 [--no-threads] --json`.
 
+In a browser, `node test/bench.mjs --game <folder> --timeline <frames>`
+(in `packages/sariema-web`, after `npm run build` and `sariema web
+examples/rooms -o <folder>`) plays the game from its first frame at the
+display's pace and prints each frame's step, CPU time, time since the last
+frame, passes and draws. Chromium 1248, ANGLE on Metal, 1920×1080, medium
+tier, 3 runs of 800 frames each:
+
+| Backend | Steady frame CPU, ms, p50 · max | Continuous switch (steps 170–229), max | Dissolve frames (steps 380–409), p50 · max | Longest time between frames |
+|---|---|---|---|---|
+| WebGL2 (downlevel path) | 0.5 · 2.0–5.3 | 4.0–6.9 | 0.5–0.6 · 0.8–0.9 | 16.8 ms |
+| WebGPU | 0.3 · 0.5–1.9 | 3.4–10.7 | 0.3–0.4 · 0.5–1.3 | 16.8 ms |
+
+The switch's own frame (step 380) takes 0.6–0.8 ms on WebGL2 and 0.4–1.2
+ms on WebGPU, with one pass more than the frames of the dissolve, which
+have one pass more than the frames after it. No frame of any run missed
+the display's 16.7 ms. The peaks of the continuous switch are its first
+frames and the attic, beside nothing, loading after it.
+
 ## What was taken from other engines and games
 
 - **Link's Awakening (screen transitions, from the technique study).**
@@ -179,6 +225,11 @@ GPU's `finish` on a shared machine, not loading. Reproduce with
   slides the camera between them; Hollow Knight loads the next scene behind
   a short fade at the doorway. Here: `Continuous` inside a house, `Dissolve`
   or a fade between places that do not continue each other.
+- **Godot, Unity (screen-space transitions).** A common scene transition
+  there captures the last frame (`get_viewport().get_texture()`, a
+  render texture) faded over the next scene on a full-screen quad. Here:
+  the same, with the capture taken from the renderer's own targets before
+  the next frame draws, so it costs no read back and leaves out the HUD.
 - **PixiJS v8 (`Assets`, `BackgroundLoader`, `PrepareBase`,
   `TextureGCSystem`).** Background loading runs one item at a time and
   pauses while a foreground load runs; a foreground load of an item being

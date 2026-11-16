@@ -267,10 +267,14 @@ impl Scenery {
         }
         self.switch = match kind {
             RoomTransition::Cut => None,
+            // A dissolve lasts a step at least, so the host sees it.
             _ => Some(Switch {
                 from: self.active,
                 kind,
-                steps: steps_of(duration),
+                steps: match kind {
+                    RoomTransition::Dissolve => steps_of(duration).max(1),
+                    _ => steps_of(duration),
+                },
                 elapsed: 0,
             }),
         };
