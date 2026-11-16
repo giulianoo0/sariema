@@ -29,6 +29,7 @@ mod quality;
 mod resources;
 mod scene;
 mod shadow;
+pub mod ui;
 
 pub use golden::{GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, GoldenDiff, compare_images};
 pub use headless::{Headless, render_coverage, render_to_image};
