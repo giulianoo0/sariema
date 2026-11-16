@@ -15,8 +15,9 @@ Bevy, Filament, three.js and the gas meters of Substrate and NEAR.
 ```
 page (JS)                                   engine (wasm, crates/sariema-web)
 ─────────────────────────────────────────   ─────────────────────────────────────
-@sariema/web  mount(canvas, options)  ───►  Engine.create: WebGPU or WebGL2,
-                                              the render path, the Stage
+@sariema/web  mount(canvas, options)  ───►  open_gpu: WebGPU or WebGL2, the
+                                              render path, the Stage; then
+                                              Engine.create on them
   loadGame(folder) / playGame(pack) ─────►  Engine.load_game: sariema-engine
                                               (logic under wasmi, collision,
                                               animation, sound, HUD) and its
@@ -187,8 +188,9 @@ tail-call dispatch.
 
 ## Backends and render paths
 
-`Engine.create` picks the backend once: WebGPU when `navigator.gpu` gives
-an adapter (or `backend: "webgl2"` forces GL), WebGL2 otherwise. The
+`open_gpu` picks the backend once, when the package mounts the engine or
+moves it to a new GPU: WebGPU when `navigator.gpu` gives an adapter (or
+`backend: "webgl2"` forces GL, `"webgpu"` WebGPU), WebGL2 otherwise. The
 renderer then picks its path once from the device's limits
 (`RenderPath::of`): **full** where a shader stage has 4 storage buffers and
 the backend is not GL, **downlevel** elsewhere. `path` forces either; the

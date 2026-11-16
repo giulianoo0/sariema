@@ -174,13 +174,15 @@ one pack share its meshes, materials and textures. A prop is an actor too:
 its model matrix is the holder's model matrix times the holder's socket.
 
 - **Skinning** happens in the vertex shader (`shaders/skin.wgsl`). Every
-  actor's frame data lives in one storage buffer, in rows of four floats:
-  the model matrix, its normal matrix, the disc shadow, the face offsets and
-  then four rows per joint. The size comes from the pack, so there is no
-  joint limit beyond the device's storage binding size, which `load_actor`
-  checks. The buffer is written once a frame, in one call, and only when an
-  actor changed. Normals use the cofactor of the skin matrix, which is
-  correct under the scale tracks.
+  actor's frame data lives in one buffer, in rows of four floats: the model
+  matrix, its normal matrix, the disc shadow, the face offsets and then four
+  rows per joint. On the full path it is a storage buffer and the size comes
+  from the pack, so there is no joint limit beyond the device's storage
+  binding size, which `load_actor` checks; on the downlevel path
+  ([below](#without-storage-buffers-webgl2-opengl-es)) each actor's rows are
+  bound as a uniform buffer. The buffer is written once a frame, in one
+  call, and only when an actor changed. Normals use the cofactor of the skin
+  matrix, which is correct under the scale tracks.
 - **Materials** are the room's: the same 12 pipeline kinds (lit or unlit,
   opaque, blended or additive, single or double sided), the same fragment
   shader, so rim light and the "drawn" mask behave as on room draws. A face
@@ -214,24 +216,21 @@ Settings:
 radius 0.22 × h, opacity 0.5, softness 0.6 (the outer 60 % of the radius
 fades), lift 0.01 m.
 
-### Without storage buffers in vertex shaders (WebGL2, OpenGL ES 3.1)
+### Without storage buffers (WebGL2, OpenGL ES)
 
 WebGPU, Metal, Vulkan and DirectX 12 read storage buffers in vertex shaders.
 WebGL2 has no storage buffers at all, and many OpenGL ES 3.1 drivers have
-none in the vertex stage (`GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS` is 0). wgpu
-then rejects the actor pipelines, and `load_actor` returns
-`RenderError::Device` saying so.
-
-The path for both, **not implemented yet**, is the one Godot's
-Compatibility renderer and three.js (on WebGL2 itself) use. The same rows go
-into an `Rgba32Float` texture, row `r` at texel
-`(r % width, r / width)`, and the vertex shader reads them with
-`textureLoad`. That is an unfiltered read, so WebGL2 needs no float-filtering
-extension, and every WebGL2 device has vertex texture units. Only
-`skin.wgsl`'s `actor_matrix`, the actor bind group and the upload change.
-
-WebGL2 needs more than the palette: the room's lights, cluster lists and
-shadow slots are storage buffers read in the fragment shader too.
+none in the vertex stage (`GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS` is 0). On
+such a device the renderer takes its downlevel path (`RenderPath::of`;
+[web.md](web.md#backends-and-render-paths) has every WebGL2 gap): each
+actor's rows are bound from the one buffer as a uniform buffer,
+`Quality::actor_uniform_rows` rows at a time (1024 rows, 16 KiB, WebGL2's
+minimum uniform block: about 250 joints), as Bevy and Filament bind their
+joint palettes where storage buffers are missing. `load_actor` refuses a
+pack whose joints and faces need more rows with `RenderError::Actor`
+(`E_SCHEMA`), naming the limit. The room's lights, cluster lists and shadow
+slots go into data textures on that path. The downlevel path also runs
+natively, so `cargo test -p sariema-render` covers skinning through it.
 
 ### Limits known
 
