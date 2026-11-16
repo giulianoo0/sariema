@@ -291,6 +291,72 @@ fn emissive_texture_is_kept() {
     assert_eq!(err.code(), "E_SCHEMA");
 }
 
+/// One piece, `cabelo`: a triangle whose UVs all fall on the left texel of a
+/// 2×1 metallic-roughness texture (roughness 0.25, not metal) whose right
+/// texel is rough metal; the material gives `pbr` and that texture.
+fn metal_rough_kit(name: &str, pbr: &str) -> PathBuf {
+    let mut orm = image::RgbaImage::new(2, 1);
+    orm.put_pixel(0, 0, image::Rgba([255, 64, 0, 255]));
+    orm.put_pixel(1, 0, image::Rgba([255, 255, 255, 255]));
+    let mut png = Vec::new();
+    orm.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let positions: [f32; 9] = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+    let uvs: [f32; 6] = [0.1, 0.5, 0.4, 0.5, 0.2, 0.9];
+    let mut bin: Vec<u8> = bytemuck::cast_slice(&positions).to_vec();
+    bin.extend(bytemuck::cast_slice(&uvs));
+    bin.extend(&png);
+    let json = format!(
+        r#"{{
+        "asset": {{ "version": "2.0" }},
+        "buffers": [{{ "byteLength": {total} }}],
+        "bufferViews": [
+            {{ "buffer": 0, "byteOffset": 0, "byteLength": 36 }},
+            {{ "buffer": 0, "byteOffset": 36, "byteLength": 24 }},
+            {{ "buffer": 0, "byteOffset": 60, "byteLength": {png} }}
+        ],
+        "accessors": [
+            {{ "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3" }},
+            {{ "bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC2" }}
+        ],
+        "images": [{{ "bufferView": 2, "mimeType": "image/png" }}],
+        "textures": [{{ "source": 0 }}],
+        "materials": [{{
+            "name": "corpo",
+            "pbrMetallicRoughness": {{ {pbr} "metallicRoughnessTexture": {{ "index": 0 }} }}
+        }}],
+        "meshes": [{{ "primitives": [{{ "attributes": {{ "POSITION": 0, "TEXCOORD_0": 1 }}, "material": 0 }}] }}],
+        "nodes": [{{ "name": "cabelo", "mesh": 0 }}],
+        "scenes": [{{ "nodes": [0] }}]
+    }}"#,
+        total = 60 + png.len(),
+        png = png.len()
+    );
+    write_glb(name, &json, &bin)
+}
+
+#[test]
+fn a_metallic_roughness_texture_scales_the_factors_where_the_mesh_samples_it() {
+    let kit = load_kit(&metal_rough_kit("orm.glb", "")).unwrap();
+    let corpo = &kit.materials[0];
+    assert_eq!(corpo.metallic, 0.0);
+    assert!(
+        (corpo.roughness - 64.0 / 255.0).abs() < 1e-6,
+        "{}",
+        corpo.roughness
+    );
+
+    let factors = r#""metallicFactor": 0.5, "roughnessFactor": 0.5,"#;
+    let kit = load_kit(&metal_rough_kit("orm_factors.glb", factors)).unwrap();
+    let corpo = &kit.materials[0];
+    assert_eq!(corpo.metallic, 0.0);
+    assert!(
+        (corpo.roughness - 32.0 / 255.0).abs() < 1e-6,
+        "{}",
+        corpo.roughness
+    );
+}
+
 #[test]
 fn mirrored_node_keeps_front_faces() {
     let nodes = r#"[{ "name": "espelho", "children": [1] }, { "mesh": 0, "scale": [-1, 1, 1] }]"#;

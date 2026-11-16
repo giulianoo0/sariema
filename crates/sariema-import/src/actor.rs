@@ -154,16 +154,23 @@ pub fn build_actor(source: &ActorSource, assets_root: &Path) -> Result<ActorPack
     let model = skeleton::read(&gltf, source)?;
     let (mut materials, _) = kit::materials(&gltf.doc)?;
     dress(&mut materials, &source.materials)?;
-    let mode = source.textures.unwrap_or_default();
-    let textures = gltf
-        .doc
-        .images
+    let images = (gltf.doc.images.iter().enumerate())
+        .map(|(i, image)| kit::image(&gltf, i, image))
+        .collect::<Result<Vec<_>, _>>()?;
+    let uvs = model
+        .parts
         .iter()
-        .enumerate()
-        .map(|(i, image)| {
-            let image = kit::image(&gltf, i, image)?;
-            encode_texture(&image.name, &image.rgba, mode)
-        })
+        .flat_map(|p| (model.meshes[p.mesh as usize].vertices.iter()).map(|v| (p.material, v.uv)));
+    let rgba: Vec<&image::RgbaImage> = images.iter().map(|i| &i.rgba).collect();
+    kit::bake_metal_rough(
+        &mut materials,
+        &kit::metal_rough_maps(&gltf.doc)?,
+        &rgba,
+        uvs,
+    );
+    let mode = source.textures.unwrap_or_default();
+    let textures = (images.iter())
+        .map(|image| encode_texture(&image.name, &image.rgba, mode))
         .collect::<Result<Vec<_>, _>>()?;
 
     let rest: Vec<_> = model.joints.iter().map(|j| j.rest).collect();
