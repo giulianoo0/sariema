@@ -15,15 +15,24 @@
 //! Every room pipeline is created in [`Renderer::new`] and every actor
 //! pipeline when the first pack needing it is loaded; [`Renderer::render`]
 //! creates no pipeline and no buffer.
+//!
+//! Several rooms can be resident at once, each in a slot the host chooses,
+//! and drawn together in one pass ([`Renderer::set_drawn`]): a room the
+//! player is about to enter, or the two rooms of a switch, the old one
+//! dissolving into the new. A room is uploaded whole with
+//! [`Renderer::load_room_into`], or a share at a time with
+//! [`Renderer::begin_room`] and [`Renderer::upload_rooms`], so that loading
+//! one in the background never takes a frame's whole budget.
 
 use std::cell::Cell;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use glam::Mat4;
 use sariema_core::Camera;
 use sariema_format::actor::ActorPack;
-use sariema_format::{AlphaMode, Look, RoomPack};
+use sariema_format::{AlphaMode, Background, Light, Look, RoomPack, Sun};
 
 mod actors;
 mod cluster;
@@ -51,7 +60,7 @@ pub use timing::{FrameTimings, PassTime};
 use actors::Actors;
 use cluster::Visible;
 use post::Post;
-use resources::Room;
+use resources::{PendingRoom, Room};
 use scene::Scene;
 use shadow::{Assigned, Shadows};
 use timing::{GpuTimer, Stopwatch};
@@ -187,8 +196,12 @@ impl Gpu {
     }
 
     pub fn write(&self, buffer: &wgpu::Buffer, bytes: &[u8]) {
+        self.write_at(buffer, 0, bytes);
+    }
+
+    pub fn write_at(&self, buffer: &wgpu::Buffer, offset: u64, bytes: &[u8]) {
         self.uploaded.set(self.uploaded.get() + bytes.len() as u64);
-        self.queue.write_buffer(buffer, 0, bytes);
+        self.queue.write_buffer(buffer, offset, bytes);
     }
 
     /// Writes `width × rows` texels from row `y` of `texture`, each row of
@@ -255,6 +268,74 @@ impl Gpu {
     }
 }
 
+/// The sun, ambient light and background a frame is lit with, when the
+/// host gives them instead of the first drawn room's.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Lighting {
+    pub sun: Option<Sun>,
+    /// 9 SH coefficients, as [`sariema_format::Ambient`].
+    pub ambient: [[f32; 3]; 9],
+    pub background: Background,
+}
+
+impl Lighting {
+    /// What `room` is lit with as its pack has it.
+    pub fn of(room: &RoomPack) -> Lighting {
+        Lighting {
+            sun: room.sun.clone(),
+            ambient: room.ambient.sh9,
+            background: room.background.clone(),
+        }
+    }
+}
+
+/// A light of a room as the host changes it at run time.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LightChange {
+    /// Linear RGB.
+    pub color: [f32; 3],
+    /// Candela.
+    pub intensity: f32,
+    pub range: f32,
+    pub position: [f32; 3],
+    /// Where a spot points; ignored for a point light.
+    pub target: [f32; 3],
+    /// Off, it takes no place among the frame's lights.
+    pub on: bool,
+}
+
+/// The resident rooms by slot, and those drawn this frame.
+#[derive(Default)]
+pub(crate) struct Stage {
+    rooms: Vec<Option<Room>>,
+    drawn: Vec<u32>,
+}
+
+impl Stage {
+    pub fn drawn(&self) -> impl Iterator<Item = (u32, &Room)> + '_ {
+        (self.drawn.iter()).filter_map(|&s| Some((s, self.rooms.get(s as usize)?.as_ref()?)))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.drawn().next().is_none()
+    }
+
+    /// A drawn room; `slot` must be one.
+    pub fn room(&self, slot: u32) -> &Room {
+        self.rooms[slot as usize]
+            .as_ref()
+            .expect("drawn rooms are resident")
+    }
+
+    fn get_mut(&mut self, slot: u32) -> Option<&mut Room> {
+        self.rooms.get_mut(slot as usize)?.as_mut()
+    }
+
+    fn first(&self) -> Option<&Room> {
+        self.drawn().next().map(|(_, r)| r)
+    }
+}
+
 pub struct Renderer {
     gpu: Gpu,
     quality: Quality,
@@ -264,7 +345,14 @@ pub struct Renderer {
     shadows: Shadows,
     post: Post,
     actors: Actors,
-    room: Option<Room>,
+    stage: Stage,
+    pending: Vec<(u32, PendingRoom)>,
+    /// The drawn rooms' lights that are on, and their slot and index.
+    lights: Vec<Light>,
+    light_keys: Vec<(u32, u32)>,
+    /// The drawn set or a light switched since `lights` was made.
+    lights_stale: bool,
+    lighting: Option<Lighting>,
     ui: UiPass,
     visible: Visible,
     stats: FrameStats,
@@ -322,7 +410,12 @@ impl Renderer {
             shadows,
             post,
             actors,
-            room: None,
+            stage: Stage::default(),
+            pending: Vec::new(),
+            lights: Vec::new(),
+            light_keys: Vec::new(),
+            lights_stale: true,
+            lighting: None,
             ui,
             visible: Visible::default(),
             stats: FrameStats::default(),
@@ -336,15 +429,224 @@ impl Renderer {
         &self.quality
     }
 
-    /// Uploads the room's meshes, textures and materials, replacing any room
-    /// loaded before, and applies its look.
+    /// Uploads the room's meshes, textures and materials, replacing every
+    /// room loaded before, draws it alone and applies its look.
     pub fn load_room(&mut self, room: &RoomPack) -> Result<(), RenderError> {
-        let uploaded = resources::upload(&self.gpu, self.scene.layouts(), room)?;
-        self.shadows.reset(&uploaded);
-        self.room = Some(uploaded);
+        self.stage.rooms.clear();
+        self.pending.clear();
+        self.load_room_into(0, room)?;
+        self.set_drawn(&[0]);
         self.set_look(&room.look);
         self.warned = false;
         Ok(())
+    }
+
+    /// Uploads `room` whole into `slot`, replacing what the slot held.
+    pub fn load_room_into(&mut self, slot: u32, room: &RoomPack) -> Result<(), RenderError> {
+        let uploaded = resources::upload(&self.gpu, self.scene.layouts(), room)?;
+        self.put(slot, uploaded);
+        Ok(())
+    }
+
+    /// Starts uploading `room` into `slot`, its buffers and textures made
+    /// empty; [`Renderer::upload_rooms`] fills them. The slot holds what it
+    /// held until the upload ends.
+    pub fn begin_room(&mut self, slot: u32, room: &RoomPack) -> Result<u64, RenderError> {
+        self.pending.retain(|(s, _)| *s != slot);
+        let pending = PendingRoom::begin(&self.gpu, room)?;
+        let total = pending.total;
+        self.pending.push((slot, pending));
+        Ok(total)
+    }
+
+    /// Uploads about `budget` bytes of the room begun in `slot`, given its
+    /// pack again; true once it is resident.
+    pub fn upload_room(&mut self, slot: u32, room: &RoomPack, budget: u64) -> bool {
+        let Some(k) = self.pending.iter().position(|(s, _)| *s == slot) else {
+            return self.resident(slot);
+        };
+        if !self.pending[k].1.upload(&self.gpu, room, budget) {
+            return false;
+        }
+        let (_, pending) = self.pending.swap_remove(k);
+        let uploaded = pending.finish(&self.gpu, self.scene.layouts(), room);
+        self.put(slot, uploaded);
+        true
+    }
+
+    /// Bytes of the room begun in `slot` uploaded so far, and in all.
+    pub fn upload_progress(&self, slot: u32) -> Option<(u64, u64)> {
+        let (_, p) = self.pending.iter().find(|(s, _)| *s == slot)?;
+        Some((p.uploaded, p.total))
+    }
+
+    /// Whether `slot` holds an uploaded room.
+    pub fn resident(&self, slot: u32) -> bool {
+        self.stage
+            .rooms
+            .get(slot as usize)
+            .is_some_and(Option::is_some)
+    }
+
+    /// Frees the room in `slot` and any upload begun there.
+    pub fn unload_room(&mut self, slot: u32) {
+        self.pending.retain(|(s, _)| *s != slot);
+        if let Some(room) = self.stage.rooms.get_mut(slot as usize) {
+            *room = None;
+        }
+        if self.stage.drawn.contains(&slot) {
+            let drawn: Vec<u32> = (self.stage.drawn.iter())
+                .copied()
+                .filter(|&s| s != slot)
+                .collect();
+            self.set_drawn(&drawn);
+        }
+    }
+
+    fn put(&mut self, slot: u32, room: Room) {
+        let i = slot as usize;
+        if self.stage.rooms.len() <= i {
+            self.stage.rooms.resize_with(i + 1, || None);
+        }
+        self.stage.rooms[i] = Some(room);
+        if self.stage.drawn.contains(&slot) {
+            self.restage();
+        }
+    }
+
+    /// Draws the rooms in `slots`, the resident ones, in that order; without
+    /// [`Renderer::set_lighting`] the first lights the frame.
+    pub fn set_drawn(&mut self, slots: &[u32]) {
+        if self.stage.drawn == slots {
+            return;
+        }
+        self.stage.drawn.clear();
+        self.stage.drawn.extend_from_slice(slots);
+        self.restage();
+    }
+
+    fn restage(&mut self) {
+        self.lights_stale = true;
+        self.refresh_lights();
+        let sun = self.frame_sun().cloned();
+        self.shadows.reset(&self.stage, &self.lights, sun.as_ref());
+    }
+
+    /// Lights the frames with `lighting`; `None` lights them with the first
+    /// drawn room's own.
+    pub fn set_lighting(&mut self, lighting: Option<Lighting>) {
+        let shadowed = |l: &Option<Lighting>| {
+            l.as_ref()
+                .and_then(|l| l.sun.as_ref())
+                .map(|s| s.casts_shadow)
+        };
+        let reset = shadowed(&lighting) != shadowed(&self.lighting);
+        self.lighting = lighting;
+        if reset {
+            self.restage();
+        }
+    }
+
+    fn frame_sun(&self) -> Option<&Sun> {
+        match &self.lighting {
+            Some(l) => l.sun.as_ref(),
+            None => self.stage.first().and_then(|r| r.sun.as_ref()),
+        }
+    }
+
+    /// Switches group `group` of the room in `slot`; false if there is none.
+    pub fn set_group(&mut self, slot: u32, group: usize, on: bool) -> bool {
+        self.stage
+            .get_mut(slot)
+            .is_some_and(|r| r.set_group(group, on))
+    }
+
+    /// Shows state `state` of piece `piece` of the room in `slot`; false if
+    /// there is none.
+    pub fn set_piece_state(&mut self, slot: u32, piece: usize, state: u32) -> bool {
+        self.stage
+            .get_mut(slot)
+            .is_some_and(|r| r.set_piece(piece, state))
+    }
+
+    /// Shows or hides node `node` of the room in `slot`; false if there is none.
+    pub fn set_node_visible(&mut self, slot: u32, node: usize, visible: bool) -> bool {
+        self.stage
+            .get_mut(slot)
+            .is_some_and(|r| r.set_node_visible(node, visible))
+    }
+
+    /// Moves node `node`'s draws by `offset`, column-major, from where the
+    /// pack placed them; false if there is none.
+    pub fn set_node_offset(&mut self, slot: u32, node: usize, offset: Mat4) -> bool {
+        self.stage
+            .get_mut(slot)
+            .is_some_and(|r| r.set_node_offset(node, offset))
+    }
+
+    /// How much of the room in `slot` is drawn: 1 whole, 0 nothing; between,
+    /// its opaque draws dither and the others fade.
+    pub fn set_room_presence(&mut self, slot: u32, presence: f32) {
+        if let Some(room) = self.stage.get_mut(slot) {
+            room.set_presence(presence.clamp(0.0, 1.0));
+        }
+    }
+
+    /// Changes light `light` of the room in `slot`; false if there is none.
+    pub fn set_light(&mut self, slot: u32, light: usize, change: &LightChange) -> bool {
+        let Some(room) = self.stage.get_mut(slot) else {
+            return false;
+        };
+        let Some(l) = room.lights.get_mut(light) else {
+            return false;
+        };
+        l.color = change.color;
+        l.intensity = change.intensity;
+        l.range = change.range;
+        l.position = change.position;
+        if let sariema_format::LightKind::Spot { target, .. } = &mut l.kind {
+            *target = change.target;
+        }
+        if room.light_on[light] != change.on {
+            room.light_on[light] = change.on;
+            room.lights_switched = true;
+        }
+        true
+    }
+
+    /// The frame's lights: rebuilt when the drawn set or a light switched,
+    /// otherwise their values copied in place, which allocates nothing.
+    fn refresh_lights(&mut self) {
+        let mut switched = false;
+        for room in self.stage.rooms.iter_mut().flatten() {
+            switched |= std::mem::take(&mut room.lights_switched);
+        }
+        if switched || self.lights_stale {
+            self.lights_stale = false;
+            self.lights.clear();
+            self.light_keys.clear();
+            for (slot, room) in self.stage.drawn() {
+                for (i, light) in room.lights.iter().enumerate() {
+                    if room.light_on[i] {
+                        self.lights.push(light.clone());
+                        self.light_keys.push((slot, i as u32));
+                    }
+                }
+            }
+            if switched {
+                let sun = self.frame_sun().cloned();
+                self.shadows.reset(&self.stage, &self.lights, sun.as_ref());
+            }
+            return;
+        }
+        for (light, &(slot, i)) in self.lights.iter_mut().zip(&self.light_keys) {
+            let source = &self.stage.room(slot).lights[i as usize];
+            light.color = source.color;
+            light.intensity = source.intensity;
+            light.range = source.range;
+            light.position = source.position;
+            light.kind = source.kind.clone();
+        }
     }
 
     /// Uploads an actor pack, creating the pipelines its materials need; the
@@ -397,22 +699,25 @@ impl Renderer {
         self.post.set_look(&self.gpu, look);
     }
 
-    /// Shows or hides every draw called `name`; false if there is none.
+    /// Shows or hides every draw called `name` in the drawn rooms; false if
+    /// there is none.
     pub fn set_draw_visible(&mut self, name: &str, visible: bool) -> bool {
-        let Some(room) = &mut self.room else {
-            return false;
-        };
         let mut found = false;
-        for draw in room
-            .draws
-            .iter_mut()
-            .filter(|d| d.name.as_deref() == Some(name))
-        {
-            if draw.casts_shadow && draw.visible != visible {
-                self.shadows.caster_toggled(draw.min, draw.max);
+        for &slot in &self.stage.drawn {
+            let Some(Some(room)) = self.stage.rooms.get_mut(slot as usize) else {
+                continue;
+            };
+            for draw in room
+                .draws
+                .iter_mut()
+                .filter(|d| d.name.as_deref() == Some(name))
+            {
+                if draw.casts_shadow && draw.visible != visible {
+                    self.shadows.caster_toggled(draw.min, draw.max);
+                }
+                draw.visible = visible;
+                found = true;
             }
-            draw.visible = visible;
-            found = true;
         }
         found
     }
@@ -425,29 +730,46 @@ impl Renderer {
             count.set(0);
         }
         self.gpu.uploaded.set(0);
-        let room = self.room.as_ref();
+        self.refresh_lights();
+        for room in self.stage.rooms.iter_mut().flatten() {
+            for (min, max) in room.toggled.drain(..) {
+                self.shadows.caster_toggled(min, max);
+            }
+            room.flush(&self.gpu);
+        }
         self.visible.find(
-            room.map_or(&[][..], |r| &r.lights[..]),
+            &self.lights,
             camera.view,
             camera.proj,
             camera.position,
             self.quality.max_visible_lights,
         );
         self.actors.upload(&self.gpu);
+        let lighting = match &self.lighting {
+            Some(l) => Some(l.clone()),
+            None => self.stage.first().map(|r| Lighting {
+                sun: r.sun.clone(),
+                ambient: r.ambient,
+                background: r.background.clone(),
+            }),
+        };
+        let sun = lighting.as_ref().and_then(|l| l.sun.as_ref());
         self.shadows.assign(
             &self.gpu,
-            room,
+            &self.stage,
+            (&self.lights, sun),
             camera,
             &self.visible.lights,
             self.actors.moved(),
         );
-        let draws_culled = self.scene.cull(room, camera);
+        let draws_culled = self.scene.cull(&self.stage, camera);
         let actor_stats = (self.actors).prepare(camera, |b| self.shadows.maps(b));
         self.actors.forget_moves();
         let cull = watch.lap();
         let mut stats = self.scene.prepare(
             &self.gpu,
-            room,
+            &self.lights,
+            lighting.as_ref(),
             camera,
             time_s,
             &self.visible,
@@ -470,15 +792,20 @@ impl Renderer {
         }
         self.stats = stats;
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
-        if let Some(room) = &self.room {
-            self.shadows
-                .draw(&self.gpu, &mut encoder, room, &self.actors);
+        if !self.stage.is_empty() {
+            (self.shadows).draw(
+                &self.gpu,
+                &mut encoder,
+                &self.stage,
+                &self.lights,
+                &self.actors,
+            );
         }
         let keep_depth = self.post.reads_depth();
-        self.scene.draw(
+        (self.scene).draw(
             &self.gpu,
             &mut encoder,
-            self.room.as_ref(),
+            &self.stage,
             &self.actors,
             keep_depth,
         );
@@ -543,15 +870,12 @@ impl Renderer {
     /// Depth of the non-additive visible draws into a single-sample
     /// `Depth32Float` view cleared to 1.
     pub(crate) fn render_depth(&mut self, camera: &Camera, depth: &wgpu::TextureView) {
-        let room = self.room.as_ref();
         let (none, no_shadows) = (Visible::default(), Assigned::default());
-        self.scene.cull(room, camera);
-        self.scene
-            .prepare(&self.gpu, room, camera, 0.0, &none, &no_shadows);
+        self.scene.cull(&self.stage, camera);
+        (self.scene).prepare(&self.gpu, &[], None, camera, 0.0, &none, &no_shadows);
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
         let covers = |alpha| alpha != AlphaMode::Additive;
-        let room = self.room.as_ref();
-        (self.scene).draw_depth(&self.gpu, &mut encoder, room, None, depth, covers);
+        (self.scene).draw_depth(&self.gpu, &mut encoder, &self.stage, None, depth, covers);
         self.gpu.queue.submit([encoder.finish()]);
     }
 

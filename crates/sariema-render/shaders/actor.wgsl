@@ -13,6 +13,7 @@ fn vs_actor(v: SkinnedIn) -> VertexOut {
     out.uv = v.uv * material.uv_scale + uv_offset();
     out.color = v.color;
     out.view_depth = -(frame.view * world).z;
+    out.presence = 1.0;
     return out;
 }
 

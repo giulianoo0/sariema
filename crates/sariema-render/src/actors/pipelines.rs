@@ -193,6 +193,7 @@ impl Pipelines {
                 &self.layout,
                 &self.module,
                 kind,
+                false,
                 quality,
                 ("vs_actor", vertex_layout()),
             ));

@@ -59,6 +59,10 @@ override LIT: bool = true;
 override BLEND: bool = false;
 // Shadow lookups compare a PCF_SIDE × PCF_SIDE grid of texels.
 override PCF_SIDE: u32 = 1u;
+// An opaque draw with presence below 1 drops that share of its pixels, in a
+// pattern that changes every pixel; only its own pipelines discard, so the
+// others keep early depth testing on tile-based GPUs.
+override DITHER: bool = false;
 
 struct VertexOut {
     @builtin(position) clip: vec4<f32>,
@@ -67,6 +71,7 @@ struct VertexOut {
     @location(2) uv: vec2<f32>,
     @location(3) color: vec4<f32>,
     @location(4) view_depth: f32,
+    @location(5) @interpolate(flat) presence: f32,
 }
 
 @vertex
@@ -75,7 +80,8 @@ fn vs_main(v: VertexIn) -> VertexOut {
     var out: VertexOut;
     out.clip = frame.view_proj * world;
     out.world = world.xyz;
-    out.normal = draw.normal * v.normal;
+    out.normal = draw_normal() * v.normal;
+    out.presence = draw.normal_x.w;
     out.uv = v.uv * material.uv_scale + material.uv_offset;
     out.color = v.color;
     out.view_depth = -(frame.view * world).z;
@@ -87,8 +93,17 @@ fn vs_depth(v: VertexIn) -> @builtin(position) vec4<f32> {
     return frame.view_proj * draw.model * vec4(v.position, 1.0);
 }
 
+// Jimenez's interleaved gradient noise: a threshold in [0, 1) per pixel
+// with no visible pattern at a glance.
+fn dither(pixel: vec2<f32>) -> f32 {
+    return fract(52.9829189 * fract(dot(floor(pixel), vec2(0.06711056, 0.00583715))));
+}
+
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    if DITHER && in.presence <= dither(in.clip.xy) {
+        discard;
+    }
     let base = material.base_color * textureSample(base_texture, material_sampler, in.uv) * in.color;
     let emissive = material.emissive * textureSample(emissive_texture, material_sampler, in.uv).rgb;
     // A back face, drawn only for double-sided materials, is shaded from its own side.
@@ -103,7 +118,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         color += material.rim * pow(1.0 - saturate(dot(n, v)), 5.2);
     }
     if BLEND {
-        return vec4(color * base.a, base.a);
+        return vec4(color * base.a, base.a) * in.presence;
     }
     return vec4(color, material.drawn);
 }
