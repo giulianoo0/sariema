@@ -42,8 +42,10 @@ pub struct Quality {
     /// `blur_taps`² samples instead of two of `blur_taps`; past it the
     /// samples cost more than the pass saves. A smaller bloom level is
     /// reduced and blurred in one pass where four times its texels fit, as
-    /// each of its samples takes four of the level above; the bloom's first
-    /// level, whose one-pass form takes twice the samples, always takes two.
+    /// each of its samples takes four of the level above. The bloom's first
+    /// level always takes two: its horizontal pass keeps only the light past
+    /// the threshold, which is not linear, so it cannot be folded into one
+    /// two-dimensional sample.
     pub blur_one_pass_max_texels: u32,
     /// Depth samples per texel of the screen-space ambient occlusion, at most
     /// 32; 0 turns the occlusion off whatever the look asks.
