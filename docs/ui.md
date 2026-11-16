@@ -198,7 +198,11 @@ created in `UiPass::new`; the instance buffer grows only when a frame has
 more quads than ever. Colours are sRGB with straight alpha and blend
 premultiplied; on an sRGB target they are turned to linear first, so there
 blending happens in linear light, where a browser blends in sRGB.
-`UiHeadless` draws on its own device into an image.
+`UiHeadless` draws on its own device into an image. A `Renderer` holds one,
+made with it (`Quality::ui_quads`, 1024, sets where its instance buffer
+starts): `Renderer::set_ui_texture` and `Renderer::render_ui` draw the HUD
+over the frame `render` drew, and its pass, draw calls and uploaded bytes
+count in that frame's `FrameStats`.
 
 ## Using it from code
 

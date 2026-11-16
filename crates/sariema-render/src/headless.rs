@@ -8,6 +8,7 @@ use image::RgbaImage;
 use sariema_core::Camera;
 use sariema_format::RoomPack;
 
+use crate::ui::{UiBatch, UiInstance};
 use crate::{Gpu, Quality, RenderConfig, RenderError, Renderer, request_device};
 
 const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -61,6 +62,11 @@ impl Headless {
     /// Draws a frame without reading it back.
     pub fn draw(&mut self, camera: &Camera, time_s: f32) {
         self.renderer.render(camera, time_s, &self.view);
+    }
+
+    /// Draws the HUD's quads over the last frame drawn.
+    pub fn draw_ui(&mut self, instances: &[UiInstance], batches: &[UiBatch]) {
+        self.renderer.render_ui(&self.view, instances, batches);
     }
 
     /// Blocks until the GPU has executed every frame drawn so far.

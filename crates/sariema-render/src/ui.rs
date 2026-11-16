@@ -391,6 +391,9 @@ pub struct UiPass {
     linear_out: bool,
     draw_calls: u32,
     buffers_created: u32,
+    /// Texel bytes uploaded since the last draw.
+    pending: u64,
+    uploaded: u64,
 }
 
 impl UiPass {
@@ -535,6 +538,8 @@ impl UiPass {
             linear_out: format.is_srgb(),
             draw_calls: 0,
             buffers_created: 2,
+            pending: 0,
+            uploaded: 0,
         }
     }
 
@@ -548,6 +553,7 @@ impl UiPass {
         format: UiTextureFormat,
         texels: &[u8],
     ) {
+        self.pending += texels.len() as u64;
         let i = id as usize;
         if self.textures.len() <= i {
             self.textures.resize_with(i + 1, || None);
@@ -602,10 +608,12 @@ impl UiPass {
         };
         self.queue
             .write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
-        if !instances.is_empty() {
-            self.queue
-                .write_buffer(&self.instances, 0, bytemuck::cast_slice(instances));
+        let quads: &[u8] = bytemuck::cast_slice(instances);
+        if !quads.is_empty() {
+            self.queue.write_buffer(&self.instances, 0, quads);
         }
+        self.uploaded =
+            std::mem::take(&mut self.pending) + size_of::<Globals>() as u64 + quads.len() as u64;
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("ui"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -650,6 +658,12 @@ impl UiPass {
     /// Buffers created since [`UiPass::new`].
     pub fn buffers_created(&self) -> u32 {
         self.buffers_created
+    }
+
+    /// Bytes the last [`UiPass::draw`] wrote to buffers, with the texels
+    /// [`UiPass::set_texture`] uploaded since the draw before it.
+    pub fn uploaded(&self) -> u64 {
+        self.uploaded
     }
 }
 

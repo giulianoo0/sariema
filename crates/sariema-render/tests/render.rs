@@ -528,3 +528,46 @@ fn quality_is_clamped_to_the_device() {
         "{q:?}"
     );
 }
+
+#[test]
+fn the_hud_pass_is_counted_with_its_frame_and_creates_nothing_while_drawing() {
+    use sariema_render::ui::{UiBatch, UiInstance, UiTextureFormat};
+    let room = demo_room();
+    let mut h = headless(Quality::low(), &room);
+    let (pipelines, buffers) = (
+        h.renderer().pipelines_created(),
+        h.renderer().buffers_created(),
+    );
+    let quad = UiInstance {
+        rect: [10.0, 10.0, 100.0, 50.0],
+        xform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        fill: [1.0, 0.0, 0.0, 1.0],
+        ..UiInstance::default()
+    };
+    let batch = UiBatch {
+        texture: 9,
+        scissor: [0, 0, W, H],
+        start: 0,
+        count: 2,
+    };
+    for _ in 0..3 {
+        h.draw(&camera_of(&room), 0.0);
+        let scene = h.renderer().last_frame_stats();
+        h.renderer()
+            .set_ui_texture(9, 2, 2, UiTextureFormat::Rgba8, &[255; 16]);
+        h.draw_ui(&[quad, quad], &[batch]);
+        let frame = h.renderer().last_frame_stats();
+        assert_eq!(frame.passes, scene.passes + 1);
+        assert_eq!(frame.draws, scene.draws + 1);
+        let quads = 2 * size_of::<UiInstance>() as u64;
+        assert_eq!(frame.bytes_uploaded, scene.bytes_uploaded + 16 + quads + 16);
+    }
+    assert_eq!(h.renderer().pipelines_created(), pipelines);
+    assert_eq!(h.renderer().buffers_created(), buffers);
+    let image = h.image();
+    let p = image.get_pixel(20, 20);
+    assert!(
+        p[0] > 200 && p[1] < 40,
+        "the quad is drawn over the room: {p:?}"
+    );
+}

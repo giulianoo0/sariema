@@ -52,6 +52,7 @@ use resources::Room;
 use scene::Scene;
 use shadow::{Assigned, Shadows};
 use timing::{GpuTimer, Stopwatch};
+use ui::{UiBatch, UiInstance, UiPass, UiTarget, UiTextureFormat};
 
 #[derive(Clone, Debug)]
 pub struct RenderConfig {
@@ -188,6 +189,7 @@ pub struct Renderer {
     post: Post,
     actors: Actors,
     room: Option<Room>,
+    ui: UiPass,
     visible: Visible,
     stats: FrameStats,
     timings: FrameTimings,
@@ -235,6 +237,13 @@ impl Renderer {
         let scene = Scene::new(&gpu, (width, height), &quality, layouts, &shadows);
         let post = Post::new(&gpu, config.output_format, &quality, &scene);
         let actors = Actors::new(&gpu, &quality);
+        let ui = UiPass::new(
+            gpu.device.clone(),
+            gpu.queue.clone(),
+            config.output_format,
+            quality.ui_quads,
+        );
+        gpu.pipelines.set(gpu.pipelines.get() + 1);
         Ok(Renderer {
             gpu,
             quality,
@@ -245,6 +254,7 @@ impl Renderer {
             post,
             actors,
             room: None,
+            ui,
             visible: Visible::default(),
             stats: FrameStats::default(),
             timings: FrameTimings::default(),
@@ -426,6 +436,41 @@ impl Renderer {
         };
     }
 
+    /// Creates HUD texture `id` or replaces its texels, uploaded with the
+    /// next [`Renderer::render_ui`]: the glyph atlas is
+    /// `sariema_ui::ATLAS_TEXTURE`, image `i` is `1 + i`.
+    pub fn set_ui_texture(
+        &mut self,
+        id: u32,
+        width: u32,
+        height: u32,
+        format: UiTextureFormat,
+        texels: &[u8],
+    ) {
+        self.ui.set_texture(id, width, height, format, texels);
+    }
+
+    /// Draws the HUD's quads over `target` after [`Renderer::render`] drew
+    /// the frame into it; its pass, draws and uploads count with that frame.
+    pub fn render_ui(
+        &mut self,
+        target: &wgpu::TextureView,
+        instances: &[UiInstance],
+        batches: &[UiBatch],
+    ) {
+        let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
+        let target = UiTarget {
+            view: target,
+            width: self.width,
+            height: self.height,
+        };
+        self.ui.draw(&mut encoder, target, instances, batches, None);
+        self.gpu.queue.submit([encoder.finish()]);
+        self.stats.passes += 1;
+        self.stats.draws += self.ui.draw_calls();
+        self.stats.bytes_uploaded += self.ui.uploaded();
+    }
+
     /// Depth of the non-additive visible draws into a single-sample
     /// `Depth32Float` view cleared to 1.
     pub(crate) fn render_depth(&mut self, camera: &Camera, depth: &wgpu::TextureView) {
@@ -447,7 +492,7 @@ impl Renderer {
 
     /// Buffers created since [`Renderer::new`].
     pub fn buffers_created(&self) -> u32 {
-        self.gpu.buffers.get()
+        self.gpu.buffers.get() + self.ui.buffers_created()
     }
 
     /// Shadow maps drawn since [`Renderer::new`], one per atlas slot drawn.

@@ -67,6 +67,8 @@ pub struct Quality {
     /// within its reach moves. An actor that none holds gets a disc shadow,
     /// so 0 gives every actor a disc.
     pub actor_shadow_slots: u32,
+    /// HUD quads the UI pass holds before its instance buffer grows.
+    pub ui_quads: u32,
 }
 
 impl Quality {
@@ -96,6 +98,7 @@ impl Quality {
             ao_max_radius_texels: 24,
             frustum_culling: true,
             actor_shadow_slots: 0,
+            ui_quads: 1024,
         }
     }
 
