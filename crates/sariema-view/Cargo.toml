@@ -16,3 +16,7 @@ sariema-render = { path = "../sariema-render" }
 sariema-runtime = { path = "../sariema-runtime" }
 sariema-ui = { path = "../sariema-ui" }
 wgpu.workspace = true
+
+[dev-dependencies]
+image.workspace = true
+sariema-import = { path = "../sariema-import" }

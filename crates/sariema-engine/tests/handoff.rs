@@ -37,7 +37,7 @@ fn socket<L: Logic>(engine: &Engine<L>, e: Entity, name: &str) -> Vec3 {
 #[test]
 fn a_traversal_contact_lands_the_socket_it_names_on_its_point() {
     let mut assets = assets();
-    let collision = assets.collision.as_mut().unwrap();
+    let collision = std::sync::Arc::make_mut(assets.rooms[0].collision.as_mut().unwrap());
     collision.traversals[0].contacts = vec![Contact {
         name: "grip".into(),
         point: CONTACT,

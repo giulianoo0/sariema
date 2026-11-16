@@ -36,7 +36,19 @@
         "cutscenes": { "type": "string", "minLength": 1, "default": "cutscenes", "description": "Directory whose *.json files are cutscenes (schemas/cutscene.schema.json), relative to the project directory." },
         "settings": { "type": "object", "description": "Runtime settings overriding the defaults; `sariema api --json` lists every key." },
         "toolchain": { "type": "string", "minLength": 1, "description": "rustup toolchain that builds the logic, such as 1.100.0; without it, the cargo on PATH, which needs the wasm32-unknown-unknown target." },
-        "room": { "type": "string", "minLength": 1, "description": "Room id from `rooms` the game plays in, built into the game pack with its collision; the first room without it." },
+        "room": { "type": "string", "minLength": 1, "description": "Room id from `rooms` the game starts in, built into the game pack with its collision; the first room without it." },
+        "rooms": {
+          "type": "object",
+          "description": "Rooms the game plays in besides the start room, by id from `rooms`, each built into the game pack after it; the start room may be listed for its own neighbours and ambience. A game switches rooms with `room_switch`; the host keeps a room's neighbours loaded while it is active.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "neighbours": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Rooms of `game.rooms` (or the start room) to keep loaded while this one is active, nearest first." },
+              "ambience": { "type": "string", "minLength": 1, "description": "A sound of the bank looped while the room is active, crossfaded with the next room's at a switch." }
+            }
+          }
+        },
         "hud": { "type": "string", "minLength": 1, "description": "Path of the HUD's UI description (schemas/ui.schema.json), relative to the project directory; built into the game pack with the fonts and images it names." }
       }
     }

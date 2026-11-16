@@ -6,6 +6,7 @@
 //! no-jump measurement judges them.
 
 use std::f32::consts::PI;
+use std::sync::Arc;
 
 use glam::{Quat, Vec2, Vec3};
 use sariema_core::STEP_SECONDS;
@@ -75,7 +76,7 @@ impl Traversing {
 
 pub struct Physics {
     pub world: World,
-    pack: CollisionPack,
+    pack: Arc<CollisionPack>,
     bodies: Vec<(u32, ActorCollider)>,
     /// By entity slot.
     actors: Vec<Option<Mapped>>,
@@ -99,7 +100,7 @@ pub struct Physics {
 
 impl Physics {
     pub fn new(
-        pack: CollisionPack,
+        pack: Arc<CollisionPack>,
         settings: &EngineSettings,
         turn_rate: f32,
     ) -> Result<Physics, String> {
@@ -181,6 +182,48 @@ impl Physics {
                 PhysicsIntent::Teleport { .. } | PhysicsIntent::Stop { .. }
             ) {
                 self.halt(s, intent);
+            }
+        }
+    }
+
+    /// Hands every actor to `next`, the world of the room switched to: it
+    /// leaves this one, whose triggers it exits as the game hears, and
+    /// enters `next` where the runtime has it, with its velocity, walking
+    /// on to its goal.
+    pub(crate) fn hand_over(&mut self, next: &mut Physics, s: &mut State) {
+        let carried: Vec<(Entity, (Vec3, f32))> = (self.actors.iter().flatten())
+            .map(|m| (m.entity, self.world.actor_velocity(m.id)))
+            .collect();
+        self.events.clear();
+        for m in self.actors.iter().flatten() {
+            self.world.set_actor_active(m.id, false, &mut self.events);
+        }
+        self.report(s);
+        self.events.clear();
+        for i in 0..self.actors.len() {
+            if let Some(m) = self.actors[i].take() {
+                self.retire(m);
+            }
+        }
+        next.track(s);
+        for &(entity, (velocity, vertical)) in &carried {
+            if let Some(m) = next.mapped(entity) {
+                let id = m.id;
+                next.world.set_actor_velocity(id, velocity, vertical);
+            }
+        }
+        for (entity, _) in carried {
+            match s.motion.get(entity).map(|m| m.goal) {
+                Some(Goal::To { target, speed }) => next.apply(
+                    s,
+                    PhysicsIntent::MoveTo {
+                        entity,
+                        target,
+                        speed,
+                    },
+                ),
+                Some(Goal::Velocity(v)) => next.velocity(s, entity, v),
+                Some(Goal::Idle) | None => {}
             }
         }
     }

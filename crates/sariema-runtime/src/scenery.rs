@@ -178,6 +178,9 @@ pub struct Scenery {
     bindings: Vec<Option<(Entity, Binding)>>,
     /// This step's, emptied when the next step starts.
     pub requests: Vec<RoomRequest>,
+    /// Every room the game asked to preload, the latest last, until it
+    /// becomes active.
+    preloads: Vec<usize>,
 }
 
 impl Scenery {
@@ -187,6 +190,7 @@ impl Scenery {
         switch: None,
         bindings: Vec::new(),
         requests: Vec::new(),
+        preloads: Vec::new(),
     };
 
     /// The rooms of a pack, the first active.
@@ -237,7 +241,17 @@ impl Scenery {
     pub fn preload(&mut self, room: u32) -> Result<(), SceneReject> {
         let i = self.room_of(room).ok_or(SceneReject::UnknownRoom)?;
         self.requests.push(RoomRequest::Preload(i));
+        self.preloads.retain(|&r| r != i);
+        if i != self.active {
+            self.preloads.push(i);
+        }
         Ok(())
+    }
+
+    /// The rooms the game asked to preload and has not entered, the latest
+    /// last.
+    pub fn preloads(&self) -> &[usize] {
+        &self.preloads
     }
 
     /// Makes `room` active; false when it already was.
@@ -261,6 +275,7 @@ impl Scenery {
             }),
         };
         self.active = i;
+        self.preloads.retain(|&r| r != i);
         self.requests.push(RoomRequest::Switch(i));
         Ok(true)
     }

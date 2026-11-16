@@ -145,7 +145,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     let mut game = match game {
         Some(pack) => Some(GameFrame::load(
             &mut renderer,
-            &room,
+            !args.no_shadows,
             pack,
             args.input.as_deref(),
             size,

@@ -50,7 +50,7 @@ pub(crate) struct DrawItem {
     pub index_count: u32,
     first_index: u32,
     /// 1 drawn whole, 0 gone; between, an opaque draw dithers and a
-    /// blended one fades.
+    /// blended one fades. Negative, it dithers in the complementary pattern.
     pub presence: f32,
     own: bool,
     group_on: bool,
@@ -68,7 +68,7 @@ impl DrawItem {
 
     /// Whether it uses a dithered pipeline: opaque and partly present.
     pub fn dithered(&self) -> bool {
-        self.presence < 1.0 && self.kind.is_opaque()
+        self.presence.abs() < 1.0 && self.kind.is_opaque()
     }
 }
 
@@ -103,6 +103,10 @@ pub(crate) struct Room {
     pub toggled: Vec<(Vec3, Vec3)>,
     /// Whether a light was switched on or off since the renderer last looked.
     pub lights_switched: bool,
+    /// How much of it is drawn, 0 to 1.
+    pub presence: f32,
+    /// What its lights' intensities are multiplied by.
+    pub light_scale: f32,
     vertices: wgpu::Buffer,
     /// Each mesh's indices already offset to its first vertex: WebGL2 draws
     /// with no base vertex.
@@ -206,8 +210,11 @@ impl Room {
         true
     }
 
-    /// Sets every draw's presence.
-    pub fn set_presence(&mut self, presence: f32) {
+    /// Sets every draw's presence, dithered in the complementary pattern
+    /// when `inverted`.
+    pub fn set_presence(&mut self, presence: f32, inverted: bool) {
+        self.presence = presence;
+        let presence = if inverted { -presence } else { presence };
         for d in 0..self.draws.len() {
             if self.draws[d].presence != presence {
                 self.draws[d].presence = presence;
@@ -557,6 +564,8 @@ impl PendingRoom {
                 .collect(),
             toggled: Vec::new(),
             lights_switched: false,
+            presence: 1.0,
+            light_scale: 1.0,
             vertices: self.vertices,
             indices: self.indices,
             draw_group,

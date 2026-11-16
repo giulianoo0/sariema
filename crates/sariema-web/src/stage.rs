@@ -179,7 +179,7 @@ impl Stage {
         let mut room =
             sariema_format::decode(bytes).map_err(|e| StageError::new(e.code(), e.to_string()))?;
         if !self.settings.shadows {
-            without_shadows(&mut room);
+            sariema_view::without_shadows(&mut room);
         }
         self.renderer.load_room(&room)?;
         self.room_camera = Some(room.camera.clone());
@@ -434,16 +434,6 @@ impl Stage {
             "bytes_uploaded": f.bytes_uploaded,
             "audio_queued_frames": self.sound.as_ref().map(|s| s.feed.queued()),
         })
-    }
-}
-
-/// The room with no light or sun casting a shadow.
-pub fn without_shadows(room: &mut sariema_format::RoomPack) {
-    if let Some(sun) = &mut room.sun {
-        sun.casts_shadow = false;
-    }
-    for light in &mut room.lights {
-        light.casts_shadow = false;
     }
 }
 

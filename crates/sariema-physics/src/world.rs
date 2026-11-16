@@ -321,6 +321,22 @@ impl World {
         }
     }
 
+    /// The actor's horizontal velocity and vertical speed, m/s: what its
+    /// next step accelerates from.
+    pub fn actor_velocity(&self, id: ActorId) -> (Vec3, f32) {
+        let a = &self.actors[id.0 as usize];
+        (a.velocity, a.vertical)
+    }
+
+    /// Sets what [`World::actor_velocity`] gives, for an actor carried over
+    /// from another world without losing its speed.
+    pub fn set_actor_velocity(&mut self, id: ActorId, velocity: Vec3, vertical: f32) {
+        let a = &mut self.actors[id.0 as usize];
+        a.velocity = velocity;
+        a.vertical = vertical;
+        a.awake = true;
+    }
+
     pub fn actor_collider(&self, id: ActorId) -> ActorCollider {
         self.actors[id.0 as usize].desc.collider
     }

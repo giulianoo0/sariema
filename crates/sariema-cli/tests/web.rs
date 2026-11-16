@@ -120,7 +120,8 @@ fn a_game_project_becomes_a_game_pack_in_both_texture_variants() {
         assert_eq!(done["game"][variant]["bytes"], bytes.len());
         let pack = decode_game(&bytes).unwrap();
         assert_eq!(pack.name, "climb");
-        let room = sariema_format::decode(pack.assets.room.as_deref().unwrap()).unwrap();
+        let room = pack.assets.rooms[0].room.as_deref().unwrap();
+        let room = sariema_format::decode(room).unwrap();
         assert!(!room.textures.is_empty());
         assert!(room.textures.iter().all(|t| t.format == format), "{file}");
     }

@@ -3,6 +3,7 @@
 //! A project's game: its logic crate, cutscenes and runtime settings, built
 //! into a game pack by `build`; and the cutscene rules `check` enforces.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -41,9 +42,13 @@ struct GameSection {
     settings: Option<Value>,
     #[serde(default)]
     toolchain: Option<String>,
-    /// The room the game plays in; the project's first without it.
+    /// The room the game starts in; the project's first without it.
     #[serde(default)]
     room: Option<String>,
+    /// The other rooms the game plays in, with their neighbours and
+    /// ambience.
+    #[serde(default)]
+    rooms: BTreeMap<String, crate::bundle::RoomEntry>,
     /// The HUD's UI description.
     #[serde(default)]
     hud: Option<PathBuf>,
@@ -192,7 +197,13 @@ pub fn build(dir: &Path, output: &Path, textures: Option<TextureMode>) -> Result
         cutscenes: compiled.cutscenes,
         names: compiled.names,
         settings: text,
-        assets: crate::bundle::assets(dir, game.room.as_deref(), game.hud.as_deref(), textures)?,
+        assets: crate::bundle::assets(
+            dir,
+            game.room.as_deref(),
+            &game.rooms,
+            game.hud.as_deref(),
+            textures,
+        )?,
     };
     pack.wasm = compile_logic(&dir.join(&game.logic), game.toolchain.as_deref())?;
     start(pack.clone(), 0).map_err(|e| Failure::new(e.code, format!("{}: {e}", dir.display())))?;
@@ -207,8 +218,9 @@ pub fn build(dir: &Path, output: &Path, textures: Option<TextureMode>) -> Result
             "wasm_bytes": pack.wasm.len(),
             "batch_version": pack.batch_version,
             "cutscenes": cutscenes,
-            "room": pack.assets.room.is_some(),
-            "collision": pack.assets.collision.is_some(),
+            "room": !pack.assets.rooms.is_empty(),
+            "rooms": pack.assets.rooms.iter().map(|r| &r.name).collect::<Vec<_>>(),
+            "collision": pack.assets.rooms.first().is_some_and(|r| r.collision.is_some()),
             "actors": pack.assets.actors.iter().map(|(n, _)| n).collect::<Vec<_>>(),
             "sounds": pack.assets.sounds.is_some(),
             "hud": pack.assets.hud.is_some(),

@@ -30,6 +30,7 @@ fn house() -> RoomIndex {
             name: "kitchen.door".into(),
             pivot,
             visible: false,
+            hinge: None,
         }],
         pieces: vec![PieceIndex {
             name: "kitchen.tv".into(),

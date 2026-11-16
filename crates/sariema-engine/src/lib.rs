@@ -12,25 +12,30 @@ mod assets;
 mod audio;
 mod hud;
 mod physics;
+mod rooms;
 mod settings;
 mod view;
 
 use std::time::Duration;
+
+use rooms::Rooms;
 
 use sariema_format::script::cutscene::Block;
 use sariema_format::script::{Event, GamePack};
 use sariema_runtime::clock::Tick;
 use sariema_runtime::game::{LoadError, WasmLogic};
 use sariema_runtime::input::{Actions, RawInput};
+use sariema_runtime::scenery::RoomScene;
 use sariema_runtime::sim::{Logic, Modules, Simulation};
 use sariema_runtime::state::State;
 use sariema_ui::SafeArea;
 
 pub use anim::{Animation, Model};
-pub use assets::Assets;
+pub use assets::{Assets, RoomAssets};
 pub use audio::Sound;
 pub use hud::{Hud, KEEP_IN_CUTSCENES};
 pub use physics::{Physics, to_physics, to_runtime};
+pub use rooms::{BuiltWorld, WorldJob};
 pub use settings::{EngineSettings, HudSettings, SoundSettings};
 pub use view::ActorView;
 
@@ -53,7 +58,7 @@ pub const REJECTED: &[&str] = &[
 pub struct Engine<L> {
     sim: Simulation<L>,
     anim: Animation,
-    physics: Option<Physics>,
+    rooms: Rooms,
     sound: Option<Sound>,
     hud: Hud,
     actions: Actions,
@@ -65,13 +70,14 @@ pub struct Engine<L> {
 /// would: animation first, as a traversal's contact needs this step's pose.
 struct Stages<'a> {
     anim: &'a mut Animation,
-    physics: Option<&'a mut Physics>,
+    rooms: &'a mut Rooms,
 }
 
 impl Modules for Stages<'_> {
     fn step(&mut self, s: &mut State) {
         self.anim.step(s);
-        if let Some(physics) = self.physics.as_deref_mut() {
+        self.rooms.follow(s);
+        if let Some(physics) = self.rooms.active_mut() {
             physics.step(s, self.anim);
         }
     }
@@ -87,7 +93,7 @@ impl Engine<WasmLogic> {
     ) -> Result<Self, LoadError> {
         let assets = Assets::decode(std::mem::take(&mut pack.assets))?;
         let mut runtime = sariema_runtime::game::pack_settings(&pack)?;
-        if assets.collision.is_some() {
+        if assets.collides() {
             runtime.motion.builtin = false;
         }
         let mut lines = Vec::new();
@@ -133,7 +139,7 @@ impl<L: Logic> Engine<L> {
         settings: EngineSettings,
     ) -> Result<Self, LoadError> {
         let s = sim.state();
-        if assets.collision.is_some() && s.settings.motion.builtin {
+        if assets.collides() && s.settings.motion.builtin {
             return Err(LoadError {
                 code: "E_SETTINGS",
                 message: "a room's collision moves the actors, so motion.builtin must be off"
@@ -146,23 +152,31 @@ impl<L: Logic> Engine<L> {
             .iter()
             .map(|(name, pack)| Model::new(name, pack).map_err(failed("E_SCHEMA")))
             .collect::<Result<Vec<_>, _>>()?;
-        let physics = match assets.collision {
-            Some(pack) => Some(
-                Physics::new(pack, &settings, s.settings.motion.turn_rate)
-                    .map_err(failed("E_SCHEMA"))?,
-            ),
-            None => None,
+        let rooms = Rooms::new(assets.rooms, &settings, s.settings.motion.turn_rate)
+            .map_err(failed("E_SCHEMA"))?;
+        let audio_failed = |e: sariema_audio::AudioError| LoadError {
+            code: e.code(),
+            message: e.to_string(),
         };
+        let ambiences: Vec<Option<&str>> = (rooms.assets.iter())
+            .map(|r| r.ambience.as_deref())
+            .collect();
         let sound = match assets.sounds {
-            Some(bank) => Some(
-                Sound::new(bank, settings.mixer.clone(), settings.audio).map_err(|e| {
-                    LoadError {
-                        code: e.code(),
-                        message: e.to_string(),
-                    }
-                })?,
-            ),
-            None => None,
+            Some(bank) => {
+                let mut sound = Sound::new(bank, settings.mixer.clone(), settings.audio)
+                    .map_err(audio_failed)?;
+                sound.set_ambiences(&ambiences).map_err(audio_failed)?;
+                Some(sound)
+            }
+            None => match ambiences.iter().flatten().next() {
+                Some(name) => {
+                    return Err(LoadError {
+                        code: "E_AUDIO_UNKNOWN_SOUND",
+                        message: format!("room ambience {name}: the game has no sound bank"),
+                    });
+                }
+                None => None,
+            },
         };
         let input = &s.settings.input;
         let hud = match &assets.hud {
@@ -184,11 +198,17 @@ impl<L: Logic> Engine<L> {
             })?,
             None => Hud::bare(input, settings.hud),
         };
+        let (actions, touch) = (Actions::for_settings(input), Actions::for_settings(input));
+        let scenes = (rooms.assets.iter())
+            .map(|r| RoomScene::new(&r.name, r.index.clone()))
+            .collect();
+        let mut sim = sim;
+        sim.set_rooms(scenes);
         Ok(Engine {
             anim: Animation::new(models, settings.anim.clone()),
-            actions: Actions::for_settings(input),
-            touch: Actions::for_settings(input),
-            physics,
+            actions,
+            touch,
+            rooms,
             sound,
             hud,
             rejected: Vec::new(),
@@ -245,11 +265,11 @@ impl<L: Logic> Engine<L> {
         }
         let mut stages = Stages {
             anim: &mut self.anim,
-            physics: self.physics.as_mut(),
+            rooms: &mut self.rooms,
         };
         self.sim.step_with(&self.actions, &mut stages);
         let s = self.sim.state();
-        if let Some(physics) = &mut self.physics {
+        if let Some(physics) = self.rooms.active_mut() {
             physics.after_step(s);
         }
         if let Some(sound) = &mut self.sound {
@@ -288,8 +308,57 @@ impl<L: Logic> Engine<L> {
         self.sim.alpha()
     }
 
+    /// The active room's collision.
     pub fn physics(&self) -> Option<&Physics> {
-        self.physics.as_ref()
+        self.rooms.active()
+    }
+
+    /// The pack's rooms, the first where the game starts.
+    pub fn rooms(&self) -> &[RoomAssets] {
+        &self.rooms.assets
+    }
+
+    /// The rooms to have loaded now, the most needed first: the active one,
+    /// the one a switch is leaving, the rooms the game asked to preload
+    /// (the latest first), then the active one's neighbours.
+    pub fn wanted_rooms(&self) -> Vec<usize> {
+        let scenery = &self.sim.state().scenery;
+        let active = scenery.active();
+        let mut wanted = vec![active];
+        let mut add = |r: usize| {
+            if !wanted.contains(&r) {
+                wanted.push(r);
+            }
+        };
+        if let Some(switch) = scenery.switch() {
+            add(switch.from);
+        }
+        scenery.preloads().iter().rev().for_each(|&r| add(r));
+        if let Some(room) = self.rooms.assets.get(active) {
+            room.neighbours.iter().for_each(|&r| add(r as usize));
+        }
+        wanted
+    }
+
+    /// Jobs building the collision worlds of `rooms` not built nor handed
+    /// out yet; give each built world back with [`Engine::install_world`].
+    /// A switch to a room whose world is not in builds it in the step.
+    pub fn world_jobs(&mut self, rooms: &[usize]) -> Vec<WorldJob> {
+        self.rooms.jobs(rooms)
+    }
+
+    pub fn install_world(&mut self, built: BuiltWorld) {
+        self.rooms.install(built);
+    }
+
+    /// Whether room `room`'s collision world is built, or it has none.
+    pub fn world_ready(&self, room: usize) -> bool {
+        self.rooms.built(room)
+            || self
+                .rooms
+                .assets
+                .get(room)
+                .is_some_and(|r| r.collision.is_none())
     }
 
     pub fn animation(&self) -> &Animation {
@@ -337,7 +406,7 @@ impl<L: Logic> Engine<L> {
     pub fn state_hash(&self) -> u64 {
         let mut h = Fnv::default();
         h.u64(self.sim.state_hash());
-        if let Some(physics) = &self.physics {
+        if let Some(physics) = self.rooms.active() {
             h.u64(physics.world.state_hash());
         }
         for (e, clip, time) in self.anim.clip_times() {

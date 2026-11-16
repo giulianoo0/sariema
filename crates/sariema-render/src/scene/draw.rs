@@ -172,7 +172,7 @@ impl Scene {
         self.order.clear();
         for (slot, room) in stage.drawn() {
             for (i, d) in room.draws.iter().enumerate() {
-                if !d.visible || d.index_count == 0 || d.presence <= 0.0 {
+                if !d.visible || d.index_count == 0 || d.presence == 0.0 {
                     continue;
                 }
                 if self.frustum_culling && !cull::box_visible(&planes, d.min, d.max) {

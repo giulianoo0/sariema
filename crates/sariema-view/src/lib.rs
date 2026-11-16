@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! A game in the engine drawn by the renderer: the room of its pack, a drawn
-//! actor for every animated entity, the camera the runtime gives at the
-//! frame's `alpha`, and the HUD over it all.
+//! A game in the engine drawn by the renderer: the rooms of its pack, loaded
+//! and shown as `rooms` tells, a drawn actor for every animated entity, the
+//! camera the runtime gives at the frame's `alpha`, and the HUD over it all.
+
+mod rooms;
+
+pub use rooms::{RoomsFrame, ViewSettings};
 
 use glam::Mat4;
 use sariema_core::{Camera, pose_camera, room_camera};
@@ -56,42 +60,63 @@ pub struct GameView {
     /// Whether this view's renderer has the HUD's glyph atlas, which a
     /// new renderer for a running game lacks.
     atlas: bool,
-    room: RoomCamera,
+    rooms: rooms::Rooms,
+    /// The start room's camera, for a game that set none in a room without
+    /// one.
+    camera: RoomCamera,
 }
 
-/// The room a game pack carries.
+/// The room a game pack starts in, decoded.
 pub fn room(assets: &GameAssets) -> Result<RoomPack, ViewError> {
-    let bytes = assets.room.as_ref().ok_or_else(|| {
-        ViewError::new(
-            "E_SCHEMA",
-            "game pack: it has no room to draw; give the project a room",
-        )
-    })?;
+    let bytes = (assets.rooms.first())
+        .and_then(|r| r.room.as_ref())
+        .ok_or_else(|| {
+            ViewError::new(
+                "E_SCHEMA",
+                "game pack: it has no room to draw; give the project a room",
+            )
+        })?;
     sariema_format::decode(bytes).map_err(|e| ViewError::new(e.code(), format!("game pack: {e}")))
 }
 
+/// Turns off every shadow of `room`, for a device without the budget.
+pub fn without_shadows(room: &mut RoomPack) {
+    if let Some(sun) = &mut room.sun {
+        sun.casts_shadow = false;
+    }
+    for light in &mut room.lights {
+        light.casts_shadow = false;
+    }
+}
+
 impl GameView {
-    /// Loads the pack's room and the actor packs of the engine's models.
+    /// Loads the room the game is in and the actor packs of the engine's
+    /// models; the other rooms load as the engine wants them.
     pub fn load<L: Logic>(
         renderer: &mut Renderer,
         assets: &GameAssets,
         engine: &Engine<L>,
     ) -> Result<GameView, ViewError> {
-        GameView::load_room(renderer, &room(assets)?, assets, engine)
+        GameView::load_with(renderer, assets, engine, ViewSettings::default())
     }
 
-    /// Loads `room`, the pack's own or one changed from it, and the actor
-    /// packs of the engine's models.
-    pub fn load_room<L: Logic>(
+    pub fn load_with<L: Logic>(
         renderer: &mut Renderer,
-        room: &RoomPack,
         assets: &GameAssets,
         engine: &Engine<L>,
+        settings: ViewSettings,
     ) -> Result<GameView, ViewError> {
         let failed = |code: &'static str, e: &dyn std::fmt::Display| {
             ViewError::new(code, format!("game pack: {e}"))
         };
-        renderer.load_room(room)?;
+        let mut rooms = rooms::Rooms::new(engine, settings);
+        let active = engine.state().scenery.active();
+        let camera = rooms.load_now(renderer, active)?.unwrap_or(RoomCamera {
+            fov_y_deg: 40.0,
+            pitch_deg: 45.0,
+            distance: 10.0,
+            focus: [0.0; 3],
+        });
         let (mut models, mut rest) = (Vec::new(), Vec::new());
         for model in engine.models() {
             let bytes = assets
@@ -114,22 +139,41 @@ impl GameView {
             batches: Vec::new(),
             images: 0,
             atlas: false,
-            room: room.camera.clone(),
+            rooms,
+            camera,
         })
+    }
+
+    /// Loads, frees and shows the rooms as a frame at `alpha` would, without
+    /// drawing it: for a host that skips drawing some frames.
+    pub fn update_rooms<L: Logic>(
+        &mut self,
+        renderer: &mut Renderer,
+        engine: &mut Engine<L>,
+        alpha: f32,
+    ) -> Result<(), ViewError> {
+        self.rooms.update(renderer, engine, alpha)
+    }
+
+    /// What loading rooms did in the last frame drawn.
+    pub fn rooms_frame(&self) -> RoomsFrame {
+        self.rooms.frame()
     }
 
     /// The runtime's camera at `alpha`; the room's own before the game
     /// chose one.
     pub fn camera<L: Logic>(&self, engine: &Engine<L>, alpha: f32, aspect: f32) -> Camera {
+        let active = engine.state().scenery.active();
+        let room = self.rooms.camera(active).unwrap_or(&self.camera);
         match engine.camera(alpha) {
             Some(pose) => pose_camera(
                 pose.position,
                 pose.rotation,
                 pose.fov,
                 aspect,
-                self.room.distance,
+                room.distance,
             ),
-            None => room_camera(&self.room, aspect),
+            None => room_camera(room, aspect),
         }
     }
 
@@ -157,6 +201,7 @@ impl GameView {
         aspect: f32,
         target: &wgpu::TextureView,
     ) -> Result<(), ViewError> {
+        self.rooms.update(renderer, engine, alpha)?;
         self.pose(renderer, engine, alpha)?;
         let camera = self.camera(engine, alpha, aspect);
         let time_s = engine.steps() as f32 * sariema_core::STEP_SECONDS;

@@ -8,7 +8,6 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use sariema_engine::{Engine, EngineSettings};
-use sariema_format::RoomPack;
 use sariema_format::script::GamePack;
 use sariema_render::Renderer;
 use sariema_runtime::game::WasmLogic;
@@ -18,7 +17,7 @@ use serde_json::{Value, json};
 
 use crate::output::Failure;
 use crate::simulate::read_log;
-use sariema_view::GameView;
+use sariema_view::{GameView, ViewSettings};
 
 pub struct GameFrame {
     name: String,
@@ -46,11 +45,11 @@ struct HudPass {
 }
 
 impl GameFrame {
-    /// The game in `pack` at its first step, drawn into `room`, which the
-    /// bench may have changed from the pack's own.
+    /// The game in `pack` at its first step, its rooms drawn with or
+    /// without `shadows`.
     pub fn load(
         renderer: &mut Renderer,
-        room: &RoomPack,
+        shadows: bool,
         pack: GamePack,
         input: Option<&Path>,
         size: (u32, u32),
@@ -61,7 +60,11 @@ impl GameFrame {
         };
         let mut engine =
             Engine::load(pack, 0, EngineSettings::default()).map_err(|e| failed(&e, e.code))?;
-        let view = GameView::load_room(renderer, room, &assets, &engine)?;
+        let settings = ViewSettings {
+            shadows,
+            ..ViewSettings::default()
+        };
+        let view = GameView::load_with(renderer, &assets, &engine, settings)?;
         let log = match input {
             Some(path) => read_log(path)?,
             None => InputLog::default(),

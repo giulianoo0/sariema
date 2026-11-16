@@ -60,8 +60,10 @@ override BLEND: bool = false;
 // Shadow lookups compare a PCF_SIDE × PCF_SIDE grid of texels.
 override PCF_SIDE: u32 = 1u;
 // An opaque draw with presence below 1 drops that share of its pixels, in a
-// pattern that changes every pixel; only its own pipelines discard, so the
-// others keep early depth testing on tile-based GPUs.
+// pattern that changes every pixel; a negative presence uses the pattern's
+// complement, so two rooms at p and −(1 − p) never draw the same pixel. Only
+// its own pipelines discard, so the others keep early depth testing on
+// tile-based GPUs.
 override DITHER: bool = false;
 
 struct VertexOut {
@@ -101,8 +103,12 @@ fn dither(pixel: vec2<f32>) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
-    if DITHER && in.presence <= dither(in.clip.xy) {
-        discard;
+    let presence = abs(in.presence);
+    if DITHER {
+        let d = dither(in.clip.xy);
+        if presence <= select(d, 1.0 - d, in.presence < 0.0) {
+            discard;
+        }
     }
     let base = material.base_color * textureSample(base_texture, material_sampler, in.uv) * in.color;
     let emissive = material.emissive * textureSample(emissive_texture, material_sampler, in.uv).rgb;
@@ -118,7 +124,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         color += material.rim * pow(1.0 - saturate(dot(n, v)), 5.2);
     }
     if BLEND {
-        return vec4(color * base.a, base.a) * in.presence;
+        return vec4(color * base.a, base.a) * presence;
     }
     return vec4(color, material.drawn);
 }

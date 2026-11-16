@@ -44,6 +44,11 @@ enum Pending {
         at: u64,
         request: MusicRequest,
     },
+    Ambience {
+        at: u64,
+        id: SoundId,
+        fade: f32,
+    },
 }
 
 pub struct Sound {
@@ -61,6 +66,10 @@ pub struct Sound {
     hash: u64,
     /// Requests the mixer refused, for the game at the next step.
     pub rejected: Vec<Event<'static>>,
+    /// By room, its ambience.
+    ambiences: Vec<Option<SoundId>>,
+    /// The room whose ambience plays, and its voice once playing.
+    ambience: Option<(usize, Option<VoiceId>)>,
 }
 
 impl Sound {
@@ -90,7 +99,50 @@ impl Sound {
             scratch: vec![0.0; 2 * (frame(1, rate) as usize + 1)],
             hash: FNV_OFFSET,
             rejected: Vec::with_capacity(settings.pending),
+            ambiences: Vec::new(),
+            ambience: None,
         })
+    }
+
+    /// Each room's ambience by sound name; an unknown name is an error.
+    pub fn set_ambiences(&mut self, names: &[Option<&str>]) -> Result<(), AudioError> {
+        self.ambiences = (names.iter())
+            .map(|name| match name {
+                Some(name) => (self.id(name_id(name)))
+                    .map(Some)
+                    .ok_or_else(|| AudioError::UnknownSound(name.to_string())),
+                None => Ok(None),
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(())
+    }
+
+    /// The active room's ambience in place of the last room's: the old one
+    /// fades out as the new one fades in, over the switch's duration.
+    fn ambience(&mut self, s: &State, at: u64) {
+        let room = s.scenery.active();
+        if self.ambience.is_some_and(|(r, _)| r == room) || self.ambiences.is_empty() {
+            return;
+        }
+        let fade = match (s.scenery.switch(), self.ambience) {
+            (_, None) => 0.0,
+            (Some(switch), _) => switch.steps as f32 * STEP_SECONDS,
+            (None, _) => self.settings.ambience_fade_s,
+        };
+        if let Some((_, Some(voice))) = self.ambience
+            && let Err(e) = self.audio.stop(at, voice, fade)
+        {
+            reject(&mut self.rejected, &PLAY_SOUND, e, Entity::NONE);
+        }
+        self.ambience = Some((room, None));
+        if let Some(Some(id)) = self.ambiences.get(room) {
+            self.defer(Pending::Ambience { at, id: *id, fade });
+        }
+    }
+
+    /// The room whose ambience plays, and whether its voice started.
+    pub fn ambience_room(&self) -> Option<(usize, bool)> {
+        self.ambience.map(|(r, v)| (r, v.is_some()))
     }
 
     /// The mixer, for a device to pull from; the engine then stops mixing
@@ -140,6 +192,7 @@ impl Sound {
         for &request in &s.outbox.music {
             self.defer(Pending::Music { at, request });
         }
+        self.ambience(s, at);
         self.follow(s, listener, at);
     }
 
@@ -159,6 +212,25 @@ impl Sound {
                     Err(e) => reject(&mut self.rejected, &PLAY_SOUND, e, request.emitter),
                 },
                 Pending::Music { at, request } => self.music(at, request),
+                Pending::Ambience { at, id, fade } => {
+                    let params = PlayParams {
+                        looped: Some(true),
+                        fade_in_s: fade,
+                        ..PlayParams::default()
+                    };
+                    let played = self
+                        .audio
+                        .preload(id)
+                        .and_then(|()| self.audio.play(at, id, params));
+                    match played {
+                        Ok(voice) => {
+                            if let Some((_, v)) = &mut self.ambience {
+                                *v = Some(voice);
+                            }
+                        }
+                        Err(e) => reject(&mut self.rejected, &PLAY_SOUND, e, Entity::NONE),
+                    }
+                }
             }
         }
         self.pending.clear();
@@ -180,6 +252,7 @@ impl Sound {
         let (command, entity) = match pending {
             Pending::Sound { request, .. } => (&PLAY_SOUND, request.emitter),
             Pending::Music { request, .. } => (music_command(request), Entity::NONE),
+            Pending::Ambience { .. } => (&PLAY_SOUND, Entity::NONE),
         };
         reject(&mut self.rejected, command, AudioError::QueueFull, entity);
     }

@@ -314,9 +314,9 @@ fn a_room_fades_in_by_its_presence() {
         h.renderer().load_room_into(1, &b).unwrap();
         h.renderer().set_drawn(&[0, 1]);
         let whole = h.render(&camera(&a), 0.0);
-        h.renderer().set_room_presence(1, 0.0);
+        h.renderer().set_room_presence(1, 0.0, false);
         assert_eq!(max_delta(&alone, &h.render(&camera(&a), 0.0)), 0, "absent");
-        h.renderer().set_room_presence(1, 0.5);
+        h.renderer().set_room_presence(1, 0.5, false);
         let half = h.render(&camera(&a), 0.0);
         let changed = |x: &RgbaImage| {
             (x.pixels().zip(alone.pixels()))
@@ -328,11 +328,67 @@ fn a_room_fades_in_by_its_presence() {
             (0.3..0.7).contains(&ratio),
             "half present changes {ratio} of the pixels"
         );
-        h.renderer().set_room_presence(1, 1.0);
+        h.renderer().set_room_presence(1, 1.0, false);
         assert_eq!(
             max_delta(&whole, &h.render(&camera(&a), 0.0)),
             0,
             "whole again"
         );
+    }
+}
+
+#[test]
+fn two_rooms_dissolving_share_no_pixel() {
+    for quality in [Quality::high(), downlevel()] {
+        let unlit = |mut room: RoomPack| {
+            room.lights.clear();
+            room.look.ao_strength = 0.0;
+            room.look.bloom_strength = 0.0;
+            room
+        };
+        let (a, b) = (unlit(demo_room()), unlit(neighbour()));
+        let alone = |room: &RoomPack| render(quality.clone(), room);
+        let (only_a, only_b) = (alone(&a), alone(&b));
+        let mut h = headless(quality.clone(), &a);
+        h.renderer().load_room_into(1, &b).unwrap();
+        h.renderer().set_drawn(&[1, 0]);
+        h.renderer()
+            .set_lighting(Some(sariema_render::Lighting::of(&a)));
+        let mut at = |p: f32| {
+            h.renderer().set_room_presence(1, p, false);
+            h.renderer().set_room_presence(0, 1.0 - p, true);
+            h.render(&camera(&a), 0.0)
+        };
+        assert_eq!(max_delta(&at(0.0), &only_a), 0, "the old room whole");
+        let half = at(0.5);
+        let near = |x: &image::Rgba<u8>, y: &image::Rgba<u8>| {
+            x.0.iter().zip(y.0).all(|(u, v)| u.abs_diff(v) <= 6)
+        };
+        let pixels = half.pixels().zip(only_a.pixels().zip(only_b.pixels()));
+        let (mut either, mut from_b, mut differ) = (0usize, 0usize, 0usize);
+        for (h, (pa, pb)) in pixels {
+            if near(pa, pb) {
+                continue;
+            }
+            differ += 1;
+            if near(h, pa) || near(h, pb) {
+                either += 1;
+            }
+            if near(h, pb) {
+                from_b += 1;
+            }
+        }
+        let share = from_b as f32 / differ as f32;
+        assert!(
+            either as f32 / differ as f32 > 0.97,
+            "{either} of {differ} pixels come from one room"
+        );
+        assert!(
+            (0.35..0.65).contains(&share),
+            "{share} of the pixels show the new room"
+        );
+        let whole = at(1.0);
+        let d = compare_images(&whole, &only_b).unwrap();
+        assert!(d.max_channel_delta <= 2, "the new room whole: {d:?}");
     }
 }

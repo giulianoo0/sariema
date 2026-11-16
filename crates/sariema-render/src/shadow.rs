@@ -92,6 +92,10 @@ fn allocate(atlas: u32, sun: bool, lights: usize, min: u32) -> (Option<Rect>, Ve
     (sun.filter(|r| r.size >= min), free.into())
 }
 
+/// A room dissolving casts shadows while at least this present, so its
+/// shadows switch once, halfway, instead of flickering with its pixels.
+pub(crate) const SHADOWING: f32 = 0.5;
+
 /// Room to place squares in without allocating.
 #[derive(Debug, Default)]
 struct Placing {
@@ -438,7 +442,8 @@ impl Shadows {
         }
         if !self.toggled.is_empty() || self.casters.is_none() {
             self.casters = Some(bounds(
-                (stage.drawn().flat_map(|(_, r)| r.draws.iter()))
+                (stage.drawn().filter(|(_, r)| r.presence >= SHADOWING))
+                    .flat_map(|(_, r)| r.draws.iter())
                     .filter(|d| d.visible && d.casts_shadow),
             ));
         }
@@ -563,7 +568,7 @@ impl Shadows {
             gpu.count_draws(1);
             pass.set_pipeline(&self.shadow);
             pass.set_bind_group(2, &self.views_group, &[i as u32 * self.view_stride]);
-            for (room_slot, room) in stage.drawn() {
+            for (room_slot, room) in stage.drawn().filter(|(_, r)| r.presence >= SHADOWING) {
                 let casters = room.draws.iter().enumerate().filter(|(_, d)| {
                     d.visible
                         && d.casts_shadow

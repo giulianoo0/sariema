@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::time::Instant;
 
-use sariema_engine::{Assets, Engine, EngineSettings};
+use sariema_engine::{Assets, Engine, EngineSettings, RoomAssets};
 use sariema_format::collision::{ActorBody, Collider, CollisionPack, HeadSphere, Shape};
 use sariema_format::script::{ClipMode, Command, Entity, Kind, name_id};
 use sariema_import::{ActorSource, build_actor};
@@ -135,8 +135,7 @@ fn main() {
     )
     .unwrap();
     let assets = Assets {
-        room: None,
-        collision: Some(floor(columns, rows)),
+        rooms: vec![RoomAssets::collision("floor", floor(columns, rows))],
         actors: vec![("hero".into(), hero)],
         sounds: None,
         hud: None,

@@ -31,7 +31,7 @@ fn pack(wat: &str) -> Vec<u8> {
         names: Vec::new(),
         settings: "{}".into(),
         assets: GameAssets {
-            room: Some(sariema_format::encode(&demo_room())),
+            rooms: vec![sariema_format::script::GameRoom::of("demo", &demo_room())],
             ..GameAssets::default()
         },
     })

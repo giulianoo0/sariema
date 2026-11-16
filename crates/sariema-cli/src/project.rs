@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use sariema_format::encode;
+use sariema_format::{RoomPack, encode};
 use sariema_import::{RoomSource, TextureMode, build_room};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -85,13 +85,13 @@ pub(crate) fn room_packs(
     dir: &Path,
     room: &str,
     textures: Option<TextureMode>,
-) -> Result<(Vec<u8>, Option<Vec<u8>>), Failure> {
+) -> Result<(RoomPack, Option<Vec<u8>>), Failure> {
     let (mut source, assets_root) = room_source(dir, room)?;
     source.textures = textures.or(source.textures);
     let pack = build_room(&source, &assets_root)?;
     let collision = sariema_import::build_collision(&source, &assets_root)?;
     Ok((
-        encode(&pack),
+        pack,
         collision.as_ref().map(sariema_format::collision::encode),
     ))
 }

@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::RoomPack;
+use crate::{Hinge, RoomPack};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RoomIndex {
@@ -26,6 +26,7 @@ pub struct NodeIndex {
     /// Column-major.
     pub pivot: [f32; 16],
     pub visible: bool,
+    pub hinge: Option<Hinge>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -225,6 +226,7 @@ impl RoomIndex {
                     name: n.name.clone(),
                     pivot: n.pivot,
                     visible: n.visible,
+                    hinge: n.hinge.clone(),
                 })
                 .collect(),
             pieces: (room.pieces.iter())

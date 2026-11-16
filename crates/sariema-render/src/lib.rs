@@ -289,21 +289,6 @@ impl Lighting {
     }
 }
 
-/// A light of a room as the host changes it at run time.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct LightChange {
-    /// Linear RGB.
-    pub color: [f32; 3],
-    /// Candela.
-    pub intensity: f32,
-    pub range: f32,
-    pub position: [f32; 3],
-    /// Where a spot points; ignored for a point light.
-    pub target: [f32; 3],
-    /// Off, it takes no place among the frame's lights.
-    pub on: bool,
-}
-
 /// The resident rooms by slot, and those drawn this frame.
 #[derive(Default)]
 pub(crate) struct Stage {
@@ -585,30 +570,90 @@ impl Renderer {
     }
 
     /// How much of the room in `slot` is drawn: 1 whole, 0 nothing; between,
-    /// its opaque draws dither and the others fade.
-    pub fn set_room_presence(&mut self, slot: u32, presence: f32) {
-        if let Some(room) = self.stage.get_mut(slot) {
-            room.set_presence(presence.clamp(0.0, 1.0));
+    /// its opaque draws dither, the others fade, and it casts shadows from
+    /// halfway. `inverted` dithers it in the complement
+    /// of the pattern, so a room at `p` and one at `1 − p` inverted share
+    /// no pixel: a dissolve.
+    pub fn set_room_presence(&mut self, slot: u32, presence: f32, inverted: bool) {
+        let Some(room) = self.stage.get_mut(slot) else {
+            return;
+        };
+        let presence = presence.clamp(0.0, 1.0);
+        let shadowing = |p: f32| p >= shadow::SHADOWING;
+        let crossed = shadowing(room.presence) != shadowing(presence);
+        room.set_presence(presence, inverted);
+        if crossed && self.stage.drawn.contains(&slot) {
+            self.restage();
         }
     }
 
-    /// Changes light `light` of the room in `slot`; false if there is none.
-    pub fn set_light(&mut self, slot: u32, light: usize, change: &LightChange) -> bool {
+    /// Multiplies the intensity of every light of the room in `slot`, as
+    /// when one room's light gives way to another's.
+    pub fn set_room_light_scale(&mut self, slot: u32, scale: f32) {
+        if let Some(room) = self.stage.get_mut(slot) {
+            room.light_scale = scale.max(0.0);
+        }
+    }
+
+    /// Sets the colour (linear RGB), intensity (candela) and range (metres)
+    /// of light `light` of the room in `slot`; false if there is none.
+    pub fn set_light_values(
+        &mut self,
+        slot: u32,
+        light: usize,
+        color: [f32; 3],
+        intensity: f32,
+        range: f32,
+    ) -> bool {
+        let Some(l) = self
+            .stage
+            .get_mut(slot)
+            .and_then(|r| r.lights.get_mut(light))
+        else {
+            return false;
+        };
+        l.color = color;
+        l.intensity = intensity;
+        l.range = range;
+        true
+    }
+
+    /// Moves light `light` of the room in `slot` to `position`, a spot
+    /// pointing at `target`; false if there is none.
+    pub fn set_light_position(
+        &mut self,
+        slot: u32,
+        light: usize,
+        position: [f32; 3],
+        target: Option<[f32; 3]>,
+    ) -> bool {
+        let Some(l) = self
+            .stage
+            .get_mut(slot)
+            .and_then(|r| r.lights.get_mut(light))
+        else {
+            return false;
+        };
+        l.position = position;
+        if let (sariema_format::LightKind::Spot { target: aim, .. }, Some(target)) =
+            (&mut l.kind, target)
+        {
+            *aim = target;
+        }
+        true
+    }
+
+    /// Switches light `light` of the room in `slot`; off, it takes no place
+    /// among the frame's lights. False if there is none.
+    pub fn set_light_on(&mut self, slot: u32, light: usize, on: bool) -> bool {
         let Some(room) = self.stage.get_mut(slot) else {
             return false;
         };
-        let Some(l) = room.lights.get_mut(light) else {
+        let Some(was) = room.light_on.get_mut(light) else {
             return false;
         };
-        l.color = change.color;
-        l.intensity = change.intensity;
-        l.range = change.range;
-        l.position = change.position;
-        if let sariema_format::LightKind::Spot { target, .. } = &mut l.kind {
-            *target = change.target;
-        }
-        if room.light_on[light] != change.on {
-            room.light_on[light] = change.on;
+        if *was != on {
+            *was = on;
             room.lights_switched = true;
         }
         true
@@ -628,7 +673,10 @@ impl Renderer {
             for (slot, room) in self.stage.drawn() {
                 for (i, light) in room.lights.iter().enumerate() {
                     if room.light_on[i] {
-                        self.lights.push(light.clone());
+                        self.lights.push(Light {
+                            intensity: light.intensity * room.light_scale,
+                            ..light.clone()
+                        });
                         self.light_keys.push((slot, i as u32));
                     }
                 }
@@ -640,9 +688,10 @@ impl Renderer {
             return;
         }
         for (light, &(slot, i)) in self.lights.iter_mut().zip(&self.light_keys) {
-            let source = &self.stage.room(slot).lights[i as usize];
+            let room = self.stage.room(slot);
+            let source = &room.lights[i as usize];
             light.color = source.color;
-            light.intensity = source.intensity;
+            light.intensity = source.intensity * room.light_scale;
             light.range = source.range;
             light.position = source.position;
             light.kind = source.kind.clone();
