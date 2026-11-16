@@ -162,6 +162,15 @@ fn game_settings(dir: &Path, game: &GameSection) -> Result<(String, Settings), F
     Ok((text, settings))
 }
 
+/// The collision module's settings of a project's game, the defaults
+/// without a `game` section.
+pub fn physics(dir: &Path) -> Result<sariema_physics::Settings, Failure> {
+    match read_project(dir)? {
+        (_, Some(game)) => Ok(game_settings(dir, &game)?.1.physics),
+        (_, None) => Ok(sariema_physics::Settings::default()),
+    }
+}
+
 /// The cutscene rules `sariema check` enforces on a project's game: the names
 /// of the cutscenes that pass, none without a `game` section.
 pub fn check(dir: &Path) -> Result<Vec<String>, Failure> {

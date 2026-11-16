@@ -182,6 +182,37 @@ fn a_closed_doorway_leaves_the_routes_without_a_path() {
     );
 }
 
+/// The hall with the `back` spot on a landing 0.75 m up, reached by three
+/// 0.25 m risers that run wall to wall.
+fn with_stair() -> Value {
+    let mut room = hall();
+    let primitives = room["collision"]["primitives"].as_array_mut().unwrap();
+    for (k, south) in [(1, -2.5), (2, -3.1), (3, -3.7)] {
+        let top = 0.25 * k as f32;
+        primitives.push(json!({ "name": format!("step{k}"), "box": {
+            "center": [3.0, top / 2.0, (south - 6.0) / 2.0],
+            "half_extents": [3.0, top / 2.0, (south + 6.0) / 2.0] } }));
+    }
+    let spots = room["collision"]["spots"].as_array_mut().unwrap();
+    spots.iter_mut().find(|s| s["name"] == "back").unwrap()["at"] = json!([3.5, 0.75, -5.0]);
+    room
+}
+
+#[test]
+fn check_walks_the_routes_with_the_games_step_height() {
+    let tmp = TempDir::new().unwrap();
+    let dir = project_with(&tmp, with_stair());
+    let (code, message) = failure(&["check", arg(&dir), "--room", "hall"]);
+    assert_eq!(code, "E_PATH_NONE", "{message}");
+    let path = dir.join("sariema.json");
+    let mut project: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    project["game"] =
+        json!({ "settings": { "physics": { "controller": { "step_height": 0.26 } } } });
+    std::fs::write(&path, project.to_string()).unwrap();
+    let (code, out) = sariema(&["check", arg(&dir), "--room", "hall"]);
+    assert_eq!(code, 0, "{out}");
+}
+
 #[test]
 fn a_model_wider_than_its_collider_warns() {
     let tmp = TempDir::new().unwrap();
