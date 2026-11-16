@@ -15,7 +15,7 @@ use crate::draw::DrawList;
 use crate::input::{Event, Pointer};
 use crate::node::{self, Gradient, Kind, Node, NodeId, PROPS, Prop, Text};
 use crate::settings::{SafeArea, UiSettings};
-use crate::text::{Font, Line, break_lines};
+use crate::text::{Font, Line, Shaped, break_lines};
 use crate::widget::{Button, Joystick, Widget, WidgetDesc};
 
 /// A decoded image, premultiplied RGBA8; its texture is `1 + index`.
@@ -101,6 +101,8 @@ pub struct Ui {
     image_names: HashMap<String, u32>,
     pub(crate) atlas: Atlas,
     glyphs: HashMap<(u32, u16), Option<Cell>>,
+    /// Texts shaped by [`Ui::prepare_text`], with the font of each shaping.
+    prepared: HashMap<String, Vec<(u32, Vec<Shaped>)>>,
     pub(crate) anims: Vec<Anim>,
     animations: HashMap<String, Vec<Track>>,
     pub(crate) screen: Screen,
@@ -175,6 +177,7 @@ impl Ui {
             images: Vec::new(),
             image_names: HashMap::new(),
             glyphs: HashMap::new(),
+            prepared: HashMap::new(),
             animations: HashMap::new(),
             layout_dirty: true,
             widgets: Vec::new(),
@@ -564,16 +567,25 @@ impl Ui {
     }
 
     fn shape(&mut self, t: &mut Text, text: &str) -> Result<(), UiError> {
-        let font = &self.fonts[t.font as usize];
-        if !font.shape(
-            t.font,
-            text,
-            &mut self.glyphs,
-            &mut self.atlas,
-            self.settings.sdf_px,
-            &mut t.glyphs,
-        ) {
-            return Err(UiError::AtlasFull);
+        let prepared = self.prepared.get(text);
+        match prepared.and_then(|p| p.iter().find(|(font, _)| *font == t.font)) {
+            Some((_, glyphs)) => {
+                t.glyphs.clear();
+                t.glyphs.extend_from_slice(glyphs);
+            }
+            None => {
+                let font = &self.fonts[t.font as usize];
+                if !font.shape(
+                    t.font,
+                    text,
+                    &mut self.glyphs,
+                    &mut self.atlas,
+                    self.settings.sdf_px,
+                    &mut t.glyphs,
+                ) {
+                    return Err(UiError::AtlasFull);
+                }
+            }
         }
         t.text.clear();
         t.text.push_str(text);
@@ -754,6 +766,44 @@ impl Ui {
         shaped
     }
 
+    /// Shapes `text` in the font of the text node `id` and makes room in the
+    /// node for it, so a later [`Ui::set_text`] of it there shapes nothing,
+    /// rasterises nothing and grows nothing.
+    pub fn prepare_text(&mut self, id: NodeId, text: &str) -> Result<(), UiError> {
+        let index = self.live(id)?;
+        let Kind::Text(t) = &self.nodes[index as usize].kind else {
+            return Err(UiError::Schema(format!("node {} is not a text", index)));
+        };
+        let font = t.font;
+        let entry = self.prepared.entry(text.into()).or_default();
+        let glyphs = match entry.iter().position(|(f, _)| *f == font) {
+            Some(i) => entry[i].1.len(),
+            None => {
+                let mut glyphs = Vec::new();
+                if !self.fonts[font as usize].shape(
+                    font,
+                    text,
+                    &mut self.glyphs,
+                    &mut self.atlas,
+                    self.settings.sdf_px,
+                    &mut glyphs,
+                ) {
+                    return Err(UiError::AtlasFull);
+                }
+                let n = glyphs.len();
+                entry.push((font, glyphs));
+                n
+            }
+        };
+        let Kind::Text(t) = &mut self.nodes[index as usize].kind else {
+            unreachable!("checked above");
+        };
+        t.text.reserve(text.len());
+        t.glyphs.reserve(glyphs);
+        t.lines.reserve(glyphs + 1);
+        Ok(())
+    }
+
     pub fn text(&self, id: NodeId) -> Option<&str> {
         match &self.nodes[self.live(id).ok()? as usize].kind {
             Kind::Text(t) => Some(&t.text),
@@ -853,24 +903,19 @@ impl Ui {
 
     /// Starts a named animation from the description or [`Ui::add_animation`].
     pub fn play(&mut self, name: &str) -> Result<(), UiError> {
-        let tracks = self
+        let (key, tracks) = self
             .animations
-            .get(name)
-            .ok_or_else(|| UiError::Unknown(format!("animation {name:?}")))?
-            .clone();
+            .remove_entry(name)
+            .ok_or_else(|| UiError::Unknown(format!("animation {name:?}")))?;
+        let played = self.play_tracks(name, &tracks);
+        self.animations.insert(key, tracks);
+        played
+    }
+
+    fn play_tracks(&mut self, name: &str, tracks: &[Track]) -> Result<(), UiError> {
         let mut end = 0.0f32;
-        for t in &tracks {
+        for t in tracks {
             let base = if t.after { end } else { 0.0 };
-            let nodes: Vec<u32> = t
-                .node
-                .iter()
-                .chain(&t.nodes)
-                .map(|n| {
-                    self.names.get(n).copied().ok_or_else(|| {
-                        UiError::Unknown(format!("node {n:?} in animation {name:?}"))
-                    })
-                })
-                .collect::<Result<_, _>>()?;
             let motion = match (t.duration, t.spring, t.typewriter) {
                 (Some(duration), _, _) => Motion::Tween {
                     duration,
@@ -883,7 +928,11 @@ impl Ui {
                 },
                 _ => unreachable!("checked in add_animation"),
             };
-            for (k, &node) in nodes.iter().enumerate() {
+            for (k, n) in t.node.iter().chain(&t.nodes).enumerate() {
+                let node =
+                    self.names.get(n).copied().ok_or_else(|| {
+                        UiError::Unknown(format!("node {n:?} in animation {name:?}"))
+                    })?;
                 let delay = base + t.delay + t.stagger * k as f32;
                 for (c, &prop) in t.prop.props().iter().enumerate() {
                     let pick = |v: Option<crate::desc::Value>| v.and_then(|v| v.get(c));
@@ -1160,7 +1209,10 @@ impl Ui {
                 n.fresh = false;
             }
             if let Kind::Text(t) = &mut n.kind {
-                break_lines(&t.glyphs, t.size, n.content[2], t.max_lines, &mut t.lines);
+                t.lines.clear();
+                break_lines(&t.glyphs, t.size, n.content[2], t.max_lines, |l| {
+                    t.lines.push(l)
+                });
             }
         }
         self.layout_dirty = false;
@@ -1194,14 +1246,16 @@ fn measure(node: &Node, known: Size<Option<f32>>, available: Size<AvailableSpace
         AvailableSpace::MinContent => 0.0,
         AvailableSpace::MaxContent => f32::INFINITY,
     });
-    let mut lines = Vec::new();
-    break_lines(&t.glyphs, t.size, max_width, t.max_lines, &mut lines);
-    let widest = lines.iter().map(|l| l.width).fold(0.0, f32::max);
+    let (mut widest, mut lines) = (0.0f32, 0u32);
+    break_lines(&t.glyphs, t.size, max_width, t.max_lines, |l| {
+        widest = widest.max(l.width);
+        lines += 1;
+    });
     Size {
         width: known.width.unwrap_or(widest),
         height: known
             .height
-            .unwrap_or(lines.len() as f32 * t.size * t.line_height),
+            .unwrap_or(lines as f32 * t.size * t.line_height),
     }
 }
 

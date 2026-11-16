@@ -117,3 +117,50 @@ fn animating_transforms_and_text_allocates_nothing() {
     assert_eq!(calls, 0);
     assert_eq!(ui.animating(), 0);
 }
+
+#[test]
+fn playing_a_named_animation_allocates_nothing() {
+    let mut desc = screen_of(4);
+    desc["animations"] = json!({ "pop": [
+        { "nodes": ["n0", "n1", "n2"], "stagger": 0.05, "prop": "scale", "from": 0.8, "to": 1, "duration": 0.2 },
+        { "node": "line", "prop": "opacity", "from": 0, "to": 1, "duration": 0.2, "after": true }
+    ]});
+    let mut ui = ui(desc);
+    screen(&mut ui, 844.0, 390.0);
+    ui.step();
+    let (played, calls) = armed(|| ui.play("pop"));
+    played.unwrap();
+    assert_eq!(calls, 0);
+    assert_eq!(ui.animating(), 7);
+}
+
+#[test]
+fn setting_a_prepared_text_shapes_and_grows_nothing() {
+    let said = "Mind the sill, it is older than the house.";
+    let mut desc = screen_of(4);
+    desc["nodes"].as_array_mut().unwrap().push(
+        json!({ "name": "say", "absolute": true, "top": 10, "left": 10, "width": 300, "text": "" }),
+    );
+    let mut ui = ui(desc.clone());
+    screen(&mut ui, 844.0, 390.0);
+    let line = id(&ui, "say");
+    ui.prepare_text(line, said).unwrap();
+    ui.step();
+    let (set, calls) = armed(|| ui.set_text(line, said));
+    set.unwrap();
+    assert_eq!(calls, 0);
+    ui.step();
+    let prepared: Vec<_> = ui.draw(1.0).quads.clone();
+
+    let mut fresh = self::ui(desc);
+    screen(&mut fresh, 844.0, 390.0);
+    fresh.step();
+    fresh.set_text(id(&fresh, "say"), said).unwrap();
+    fresh.step();
+    let glyphs = said.chars().filter(|c| !c.is_whitespace()).count();
+    assert!(prepared.len() > glyphs, "{} quads", prepared.len());
+    assert_eq!(
+        format!("{prepared:?}"),
+        format!("{:?}", fresh.draw(1.0).quads)
+    );
+}

@@ -187,15 +187,14 @@ pub struct Line {
 }
 
 /// Greedy line breaking of `glyphs` at `size` into lines no wider than
-/// `max_width`, at most `max_lines` of them.
+/// `max_width`, at most `max_lines` of them, given to `out` in order.
 pub(crate) fn break_lines(
     glyphs: &[Shaped],
     size: f32,
     max_width: f32,
     max_lines: u32,
-    out: &mut Vec<Line>,
+    mut out: impl FnMut(Line),
 ) {
-    out.clear();
     if glyphs.is_empty() || max_lines == 0 {
         return;
     }
@@ -207,14 +206,16 @@ pub(crate) fn break_lines(
     let mut ink_width = 0.0f32;
     let mut brk: Option<(usize, f32, usize)> = None;
     let mut i = 0usize;
+    let mut emitted = 0u32;
     macro_rules! emit {
         ($end:expr, $width:expr) => {
-            out.push(Line {
+            out(Line {
                 start: start as u32,
                 end: $end as u32,
                 width: $width,
             });
-            if out.len() as u32 == max_lines {
+            emitted += 1;
+            if emitted == max_lines {
                 return;
             }
         };
@@ -287,14 +288,19 @@ mod tests {
         g.extend(word(3));
         g.push(space());
         g.extend(word(9));
-        let mut lines = Vec::new();
-        break_lines(&g, 1.0, 7.0, u32::MAX, &mut lines);
-        let spans: Vec<(u32, u32, f32)> = lines.iter().map(|l| (l.start, l.end, l.width)).collect();
+        let lines = |max_width: f32, max_lines: u32| {
+            let mut lines = Vec::new();
+            break_lines(&g, 1.0, max_width, max_lines, |l| lines.push(l));
+            lines
+        };
+        let spans: Vec<(u32, u32, f32)> = lines(7.0, u32::MAX)
+            .iter()
+            .map(|l| (l.start, l.end, l.width))
+            .collect();
         assert_eq!(spans, [(0, 7, 7.0), (8, 15, 7.0), (15, 17, 2.0)]);
-        break_lines(&g, 1.0, 7.0, 2, &mut lines);
-        assert_eq!(lines.len(), 2);
-        break_lines(&g, 1.0, f32::INFINITY, u32::MAX, &mut lines);
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].width, 17.0);
+        assert_eq!(lines(7.0, 2).len(), 2);
+        let one = lines(f32::INFINITY, u32::MAX);
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].width, 17.0);
     }
 }
