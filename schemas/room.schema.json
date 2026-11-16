@@ -108,12 +108,204 @@
     "textures": {
       "enum": ["rgba8", "astc"],
       "description": "How colour textures are stored. ASTC 4x4 (the default) needs a GPU that samples ASTC; RGBA8 is four times larger."
+    },
+    "collision": {
+      "type": "object",
+      "description": "What to bake into the room's collision pack (.srmc, written beside the room pack); no collision pack when absent. Every placed piece becomes a collider named like a loose draw (<room>.<piece>, <room>.<piece>.<n> for the n-th copy). Positions are on the engine's axes: Y up, north is -Z, metres; yaw_deg turns about +Y, 0 facing +Z.",
+      "additionalProperties": false,
+      "properties": {
+        "exclude": { "$ref": "#/$defs/names", "description": "Pieces that get no collider (rugs, grass, decals)." },
+        "as_mesh": { "$ref": "#/$defs/names", "description": "Pieces baked as their simplified triangles whatever their shape." },
+        "as_hull": { "$ref": "#/$defs/names", "description": "Pieces baked as their convex hull." },
+        "as_box": { "$ref": "#/$defs/names", "description": "Pieces baked as the box around them in their own frame." },
+        "primitives": {
+          "type": "array",
+          "description": "Colliders no piece draws, such as invisible blockers or a simpler stand-in for an excluded piece.",
+          "items": { "$ref": "#/$defs/collision_primitive" }
+        },
+        "triggers": {
+          "type": "array",
+          "description": "Named volumes whose entry and exit the simulation reports.",
+          "items": { "$ref": "#/$defs/collision_trigger" }
+        },
+        "actors": {
+          "type": "array",
+          "description": "Actor colliders: radius and height (and head) given, or fitted to visual_bounds (and head_bounds).",
+          "items": { "$ref": "#/$defs/collision_actor" }
+        },
+        "spots": {
+          "type": "array",
+          "description": "Where an actor stands for an action: its feet and facing.",
+          "items": { "$ref": "#/$defs/collision_spot" }
+        },
+        "routes": {
+          "type": "array",
+          "description": "Pairs of spot names a script walks between; sariema check searches a path for each, with the first spot's actor.",
+          "items": {
+            "type": "array",
+            "prefixItems": [{ "type": "string" }, { "type": "string" }],
+            "minItems": 2,
+            "items": false
+          }
+        },
+        "traversals": {
+          "type": "array",
+          "description": "Scripted moves with the actor's collider off, such as climbing in through a window; sariema check proves that each ends on free floor and that its contacts lie on a surface.",
+          "items": { "$ref": "#/$defs/collision_traversal" }
+        },
+        "bake": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "simplify_error": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Metres simplification may move a mesh collider's surface; a piece thinner than this keeps its triangles. 0.02 when absent."
+            },
+            "hull_points": { "type": "integer", "minimum": 4, "description": "Most points a hull collider keeps. 32 when absent." },
+            "box_fill": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "description": "Share of its box a piece's hull must fill for the box to stand for it. 0.85 when absent."
+            },
+            "hull_tolerance": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Metres a hull's surface may stand off the piece's for the hull to stand for it. 0.05 when absent."
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {
     "path": { "type": "string", "minLength": 1 },
     "names": { "type": "array", "items": { "type": "string" } },
     "vec3": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+    "collision_box": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["center", "half_extents"],
+      "properties": {
+        "center": { "$ref": "#/$defs/vec3" },
+        "half_extents": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "minItems": 3, "maxItems": 3 },
+        "yaw_deg": { "type": "number" }
+      }
+    },
+    "collision_sphere": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["center", "radius"],
+      "properties": { "center": { "$ref": "#/$defs/vec3" }, "radius": { "type": "number", "exclusiveMinimum": 0 } }
+    },
+    "collision_capsule": {
+      "type": "object",
+      "description": "The points within radius of the segment a-b.",
+      "additionalProperties": false,
+      "required": ["a", "b", "radius"],
+      "properties": {
+        "a": { "$ref": "#/$defs/vec3" },
+        "b": { "$ref": "#/$defs/vec3" },
+        "radius": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "collision_primitive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "enabled": { "type": "boolean", "description": "Whether it blocks from the start. true when absent." },
+        "box": { "$ref": "#/$defs/collision_box" },
+        "sphere": { "$ref": "#/$defs/collision_sphere" },
+        "capsule": { "$ref": "#/$defs/collision_capsule" }
+      },
+      "oneOf": [{ "required": ["box"] }, { "required": ["sphere"] }, { "required": ["capsule"] }]
+    },
+    "collision_trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "box": { "$ref": "#/$defs/collision_box" },
+        "sphere": { "$ref": "#/$defs/collision_sphere" },
+        "capsule": { "$ref": "#/$defs/collision_capsule" }
+      },
+      "oneOf": [{ "required": ["box"] }, { "required": ["sphere"] }, { "required": ["capsule"] }]
+    },
+    "collision_bounds": {
+      "type": "object",
+      "description": "A box in the actor's frame: feet at the origin, facing +Z.",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": { "min": { "$ref": "#/$defs/vec3" }, "max": { "$ref": "#/$defs/vec3" } }
+    },
+    "collision_actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "radius": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0, "description": "Feet to the top of the body capsule; at least twice the radius." },
+        "head": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["radius", "height"],
+          "properties": {
+            "radius": { "type": "number", "exclusiveMinimum": 0 },
+            "height": { "type": "number", "description": "Of the centre above the feet." },
+            "forward": { "type": "number", "description": "Of the centre ahead of the body's axis. 0 when absent." }
+          }
+        },
+        "visual_bounds": { "$ref": "#/$defs/collision_bounds", "description": "What the model covers; sariema check warns when it exceeds the collider." },
+        "head_bounds": { "$ref": "#/$defs/collision_bounds", "description": "The head's part of visual_bounds, fitted with a head sphere." }
+      },
+      "dependentRequired": { "radius": ["height"], "height": ["radius"], "head": ["radius"], "head_bounds": ["visual_bounds"] }
+    },
+    "collision_spot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "actor", "at"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "actor": { "type": "string", "description": "A name from actors." },
+        "at": { "$ref": "#/$defs/vec3", "description": "The actor's feet." },
+        "yaw_deg": { "type": "number", "description": "Facing. 0 when absent." }
+      }
+    },
+    "collision_traversal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "from", "points"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "from": { "type": "string", "description": "The spot it starts from; its actor is the one carried." },
+        "points": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/vec3" },
+          "description": "The feet along the way; the last is where the actor stands again."
+        },
+        "yaw_deg": { "type": "number", "description": "Facing at the end. 0 when absent." },
+        "contacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/collision_contact" }
+        }
+      }
+    },
+    "collision_contact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "at"],
+      "description": "A point of an authored pose that rests on a surface on purpose, like a foot hooked on a sill.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "at": { "$ref": "#/$defs/vec3" }
+      }
+    },
     "rgb": {
       "description": "Linear RGB.",
       "type": "array",

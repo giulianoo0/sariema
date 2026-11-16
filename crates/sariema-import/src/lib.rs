@@ -5,11 +5,13 @@
 use std::path::Path;
 use std::{fmt, io};
 
+mod collision;
 mod gltf;
 mod kit;
 mod room;
 mod texture;
 
+pub use collision::{BakeSettings, CollisionSource, build_collision};
 pub use kit::{Kit, KitImage, KitPiece, KitPrimitive, load_kit};
 pub use room::{Hemisphere, RoomSource, build_room};
 pub use texture::{TextureMode, encode_texture, mip_chain_rgba8};

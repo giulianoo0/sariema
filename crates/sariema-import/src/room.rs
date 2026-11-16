@@ -20,6 +20,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::collision::CollisionSource;
 use crate::texture::srgb_to_linear;
 use crate::{
     ImportError, Kit, KitPiece, KitPrimitive, TextureMode, encode_texture, load_kit, read,
@@ -56,6 +57,9 @@ pub struct RoomSource {
     /// ASTC 4×4 when absent.
     #[serde(default)]
     pub textures: Option<TextureMode>,
+    /// What to bake into the room's collision pack; no pack when absent.
+    #[serde(default)]
+    pub collision: Option<CollisionSource>,
 }
 
 /// A hemisphere light, added to the one luz.json gives the first shown room;
@@ -86,24 +90,24 @@ impl RoomSource {
 
 /// `Montagem` in `casa.ts`.
 #[derive(Deserialize)]
-struct Montagem {
+pub(crate) struct Montagem {
     /// Metres per grid cell.
-    celula: f32,
-    comodos: HashMap<String, Comodo>,
+    pub(crate) celula: f32,
+    pub(crate) comodos: HashMap<String, Comodo>,
 }
 
 #[derive(Deserialize)]
-struct Comodo {
+pub(crate) struct Comodo {
     /// The room's south-west corner, in cells.
-    sw_celulas: [f32; 2],
-    instancias: Vec<Inst>,
+    pub(crate) sw_celulas: [f32; 2],
+    pub(crate) instancias: Vec<Inst>,
 }
 
 /// One piece placed in a room. Positions are metres from the room's corner on
 /// Blender's axes: x east, y north, z up.
 #[derive(Deserialize)]
-struct Inst {
-    peca: String,
+pub(crate) struct Inst {
+    pub(crate) peca: String,
     x: f32,
     y: f32,
     z: f32,
@@ -111,7 +115,7 @@ struct Inst {
     rz: f32,
     /// Euler angles about Blender's axes, in degrees; see [`placement`].
     rot: Option<[f32; 3]>,
-    estado: Option<String>,
+    pub(crate) estado: Option<String>,
     escala: Option<f32>,
 }
 
@@ -370,7 +374,7 @@ impl Scene<'_> {
 }
 
 /// The primitives the instance's `estado` shows, or the piece's start ones.
-fn shown_primitives<'k>(
+pub(crate) fn shown_primitives<'k>(
     piece: &'k KitPiece,
     inst: &Inst,
     room: &str,
@@ -396,7 +400,7 @@ fn engine_point(corner: [f32; 2], [x, y, z]: [f32; 3]) -> Vec3 {
     Vec3::new(corner[0] + x, z, -(corner[1] + y))
 }
 
-fn placement(inst: &Inst, corner: [f32; 2], room: &str) -> Result<Mat4, ImportError> {
+pub(crate) fn placement(inst: &Inst, corner: [f32; 2], room: &str) -> Result<Mat4, ImportError> {
     // casa.ts reads `escala || 1`.
     let scale = inst.escala.filter(|&s| s != 0.0).unwrap_or(1.0);
     if !(scale.is_finite() && scale > 0.0) {
@@ -468,7 +472,7 @@ fn linear_rgb(hex: &str) -> Result<[f32; 3], ImportError> {
     Ok([r, g, b].map(srgb_to_linear))
 }
 
-fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, ImportError> {
+pub(crate) fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, ImportError> {
     serde_json::from_slice(&read(path)?)
         .map_err(|e| ImportError::Schema(format!("{}: {e}", path.display())))
 }

@@ -1,0 +1,8 @@
+{
+  "name": "collision",
+  "assets_root": ".",
+  "rooms": {
+    "hall": "rooms/hall.json",
+    "sill": "rooms/sill.json"
+  }
+}

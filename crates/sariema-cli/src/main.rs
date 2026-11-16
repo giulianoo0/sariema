@@ -9,12 +9,16 @@ use clap::{Args, Parser, Subcommand, ValueEnum, value_parser};
 use sariema_import::TextureMode;
 use sariema_render::Quality;
 
+mod check;
+mod collision;
 mod golden;
 mod output;
 mod pack;
+mod physics_map;
 mod player;
 mod project;
 mod run;
+mod spot_check;
 
 #[derive(Parser)]
 #[command(
@@ -67,6 +71,10 @@ enum Command {
         #[arg(long)]
         update: bool,
     },
+    /// Check a project's rooms: every action spot clear and on ground, every route walkable.
+    Check(check::CheckArgs),
+    /// Draw a collision pack from above into a PNG: colliders, walkable cells, triggers, spots, a path.
+    PhysicsMap(physics_map::MapArgs),
 }
 
 #[derive(Args)]
@@ -149,6 +157,8 @@ fn main() -> ExitCode {
         Command::Inspect { pack } => pack::inspect(pack),
         Command::Run(args) => run::run(args),
         Command::Test { dir, update } => golden::test(dir, *update),
+        Command::Check(args) => check::run(args),
+        Command::PhysicsMap(args) => physics_map::run(args),
     });
     output::emit(cli.json, outcome)
 }

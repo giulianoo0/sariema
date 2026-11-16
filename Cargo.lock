@@ -2109,12 +2109,14 @@ version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "clap",
+ "glam",
  "image",
  "jsonschema",
  "pollster",
  "sariema-core",
  "sariema-format",
  "sariema-import",
+ "sariema-physics",
  "sariema-render",
  "serde",
  "serde_json",
@@ -2150,11 +2152,22 @@ dependencies = [
  "glam",
  "image",
  "jsonschema",
+ "libm",
  "log",
  "meshopt",
  "sariema-format",
+ "sariema-physics",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "sariema-physics"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "libm",
+ "sariema-format",
 ]
 
 [[package]]

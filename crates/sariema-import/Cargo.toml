@@ -10,9 +10,11 @@ license.workspace = true
 bytemuck.workspace = true
 ctt-astcenc.workspace = true
 sariema-format = { path = "../sariema-format" }
+sariema-physics = { path = "../sariema-physics" }
 glam.workspace = true
 image.workspace = true
 jsonschema.workspace = true
+libm.workspace = true
 log.workspace = true
 meshopt.workspace = true
 serde.workspace = true
