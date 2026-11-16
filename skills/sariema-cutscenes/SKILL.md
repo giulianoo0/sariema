@@ -1,6 +1,6 @@
 ---
 name: sariema-cutscenes
-description: Use when writing, directing or fixing a Sariema cutscene JSON (traversals, insert shots, slow motion, clip markers, camera shake), when sariema check or build fails with E_CUTSCENE_TELEPORT, E_CUTSCENE_COVER, E_CUTSCENE_START, E_CUTSCENE_ABSENT, E_CUTSCENE_SPAWN, E_CUTSCENE_RACE or E_CUTSCENE_ROLE, or when a cutscene_play is rejected with E_CUTSCENE_UNBOUND, E_CUTSCENE_UNKNOWN or E_CUTSCENE_BUSY.
+description: Use when writing, directing or fixing a Sariema cutscene JSON (traversals, insert shots, slow motion, clip markers, camera shake), when sariema check or build fails with E_CUTSCENE_TELEPORT, E_CUTSCENE_COVER, E_CUTSCENE_START, E_CUTSCENE_ABSENT, E_CUTSCENE_SPAWN, E_CUTSCENE_RACE, E_CUTSCENE_SPEED, E_CUTSCENE_ROLE or E_SETTINGS, or when a cutscene_play is rejected with E_CUTSCENE_UNBOUND, E_CUTSCENE_UNKNOWN or E_CUTSCENE_BUSY.
 ---
 
 # Sariema cutscenes
@@ -116,6 +116,8 @@ The message names the file, cutscene and step: `cutscene meet, steps[4].teleport
 | `E_CUTSCENE_SPAWN` | spawn only roles without `start`, or after their `despawn` |
 | `E_CUTSCENE_ABSENT` | do not use a role after `despawn` |
 | `E_CUTSCENE_RACE` | move each role, and set each flag, in one `parallel` branch only |
+| `E_CUTSCENE_SPEED` | slow the `walk` (or `cutscene.start_walk_speed`) to `motion.max_visible_speed` or less; to cross faster, hide it or cut |
+| `E_SETTINGS` | in `game.settings`, keep `min_time_scale` and `max_time_scale` positive, the minimum no larger |
 | `E_CUTSCENE_ROLE` | declare the role under `roles` |
 | `E_SCHEMA` | the message names the field; `shot` needs `blend`, an `auto` line needs `duration` |
 

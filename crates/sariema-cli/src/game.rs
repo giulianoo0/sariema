@@ -11,7 +11,8 @@ use sariema_format::script::cutscene::Cutscene;
 use sariema_format::script::{BATCH_VERSION, GamePack, encode_game};
 use sariema_runtime::cutscene::author::{Source, compile};
 use sariema_runtime::cutscene::check::check as check_rules;
-use sariema_runtime::game::{pack_settings, start};
+use sariema_runtime::game::{parse_settings, start};
+use sariema_runtime::settings::Settings;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -110,13 +111,13 @@ fn compile_cutscenes(dir: &Path) -> Result<Compiled, Failure> {
 }
 
 /// Fails with every broken rule, the first one's code.
-fn enforce_rules(compiled: &Compiled) -> Result<(), Failure> {
+fn enforce_rules(compiled: &Compiled, settings: &Settings) -> Result<(), Failure> {
     let broken: Vec<(String, &'static str)> = compiled
         .cutscenes
         .iter()
         .zip(&compiled.files)
         .flat_map(|(c, file)| {
-            check_rules(c)
+            check_rules(c, settings)
                 .into_iter()
                 .map(move |e| (format!("{}: {e} ({})", file.display(), e.code), e.code))
         })
@@ -133,6 +134,22 @@ fn read_project(dir: &Path) -> Result<(String, Option<GameSection>), Failure> {
     Ok((project.name, project.game))
 }
 
+/// The settings `game.settings` gives, as a game pack carries them.
+fn game_settings(dir: &Path, game: &GameSection) -> Result<(String, Settings), Failure> {
+    let text = game
+        .settings
+        .as_ref()
+        .map(Value::to_string)
+        .unwrap_or_default();
+    let settings = parse_settings(&text).map_err(|e| {
+        Failure::new(
+            e.code,
+            format!("{}: game.settings: {e}", dir.join("sariema.json").display()),
+        )
+    })?;
+    Ok((text, settings))
+}
+
 /// `sariema check`: the cutscene rules of a project's game.
 pub fn check(dir: &Path) -> Result<Done, Failure> {
     let (_, game) = read_project(dir)?;
@@ -142,8 +159,9 @@ pub fn check(dir: &Path) -> Result<Done, Failure> {
             text: "no game section, no cutscenes to check".into(),
         });
     };
+    let (_, settings) = game_settings(dir, &game)?;
     let compiled = compile_cutscenes(&dir.join(&game.cutscenes))?;
-    enforce_rules(&compiled)?;
+    enforce_rules(&compiled, &settings)?;
     let names: Vec<&str> = compiled.cutscenes.iter().map(|c| c.name.as_str()).collect();
     Ok(Done {
         json: json!({ "cutscenes": names }),
@@ -163,17 +181,17 @@ pub fn build(dir: &Path, output: &Path) -> Result<Done, Failure> {
             ),
         )
     })?;
+    let (text, settings) = game_settings(dir, &game)?;
     let compiled = compile_cutscenes(&dir.join(&game.cutscenes))?;
-    enforce_rules(&compiled)?;
+    enforce_rules(&compiled, &settings)?;
     let mut pack = GamePack {
         name,
         batch_version: BATCH_VERSION,
         wasm: Vec::new(),
         cutscenes: compiled.cutscenes,
         names: compiled.names,
-        settings: game.settings.map(|v| v.to_string()).unwrap_or_default(),
+        settings: text,
     };
-    pack_settings(&pack).map_err(|e| Failure::new(e.code, e.message))?;
     pack.wasm = compile_logic(&dir.join(&game.logic), game.toolchain.as_deref())?;
     start(pack.clone(), 0).map_err(|e| Failure::new(e.code, format!("{}: {e}", dir.display())))?;
     let bytes = encode_game(&pack);

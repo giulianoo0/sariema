@@ -434,3 +434,83 @@ fn in_slow_motion_the_clip_time_drawn_grows_every_frame() {
         "drawn within a step of the clip's own time"
     );
 }
+
+const DASH: &str = r#"{ "name": "dash", "roles": { "hero": { "start": { "position": [0, 0, 0] } } },
+    "steps": [ { "walk": { "role": "hero", "to": [10, 0, 0], "speed": 30 } }, { "call": "after" } ] }"#;
+
+/// Plays `DASH`, whose walk is faster than an actor may be seen to move,
+/// played through or skipped from the start; the events seen and where the
+/// role ends.
+fn dash(builtin: bool, skip: bool) -> (Vec<(u64, String)>, f32) {
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let log = seen.clone();
+    let logic = native(move |step, events, out| {
+        log.borrow_mut()
+            .extend(events.iter().map(|e| (step, format!("{e:?}"))));
+        match step {
+            0 => send(
+                out,
+                Command::Spawn {
+                    entity: entity(0),
+                    kind: Kind::Actor,
+                    asset: 0,
+                },
+            ),
+            1 => {
+                send(
+                    out,
+                    Command::CutsceneBind {
+                        role: name_id("hero"),
+                        entity: entity(0),
+                    },
+                );
+                send(out, play("dash"));
+                if skip {
+                    send(out, Command::CutsceneSkip {});
+                }
+            }
+            _ => {}
+        }
+    });
+    let mut settings = Settings::default();
+    settings.motion.builtin = builtin;
+    let actions = Actions::for_settings(&settings.input);
+    let cutscenes = vec![compile_json(DASH).unwrap().0];
+    let mut sim = Simulation::new(settings, cutscenes, logic, 1);
+    for _ in 0..120 {
+        sim.step(&actions);
+    }
+    let x = sim
+        .state()
+        .world
+        .current_pose(entity(0))
+        .unwrap()
+        .position
+        .x;
+    drop(sim);
+    (seen.take(), x)
+}
+
+#[test]
+fn a_walk_too_fast_to_be_seen_is_refused_and_ends_alike_played_or_skipped() {
+    let mut wrong = Vec::new();
+    for builtin in [true, false] {
+        for skip in [false, true] {
+            let (events, x) = dash(builtin, skip);
+            let case = format!("builtin {builtin}, skip {skip}");
+            if at(&events, "E_TELEPORT_VISIBLE").is_empty() {
+                wrong.push(format!("{case}: not refused"));
+            }
+            if at(&events, &call("after")).len() != 1 {
+                wrong.push(format!("{case}: the walk never ended"));
+            }
+            if at(&events, "CutsceneEnded").len() != 1 {
+                wrong.push(format!("{case}: the cutscene never ended"));
+            }
+            if x != 0.0 {
+                wrong.push(format!("{case}: the role went to x {x}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

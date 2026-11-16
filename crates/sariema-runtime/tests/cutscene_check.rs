@@ -4,13 +4,14 @@ use std::path::Path;
 
 use sariema_runtime::cutscene::author::compile_json;
 use sariema_runtime::cutscene::check::{CheckError, check};
+use sariema_runtime::settings::Settings;
 
 fn errors(fixture: &str) -> Vec<CheckError> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/cutscenes")
         .join(fixture);
     let (cutscene, _) = compile_json(&std::fs::read_to_string(path).unwrap()).unwrap();
-    check(&cutscene)
+    check(&cutscene, &Settings::default())
 }
 
 fn codes(fixture: &str) -> Vec<&'static str> {

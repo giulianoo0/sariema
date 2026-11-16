@@ -131,8 +131,11 @@ then a block that surely takes a step: `wait` longer than 0, `wait_for` or
 nothing, since the viewer saw the role when that step began. At run time
 everything that would move a visible actor faster than
 `motion.max_visible_speed` is refused with `E_TELEPORT_VISIBLE` (see [the
-game API](game-api.md#entities)); a `walk` faster than that does not move
-the role.
+game API](game-api.md#entities)). A `walk` faster than that fails the check
+with `E_CUTSCENE_SPEED`, against the project's `game.settings` (or the
+defaults), and so does `cutscene.start_walk_speed` in a cutscene with a role
+that has a start. Played anyway, the walk is refused and ends at once where
+the role stands, played or skipped alike.
 
 To move an actor across the scene: walk it; or hide it, wait, teleport it,
 show it; or fade out, teleport it with `"cover": "fade"`, fade in; or cut

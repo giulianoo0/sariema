@@ -258,6 +258,51 @@ fn check_names_the_cutscene_and_step_of_a_visible_teleport_and_passes_it_under_a
 }
 
 #[test]
+fn check_holds_walks_to_the_speed_the_project_lets_actors_be_seen_moving() {
+    let tmp = TempDir::new().unwrap();
+    let project = |settings: &str| {
+        fs::write(
+            tmp.path().join("sariema.json"),
+            format!(
+                r#"{{ "name": "t", "assets_root": ".", "rooms": {{}}, "game": {{ "settings": {settings} }} }}"#
+            ),
+        )
+        .unwrap();
+    };
+    project_with(
+        tmp.path(),
+        r#"{ "name": "dash", "roles": { "hero": { "start": { "position": [0, 0, 0] } } },
+            "steps": [ { "wait": 1 }, { "walk": { "role": "hero", "to": [10, 0, 0], "speed": 30 } } ] }"#,
+    );
+    let (code, message) = error_code(&["check", arg(tmp.path())]);
+    assert_eq!(code, "E_CUTSCENE_SPEED");
+    assert!(
+        message.contains("cutscene dash, steps[1].walk"),
+        "{message}"
+    );
+    assert!(message.contains("motion.max_visible_speed"), "{message}");
+
+    project(r#"{ "motion": { "max_visible_speed": 40 } }"#);
+    assert_eq!(
+        ok(&["check", arg(tmp.path())])["cutscenes"],
+        json!(["dash"])
+    );
+
+    project(r#"{ "motion": { "max_visible_speed": 40 }, "cutscene": { "start_walk_speed": 50 } }"#);
+    let (code, message) = error_code(&["check", arg(tmp.path())]);
+    assert_eq!(code, "E_CUTSCENE_SPEED");
+    assert!(
+        message.contains("cutscene dash, roles.hero.start"),
+        "{message}"
+    );
+
+    project(r#"{ "min_time_scale": 2, "max_time_scale": 1 }"#);
+    let (code, message) = error_code(&["check", arg(tmp.path())]);
+    assert_eq!(code, "E_SETTINGS");
+    assert!(message.contains("time_scale"), "{message}");
+}
+
+#[test]
 fn new_makes_a_project_that_checks_builds_and_runs() {
     let tmp = TempDir::new().unwrap();
     let dir = tmp.path().join("first-game");

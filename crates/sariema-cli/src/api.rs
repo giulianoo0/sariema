@@ -151,6 +151,11 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "parallel branches move the same role or set the same flag",
     ),
     (
+        "E_CUTSCENE_SPEED",
+        Kind::Failure,
+        "a cutscene walk, or the walk to a role's start, is faster than motion.max_visible_speed",
+    ),
+    (
         "E_SETTINGS",
         Kind::Failure,
         "the runtime settings cannot run: a time scale bound is not positive or min_time_scale is above max_time_scale",

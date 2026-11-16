@@ -14,10 +14,15 @@
 //!   before using it. (`E_CUTSCENE_START`, `E_CUTSCENE_ABSENT`, `E_CUTSCENE_SPAWN`)
 //! - Parallel branches never move the same role or set the same flag, so
 //!   skipping gives the same end state as playing. (`E_CUTSCENE_RACE`)
+//! - No walk is faster than an actor may be seen to move: neither a `walk`
+//!   nor, for a role with a start, `cutscene.start_walk_speed` exceeds the
+//!   project's `motion.max_visible_speed`. (`E_CUTSCENE_SPEED`)
 
 use std::collections::BTreeSet;
 
 use sariema_format::script::cutscene::{Await, Block, Cover, Cutscene, Shot};
+
+use crate::settings::Settings;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CheckError {
@@ -38,13 +43,14 @@ impl std::fmt::Display for CheckError {
 }
 
 /// Every error code the check can give.
-pub const CODES: [&str; 6] = [
+pub const CODES: [&str; 7] = [
     "E_CUTSCENE_TELEPORT",
     "E_CUTSCENE_COVER",
     "E_CUTSCENE_START",
     "E_CUTSCENE_ABSENT",
     "E_CUTSCENE_SPAWN",
     "E_CUTSCENE_RACE",
+    "E_CUTSCENE_SPEED",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +84,7 @@ struct Writes {
 
 struct Checker<'a> {
     c: &'a Cutscene,
+    max_speed: f32,
     errors: Vec<CheckError>,
 }
 
@@ -89,6 +96,17 @@ impl Checker<'_> {
             at: at.into(),
             message,
         });
+    }
+
+    fn walks(&mut self, speed: f32, what: &str, at: &str) {
+        let max = self.max_speed;
+        if speed.abs() > max {
+            self.fail(
+                "E_CUTSCENE_SPEED",
+                at,
+                format!("{what} {speed} m/s is faster than motion.max_visible_speed ({max} m/s)"),
+            );
+        }
     }
 
     fn name(&self, role: u16) -> &str {
@@ -169,8 +187,10 @@ impl Checker<'_> {
                 }
                 k.cut |= *blend <= 0.0;
             }
-            Block::Walk { role, .. } => {
-                self.uses(k, *role, &format!("{at}.walk"));
+            Block::Walk { role, speed, .. } => {
+                let at = format!("{at}.walk");
+                self.uses(k, *role, &at);
+                self.walks(*speed, "walk speed", &at);
                 k.cut = false;
             }
             Block::Face { role, .. } => {
@@ -388,7 +408,8 @@ fn collect(blocks: &[Block], w: &mut Writes) {
     }
 }
 
-pub fn check(c: &Cutscene) -> Vec<CheckError> {
+/// The rules of `c` for a game run with `settings`.
+pub fn check(c: &Cutscene, settings: &Settings) -> Vec<CheckError> {
     let mut k = Known {
         fade: None,
         roles: c
@@ -406,8 +427,16 @@ pub fn check(c: &Cutscene) -> Vec<CheckError> {
     };
     let mut checker = Checker {
         c,
+        max_speed: settings.motion.max_visible_speed,
         errors: Vec::new(),
     };
+    if let Some(role) = c.roles.iter().find(|r| r.start.is_some()) {
+        checker.walks(
+            settings.cutscene.start_walk_speed,
+            "cutscene.start_walk_speed",
+            &format!("roles.{}.start", role.name),
+        );
+    }
     checker.list(&c.body, "steps", &mut k);
     checker.errors
 }

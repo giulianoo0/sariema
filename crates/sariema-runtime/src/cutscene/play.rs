@@ -10,6 +10,9 @@
 //! - Skipping fades out, runs the rest of the body to its end state at once
 //!   (walks land on their targets, lines and waits end, sounds are dropped)
 //!   and fades back in, so the world ends as if the cutscene had played.
+//! - A walk faster than `motion.max_visible_speed`, or one its `move_to`
+//!   refuses, is reported in `rejected` and ends at once where the role
+//!   stands, played or skipped alike.
 //! - At the end the hero goes back to whoever had it, the input buffer is
 //!   cleared, and the camera blends back to the rig the game was using.
 
@@ -27,6 +30,7 @@ use crate::events::Happening;
 use crate::motion::yaw_of;
 use crate::state::{CutsceneRequest, State};
 use crate::tween::steps_of;
+use crate::world::Reject;
 
 /// The sequencer's camera rig and dialogue line ids.
 pub const RIG: u32 = u32::MAX;
@@ -132,13 +136,20 @@ struct Ctx<'a> {
 
 impl Ctx<'_> {
     fn issue(&mut self, command: Command<'_>) {
-        if let Err(r) = apply(self.s, &command, Source::Cutscene) {
-            self.s.events.push(Event::Rejected {
-                opcode: command.opcode(),
-                code: r.code,
-                entity: r.entity,
-            });
-        }
+        self.try_issue(command);
+    }
+
+    /// Applies `command`, reporting a refusal; whether it was applied.
+    fn try_issue(&mut self, command: Command<'_>) -> bool {
+        let Err(r) = apply(self.s, &command, Source::Cutscene) else {
+            return true;
+        };
+        self.s.events.push(Event::Rejected {
+            opcode: command.opcode(),
+            code: r.code,
+            entity: r.entity,
+        });
+        false
     }
 
     fn role(&self, r: u16) -> Entity {
@@ -380,12 +391,17 @@ fn begin_placing(s: &mut State, cutscene: &Cutscene, run: &mut Run) {
             Placing::Easing
         } else {
             let since = ctx.s.happenings;
-            ctx.issue(Command::MoveTo {
+            let walk = Command::MoveTo {
                 entity: e,
                 target: position,
                 speed: settings.start_walk_speed,
-            });
-            Placing::Walking { since }
+            };
+            if ctx.try_issue(walk) {
+                Placing::Walking { since }
+            } else {
+                ctx.issue(Command::Face { entity: e, yaw });
+                Placing::Turning
+            }
         };
         run.placing[i] = placing;
     }
@@ -669,12 +685,21 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
             } else {
                 ctx.yaw(e)
             });
-            if !skip {
-                ctx.issue(Command::MoveTo {
+            let walk = Command::MoveTo {
+                entity: e,
+                target: to.to_array(),
+                speed: *speed,
+            };
+            if speed.abs() > ctx.s.settings.motion.max_visible_speed {
+                ctx.s.events.push(Event::Rejected {
+                    opcode: walk.opcode(),
+                    code: Reject::TeleportVisible.code(),
                     entity: e,
-                    target: to.to_array(),
-                    speed: *speed,
                 });
+                return None;
+            }
+            if !skip && !ctx.try_issue(walk) {
+                return None;
             }
             Some(Running::Walk {
                 since,
