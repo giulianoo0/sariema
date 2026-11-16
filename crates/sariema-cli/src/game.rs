@@ -214,6 +214,10 @@ fn compile_logic(crate_dir: &Path, toolchain: Option<&str>) -> Result<Vec<u8>, F
             "the game's logic crate has no Cargo.toml",
         ));
     }
+    // Cargo relinks the .wasm on every build, even a fresh one, so a
+    // concurrent build of the same crate could remove it under our read.
+    let lock = fs::File::open(&manifest).map_err(|e| Failure::io(&manifest, e))?;
+    lock.lock().map_err(|e| Failure::io(&manifest, e))?;
     let mut cargo = match toolchain {
         Some(toolchain) => {
             let mut c = Command::new("rustup");
