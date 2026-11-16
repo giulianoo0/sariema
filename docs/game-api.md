@@ -54,7 +54,9 @@ One step, in order:
 5. The hero is driven by the move axis (when the player has control),
    actors move and turn, followers, tweens, springs and timers advance, the
    fade, cinema bars and dialogue advance.
-6. World placement is resolved, the camera rig steps, trigger zones report.
+6. World placement is resolved and measured, putting back a visible actor
+   that went too far ([Entities](#a-visible-actor-never-jumps)), the camera
+   rig steps, trigger zones report.
 
 Events produced in step 5 and 6 (`arrived`, `tween_done`, `trigger_enter`…)
 reach the game at its next tick.
@@ -87,40 +89,74 @@ free list: `ctx.spawn` takes a slot, `ctx.despawn` and the engine's
 `despawned` event free it.
 
 Kinds: `empty`, `room_node`, `actor`, `light`, `camera`, `sound_emitter`,
-`ui_node`. Actors are what moves, walks, turns and plays clips. A visible
-actor never jumps: from one step to the next it never goes faster than
-`motion.max_visible_speed` (20 m/s) nor turns faster than
-`motion.turn_rate`. The guarantee is a measurement taken after every system
-has run in a step: each actor's world placement is compared with the
-previous step's. An actor visible when the step began and still visible, not
-placed this step (spawned, a forced `teleport`, or carried by something that
-was), that went too far or turned too fast is put back where it was, and
-what moved it stops: the tweens, springs, follow and walk of the actor and
-of everything that carries it. Whatever moved it is caught: a fast tween or
-walk begun under a fade or a cut that has lifted since, or while the actor
-was hidden; a carrier that turns or grows and sweeps a child round; a
-transform region; several moves in one step that each pass but add up. A
-step is not measured when the screen is fully faded when it begins or when
-it ends, or when the camera cuts in it.
+`ui_node`. Actors are what moves, walks, turns and plays clips.
 
-Before that, each command that moves something is judged when it is given,
-with how far its next step goes, so a move that surely jumps changes
-nothing: `set_transform` and `teleport` (always too far for an actor),
-`tween` (its fastest step), `follow` (its first step), `move_to`,
-`move_intent`, `set_hero` and `set_speed_scale` (the speed), and
-`set_parent` (the change of world placement). It is refused with
-`E_TELEPORT_VISIBLE` when that would carry an actor too far in a step: the
-entity itself, a child at any depth (going as far) or a follower (going its
-lag's share), that was visible when the step began and is not placed yet
-this step. It is allowed when the screen is fully faded, the camera cuts in
-the same step, or `teleport` says `force`; once the cover lifts, the move is
-measured like any other. A forced `teleport` carries the entity's children
-with it, drawn where they land. Hiding and showing in the same step hides
-nothing: an actor hidden for a whole step may then be placed anywhere.
+### A visible actor never jumps
+
+The frames of a step draw each entity sliding from where the previous step
+left it to where this step ends. A visible actor is never drawn going faster
+than `motion.max_visible_speed` (20 m/s) nor turning faster than
+`motion.turn_rate` (540°/s), except on a step the screen hides. The rule is
+held in one place, on that slide: once every system has run in a step and
+the world is resolved, each actor visible when the step began and still
+visible is measured, carriers first, from where the previous step left it to
+where it ends. One that went too far is put back where it was, whatever
+carries it now. So whatever moved it is caught: a command, a walk, a tween
+or spring, a follow, a carrier that moves, turns or grows and sweeps it
+round, a transform region moving its carrier, or several moves that each
+pass but add up.
+
+Nothing else exempts an actor:
+
+- a forced `teleport` of the actor, or of a carrier it has kept all step;
+- a covered step, the screen fully faded when it begins or when it ends, or
+  a cut, the camera cutting in it.
+
+An exempt actor that went too far is drawn where it ends, never sliding
+across the screen. What is done to a carrier passes nothing else on: a
+carrier spawned, placed or given another parent this step exempts no actor
+riding it, and a carrier an actor was given this step does not carry it
+along its forced teleport.
+
+An actor that appears, spawned or shown this step, is drawn from where it
+ends, never sliding in from where it was hidden. Hiding and showing it in
+the same step hides nothing: it was seen when the step began, so it is
+measured. Anything that is not an actor is drawn from where it ends when it
+was spawned, placed or given another parent this step, or when what carries
+it is; otherwise it slides, unmeasured.
+
+When the step's own motion carried the actor off, what moved it stops. Each
+level, the actor and then each carrier up, is judged by how far its own
+change this step carries the actor: the levels that alone carry it past the
+limits stop; when none does alone but together they do, every level that
+changed stops. A level stops its tweens and springs of placement, its follow
+and its walk, which ends with `blocked` (a cutscene's `walk` ends there
+too, whether the runtime or a collision module moves actors). An actor that went too far only because what carries it
+was put back is put back too, and nothing of its own stops. A transform
+region is not stopped: while it keeps moving a carrier too fast, the actor
+riding it is put back every step. A carrier scaled to nothing cannot hold
+the actor anywhere, so the actor leaves it. The step's `rejected` events,
+with opcode 0 and `E_TELEPORT_VISIBLE`, name the actor put back, then each
+carrier stopped.
+
+Placements are `f32`, so the measurement is exact to their rounding: under a
+millimetre within 10 km of the origin, more beyond (a third of a metre at
+1,000 km).
+
+A command that surely jumps is refused when given, with its own opcode, and
+changes nothing: `set_transform` and `teleport` (always too far for an
+actor), `tween` (its fastest step), `follow` (its first step), `move_to`,
+`move_intent`, `set_hero` and `set_speed_scale` (the speed, times the
+actor's speed scale), and `set_parent` (the change of world placement). It
+is refused with `E_TELEPORT_VISIBLE` when it would carry too far an actor
+visible when the step began that no forced teleport placed: the entity
+itself, a child at any depth (going as far) or a follower (going its lag's
+share). It is allowed when the screen is fully faded, the camera cuts in the
+same step, or `teleport` says `force`; what is allowed is still measured at
+the end of the step.
 
 A refused command produces a `rejected` event with the opcode, the code and
-the entity; a move the step's measurement stopped reports opcode 0. The game
-keeps running.
+the entity. The game keeps running.
 
 ## The Rust SDK
 
@@ -229,9 +265,10 @@ The swarm needs about 6.3 million units of wasmi fuel per step, so the
 default budget of 20 million leaves about three times that. Its module
 uses 1.5 MB of linear memory. Decoding its 52,000-byte batch of 2,000
 commands takes 0.015 ms; the engine's native systems step 2,000 tweens in
-0.026 ms; a steady step allocates nothing on the host. The target of at most
-2 ms for game logic on the floor iPhone is not yet confirmed: no device run
-has been made.
+0.033 ms, and 2,000 visible actors walking, each measured against the
+no-jump rule, in 0.035 ms; a steady step allocates nothing on the host.
+The target of at most 2 ms for game logic on the floor iPhone is not yet
+confirmed: no device run has been made.
 
 ## Determinism
 
@@ -404,3 +441,10 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 - Fuel metering for a hard execution budget, from wasmi.
 - A time scale on the clock that feeds the fixed step, from Bevy's
   `Time<Virtual>` relative speed.
+- Drawing an entity from where it lands, instead of sliding from where it
+  was, when it is placed, spawned or given another parent: Godot's
+  `reset_physics_interpolation`, which Godot also applies when a node enters
+  the tree, and bevy_transform_interpolation, which resets the easing of a
+  transform changed outside the fixed step. Godot does not reset a node
+  shown again, so it slides in; Sariema draws an actor that appears from
+  where it ends.

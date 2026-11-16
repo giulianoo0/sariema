@@ -125,6 +125,10 @@ At run time a refused `cutscene_play` arrives as a `rejected` event:
 `E_CUTSCENE_UNBOUND` (bind every role with a start to a live entity, and
 every spawned role to `ctx.reserve()`), `E_CUTSCENE_UNKNOWN` (no file with
 that `name` was built), `E_CUTSCENE_BUSY` (wait for `cutscene_ended`).
+A `walk` goes at its speed times the role's speed scale (`set_speed_scale`,
+which the check cannot see): too fast at that scale, it arrives as a
+`rejected` `E_TELEPORT_VISIBLE` with the `move_to` opcode and ends where the
+role stands, played or skipped alike.
 
 ## Common mistakes
 

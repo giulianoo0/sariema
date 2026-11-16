@@ -129,13 +129,18 @@ does not hold, `E_CUTSCENE_COVER`. A role hidden for at least one step (`hide`,
 then a block that surely takes a step: `wait` longer than 0, `wait_for` or
 `line`) may teleport freely; hiding and teleporting in the same instant hides
 nothing, since the viewer saw the role when that step began. At run time
-everything that would move a visible actor faster than
-`motion.max_visible_speed` is refused with `E_TELEPORT_VISIBLE` (see [the
-game API](game-api.md#entities)). A `walk` faster than that fails the check
-with `E_CUTSCENE_SPEED`, against the project's `game.settings` (or the
-defaults), and so does `cutscene.start_walk_speed` in a cutscene with a role
-that has a start. Played anyway, the walk is refused and ends at once where
-the role stands, played or skipped alike.
+nothing moves a visible actor faster than `motion.max_visible_speed` (see
+[the game API](game-api.md#a-visible-actor-never-jumps)): a move that surely
+would is refused with `E_TELEPORT_VISIBLE`, and an actor that still went too
+far is put back. A `walk` faster than that fails the check with
+`E_CUTSCENE_SPEED`, against the project's `game.settings` (or the defaults),
+and so does `cutscene.start_walk_speed` in a cutscene with a role that has a
+start. At run time a walk goes at its speed times the role's speed scale,
+which the game sets with `set_speed_scale` and the check cannot see. A walk
+too fast at that scale is refused and ends at once where the role stands,
+played or skipped alike; the walk to a start slows to the fastest allowed
+instead. A walk the run-time measurement stops ends there with `blocked`,
+whether the runtime or a collision module moves actors.
 
 To move an actor across the scene: walk it; or hide it, wait, teleport it,
 show it; or fade out, teleport it with `"cover": "fade"`, fade in; or cut
