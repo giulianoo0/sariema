@@ -86,6 +86,7 @@ world afterwards is the one playing it through would have left.
 | `face: { role, toward \| yaw }` | turns a role toward another or to a yaw | when it faces it |
 | `look_at: { role, target }` | points a role's head at another | at once |
 | `clip: { role, clip, mode, blend, speed }` | plays an animation clip at `speed` times its rate; its time follows the steps | at once |
+| `hinge: { node, role, clip, span, to, ease }` | turns a hinged node of the room (`<room>.<piece>_<hinge>`) from where it is to `to` degrees from closed, over the seconds `span` of the role's clip, on that clip's time; its collider turns with it | when the clip reaches `span[1]`, or the role plays another clip |
 | `line: { speaker, text, voice, advance, duration }` | a dialogue line; `auto` ends after `duration`, `tap` on `cutscene.advance_action` | when the line ends |
 | `sound: { sound, bus, at, volume }` | plays a sound, at a role when `at` names one | at once |
 | `music: { music, fade }` | crossfades to a track, or stops the music without `music` | at once |
@@ -104,7 +105,9 @@ then `camera_use`, `walk` is `move_to`, `face`, `look_at`, `clip`
 (`play_clip`), `line` (`say`), `sound` (`play_sound`), `music`, `fade`,
 `letterbox`, `set_flag`, `spawn`, `despawn`, `show`/`hide` (`set_visible`),
 `teleport`, `time_scale` and `camera_shake` are their commands of the same
-name, and a shot's `bone` or `socket` is `rig_anchor`. The sequencer uses rig
+name, a shot's `bone` or `socket` is `rig_anchor`, and `hinge` is a `tween`
+of the scene parameter `hinge.<node>` that the clip's time drives instead of
+the clock. The sequencer uses rig
 id and line id `u32::MAX` and tween ids from `0xFFFF0000` up; a game leaves
 those to it.
 
@@ -184,11 +187,13 @@ writes for each.
    `blend` 0 right after `wait_for: clip_marker` on the beat, aimed at the
    detail with `bone` or `socket`.
 4. **Moving set pieces are keyed to clip time.** A hinged leaf (window,
-   door) turns over a frame range of the actor's clip, its sound on the
-   same range; nothing opens by itself or pops open. Until hinges exist
-   (see the limits), cast the leaf as a role with its own clip and start
-   both clips in the same step, in one `parallel`: both follow the step
-   clock, so they stay together.
+   door) turns over a range of the actor's clip with a `hinge` step, its
+   sound on a marker of the same clip; nothing opens by itself or pops
+   open. Put the `hinge` step in a `parallel` with the `clip` it follows:
+   it waits for the clip to play, and the leaf moves only while the clip's
+   time is inside `span`, eased by `ease`. The leaf collides where it is
+   drawn and stops at an actor in its way (see `docs/physics.md`, "Hinged
+   leaves").
 5. **Traversal in clip segments.** The root moves only within given spans
    of the clip and is still outside them (anticipation, settling); a span
    may carry its own time scale. Not expressible yet (see the limits);
@@ -224,24 +229,26 @@ writes for each.
 ### Worked example: entering through a window
 
 The hero walks to the wall, reaches and opens the window, climbs, catches a
-foot on the sill, falls inside, lands and gets up. The window is a role of
-its own, an actor whose `swing_open` clip turns the leaf.
+foot on the sill, falls inside, lands and gets up. The window's leaf is a
+hinged node of the room, `house.window_leaf`, that the hand pushes open
+between 0.35 s and 0.9 s of `reach_open`.
 
 ```json
 {
   "name": "window_entry",
   "roles": {
-    "hero": { "start": { "position": [0, 0, 2], "yaw": 0 } },
-    "window": { "start": { "position": [0, 1, 0], "yaw": 0 } }
+    "hero": { "start": { "position": [0, 0, 2], "yaw": 0 } }
   },
   "steps": [
     { "letterbox": { "to": 1, "duration": 0.4 } },
-    { "shot": { "frame": ["hero", "window"], "pitch": 12, "yaw": 35, "blend": 0.6 } },
+    { "shot": { "follow": "hero", "distance": 3.5, "pitch": 12, "yaw": 35, "height": 1.0, "fov": 40, "blend": 0.6 } },
     { "walk": { "role": "hero", "to": [0, 0, 0.6] } },
     { "parallel": [
       [ { "clip": { "role": "hero", "clip": "reach_open" } } ],
-      [ { "clip": { "role": "window", "clip": "swing_open", "mode": "hold" } },
-        { "sound": { "sound": "window_creak", "at": "window" } } ]
+      [ { "hinge": { "node": "house.window_leaf", "role": "hero", "clip": "reach_open",
+                     "span": [0.35, 0.9], "to": 80, "ease": "out_cubic" } } ],
+      [ { "wait_for": { "clip_marker": { "role": "hero", "clip": "reach_open", "marker": "push" } } },
+        { "sound": { "sound": "window_creak", "at": "hero" } } ]
     ] },
     { "wait_for": { "clip_finished": "hero" } },
     { "clip": { "role": "hero", "clip": "climb_trip", "blend": 0 } },
@@ -249,7 +256,7 @@ its own, an actor whose `swing_open` clip turns the leaf.
     { "shot": { "follow": "hero", "bone": "foot_l", "distance": 0.9, "pitch": 5, "yaw": 90, "height": 0, "fov": 35, "blend": 0 } },
     { "time_scale": { "scale": 0.4 } },
     { "wait": 0.24 },
-    { "shot": { "frame": ["hero", "window"], "pitch": 12, "yaw": 35, "blend": 0 } },
+    { "shot": { "follow": "hero", "distance": 3.5, "pitch": 12, "yaw": 35, "height": 1.0, "fov": 40, "blend": 0 } },
     { "time_scale": { "scale": 1, "blend": 0.15 } },
     { "wait_for": { "clip_marker": { "role": "hero", "clip": "climb_trip", "marker": "lands" } } },
     { "camera_shake": { "amplitude": 0.03, "duration": 0.25 } },
@@ -264,16 +271,15 @@ its own, an actor whose `swing_open` clip turns the leaf.
 | Steps | Rule |
 |---|---|
 | walk to the wall, `reach_open`, `climb_trip`, `get_up`, each waiting for the last | 1: the whole action, no step skipped |
-| `swing_open` and its sound in a `parallel` with `reach_open` | 4: the leaf moves with the hand, on the same clock |
+| `hinge` over 0.35–0.9 s of `reach_open`, the creak on its `push` marker | 4: the leaf moves with the hand, on the clip's time |
 | `climb_trip` holds the stumble and the fall; `camera_shake` on `lands` | 2: anticipation, impact, recovery |
 | `wait_for: clip_marker foot_catches`, then a `shot` with `blend` 0 on `bone: foot_l` | 3 and 8: the close cuts on the beat, aimed at the contact |
 | `time_scale` 0.4 for `wait: 0.24`, then back to 1 over 0.15 s with the wide shot | 8: 0.6 s of slow motion on screen |
 | no `teleport`, no `hide` | 8: the cuts change the camera only |
 
 It passes `sariema check`
-(`crates/sariema-runtime/tests/fixtures/cutscenes/window_entry.json`). Two
-parts wait on the limits below: the hero's root crossing the sill (5, 6)
-and the leaf bound to the hero's clip (4).
+(`crates/sariema-runtime/tests/fixtures/cutscenes/window_entry.json`). One
+part waits on the limits below: the hero's root crossing the sill (5, 6).
 
 ## Writing one that passes
 
@@ -295,9 +301,13 @@ and the leaf bound to the hero's clip (4).
   accepting declared contact points on a surface and failing on any other
   penetration, or on a traversal that does not end on free floor. Today a
   traversal is a clip plus `walk`s, and slow motion covers the whole world.
-- **Hinged set pieces keyed to clip time** (port item L4): a leaf's angle
-  bound to a frame range of an actor's clip. Today the leaf is a role with
-  its own clip started in the same step.
+- **A `hinge` step** waits for its role to play its clip, with no
+  timeout: one whose role never plays it holds the cutscene. One that
+  names a node the active room does not have ends at once, without a
+  word; `check` does not know the rooms. A leaf an actor stops stays
+  where it stopped once the span is over: the step does not try again,
+  and the game hears `hinge_blocked`. Hinges turn about a vertical axis
+  only.
 - **A room switch inside a cutscene** (port item L1): a cutscene plays
   inside one room.
 - **Bones and sockets** are data until the animation module is integrated:

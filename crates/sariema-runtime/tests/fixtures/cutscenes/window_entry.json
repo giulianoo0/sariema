@@ -1,17 +1,18 @@
 {
   "name": "window_entry",
   "roles": {
-    "hero": { "start": { "position": [0, 0, 2], "yaw": 0 } },
-    "window": { "start": { "position": [0, 1, 0], "yaw": 0 } }
+    "hero": { "start": { "position": [0, 0, 2], "yaw": 0 } }
   },
   "steps": [
     { "letterbox": { "to": 1, "duration": 0.4 } },
-    { "shot": { "frame": ["hero", "window"], "pitch": 12, "yaw": 35, "blend": 0.6 } },
+    { "shot": { "follow": "hero", "distance": 3.5, "pitch": 12, "yaw": 35, "height": 1.0, "fov": 40, "blend": 0.6 } },
     { "walk": { "role": "hero", "to": [0, 0, 0.6] } },
     { "parallel": [
       [ { "clip": { "role": "hero", "clip": "reach_open" } } ],
-      [ { "clip": { "role": "window", "clip": "swing_open", "mode": "hold" } },
-        { "sound": { "sound": "window_creak", "at": "window" } } ]
+      [ { "hinge": { "node": "house.window_leaf", "role": "hero", "clip": "reach_open",
+                     "span": [0.35, 0.9], "to": 80, "ease": "out_cubic" } } ],
+      [ { "wait_for": { "clip_marker": { "role": "hero", "clip": "reach_open", "marker": "push" } } },
+        { "sound": { "sound": "window_creak", "at": "hero" } } ]
     ] },
     { "wait_for": { "clip_finished": "hero" } },
     { "clip": { "role": "hero", "clip": "climb_trip", "blend": 0 } },
@@ -19,7 +20,7 @@
     { "shot": { "follow": "hero", "bone": "foot_l", "distance": 0.9, "pitch": 5, "yaw": 90, "height": 0, "fov": 35, "blend": 0 } },
     { "time_scale": { "scale": 0.4 } },
     { "wait": 0.24 },
-    { "shot": { "frame": ["hero", "window"], "pitch": 12, "yaw": 35, "blend": 0 } },
+    { "shot": { "follow": "hero", "distance": 3.5, "pitch": 12, "yaw": 35, "height": 1.0, "fov": 40, "blend": 0 } },
     { "time_scale": { "scale": 1, "blend": 0.15 } },
     { "wait_for": { "clip_marker": { "role": "hero", "clip": "climb_trip", "marker": "lands" } } },
     { "camera_shake": { "amplitude": 0.03, "duration": 0.25 } },
