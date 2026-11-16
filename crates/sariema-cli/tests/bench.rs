@@ -130,6 +130,10 @@ fn like_for_like_flags_turn_samples_shadows_and_occlusion_off() {
         "{}",
         full["settings"]
     );
+    let slots = |v: &Value| v["shadow_slots_drawn"].as_u64().unwrap();
+    assert!(slots(&full) > 0, "{full}");
+    assert_eq!(slots(&bare), 0, "no shadow pass at all");
+    assert_eq!(bare["frame_stats"]["shadows_skipped"], 0);
     let passes = |v: &Value| v["per_frame"]["post_passes"].as_u64().unwrap();
     assert!(
         passes(&bare) < passes(&full),

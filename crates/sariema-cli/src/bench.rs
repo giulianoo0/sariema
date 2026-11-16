@@ -43,7 +43,8 @@ pub struct BenchArgs {
     /// Samples per pixel instead of the tier's.
     #[arg(long, value_parser = value_parser!(u32).range(1..))]
     msaa: Option<u32>,
-    /// No shadow maps, the sun's included.
+    /// Neither the sun nor any light casts a shadow, so no shadow map is
+    /// drawn or sampled.
     #[arg(long)]
     no_shadows: bool,
     /// No ambient occlusion.
@@ -56,17 +57,6 @@ impl BenchArgs {
         let tier = self.quality.settings();
         Quality {
             msaa: self.msaa.unwrap_or(tier.msaa),
-            // An atlas of one texel has no slot for the sun or any light.
-            shadow_atlas_size: if self.no_shadows {
-                1
-            } else {
-                tier.shadow_atlas_size
-            },
-            max_shadowed_lights: if self.no_shadows {
-                0
-            } else {
-                tier.max_shadowed_lights
-            },
             ao_samples: if self.no_ao { 0 } else { tier.ao_samples },
             ..tier
         }
@@ -100,8 +90,16 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     let path = &args.pack;
     let bytes = std::fs::read(path).map_err(|e| Failure::io(path, e))?;
     let read_ms = lap();
-    let room = sariema_format::decode(&bytes)
+    let mut room = sariema_format::decode(&bytes)
         .map_err(|e| Failure::new(e.code(), format!("{}: {e}", path.display())))?;
+    if args.no_shadows {
+        if let Some(sun) = &mut room.sun {
+            sun.casts_shadow = false;
+        }
+        for light in &mut room.lights {
+            light.casts_shadow = false;
+        }
+    }
     let decode_ms = lap();
     let (adapter, device, queue) = device()?;
     let device_ms = lap();
@@ -240,6 +238,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
                 "allocated_bytes": counted(&samples.allocated_bytes),
             },
             "frame_stats": crate::run::frame_stats_json(&frame_stats),
+            "shadow_slots_drawn": renderer.shadow_passes_rendered(),
             "gpu": gpu,
         }),
         text,

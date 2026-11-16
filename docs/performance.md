@@ -23,11 +23,14 @@ one more run with every render pass timed on the GPU. Frame `n` is drawn at
 | `--width`, `--height` | 1920, 1080 | target size in pixels |
 | `--quality` | `medium` | `low`, `medium` or `high` |
 | `--msaa N` | the tier's | samples per pixel, clamped to the device |
-| `--no-shadows` | off | no shadow map at all, the sun's included |
+| `--no-shadows` | off | neither the sun nor any light casts a shadow |
 | `--no-ao` | off | no ambient occlusion |
 
-`--msaa 1 --no-shadows --no-ao` matches the Origem three.js game, which has
-no anti-aliasing, no shadows and no occlusion.
+`--msaa 1 --no-shadows --no-ao` matches the Origem three.js game's
+settings: no anti-aliasing, no shadows, no occlusion. It does not match its
+content: the game also draws its characters and runs its logic every frame,
+and its post-processing is shorter (one bloom level, 6–7 passes against the
+engine's 9–13).
 
 The JSON report holds:
 
@@ -61,6 +64,8 @@ The JSON report holds:
   pass's vertex stage as soon as it can and runs passes side by side, so a
   pass's own start-to-end span overstates it; `last_frame` lists the raw
   spans of one frame.
+- `shadow_slots_drawn`: shadow map slots drawn over the whole bench; a
+  static room draws them in its first frame only.
 - `load_average`: the system's 1, 5 and 15 minute load averages, since the
   numbers mean little without them.
 
