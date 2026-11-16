@@ -15,6 +15,7 @@ sariema-format = { path = "../sariema-format" }
 sariema-render = { path = "../sariema-render" }
 sariema-runtime = { path = "../sariema-runtime" }
 sariema-ui = { path = "../sariema-ui" }
+web-time = "1.1"
 wgpu.workspace = true
 
 [dev-dependencies]

@@ -7,7 +7,9 @@
 //! [`ViewSettings::max_resident`], freeing the others. A room is decoded on
 //! a thread, or a share at a time where there are none, then uploaded a
 //! share at a time, so loading never takes a frame's whole budget; only a
-//! switch to a room not loaded yet loads it at once. The rooms beside the
+//! switch to a room not loaded yet loads it at once. Their collision worlds
+//! are built the same way: whole on a thread, or a share of their walkable
+//! grids each frame. The rooms beside the
 //! active one, whose geometry continues it, are drawn with it. While a
 //! switch lasts both rooms are drawn: whole and lit by a blend of the two
 //! (continuous), or dissolving into each other (dissolve); the sky, the
@@ -18,7 +20,7 @@
 use std::sync::Arc;
 
 use glam::{Mat4, Quat, Vec3};
-use sariema_engine::Engine;
+use sariema_engine::{Engine, WorldJob};
 use sariema_format::scenery::{Channel, LightField, NodeIndex, RoomIndex, Target, sun_direction};
 use sariema_format::script::RoomTransition;
 use sariema_format::stream::RoomDecoder;
@@ -42,6 +44,13 @@ pub struct ViewSettings {
     /// Rooms are decoded and collision worlds built on threads; ignored on
     /// wasm32, which has none.
     pub threads: bool,
+    /// Milliseconds a frame spends building collision worlds where they
+    /// are not built on threads, and growing the walkable grids a switch
+    /// left; at least one share a frame.
+    pub world_ms_per_frame: f32,
+    /// Walkable-grid columns in a share; a column costs from a few to a few
+    /// hundred microseconds, with the geometry above it.
+    pub grid_columns_per_share: usize,
     /// Off, no light casts a shadow, as for a device without the budget.
     pub shadows: bool,
 }
@@ -53,6 +62,8 @@ impl Default for ViewSettings {
             decode_bytes_per_frame: 4 << 20,
             upload_bytes_per_frame: 4 << 20,
             threads: true,
+            world_ms_per_frame: 2.0,
+            grid_columns_per_share: 32,
             shadows: true,
         }
     }
@@ -68,6 +79,10 @@ pub struct RoomsFrame {
     /// A room needed this frame was loaded whole in it.
     pub loaded_at_once: bool,
     pub rooms_resident: u32,
+    /// A collision world was built a share of in the frame.
+    pub world_share: bool,
+    /// Collision worlds that came in.
+    pub worlds_built: u32,
 }
 
 enum Load {
@@ -127,6 +142,8 @@ pub(crate) struct Rooms {
     frame: RoomsFrame,
     #[cfg(not(target_arch = "wasm32"))]
     worlds: (Sender<Built>, Receiver<Built>),
+    /// The world built a share a frame.
+    job: Option<WorldJob>,
 }
 
 fn light_params(index: &RoomIndex) -> Vec<[usize; 5]> {
@@ -166,6 +183,7 @@ impl Rooms {
             frame: RoomsFrame::default(),
             #[cfg(not(target_arch = "wasm32"))]
             worlds: std::sync::mpsc::channel(),
+            job: None,
         }
     }
 
@@ -249,34 +267,63 @@ impl Rooms {
         Ok(())
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn build_worlds<L: Logic>(&mut self, engine: &mut Engine<L>, wanted: &[usize]) {
-        while let Ok(built) = self.worlds.1.try_recv() {
-            if let Ok(built) = built {
-                engine.install_world(built);
+        let start = web_time::Instant::now();
+        let budget =
+            web_time::Duration::from_secs_f32(self.settings.world_ms_per_frame.max(0.0) / 1000.0);
+        let columns = self.settings.grid_columns_per_share.max(1);
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.settings.threads {
+            while let Ok(built) = self.worlds.1.try_recv() {
+                if let Ok(built) = built {
+                    engine.install_world(built);
+                    self.frame.worlds_built += 1;
+                }
             }
-        }
-        for job in engine.world_jobs(wanted) {
-            if self.settings.threads {
+            for job in engine.world_jobs(wanted) {
                 let send = self.worlds.0.clone();
                 std::thread::spawn(move || send.send(job.build()));
-            } else if let Ok(built) = job.build() {
-                engine.install_world(built);
             }
+            while engine.grow_grids(columns) {
+                self.frame.world_share = true;
+                if start.elapsed() >= budget {
+                    break;
+                }
+            }
+            return;
         }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn build_worlds<L: Logic>(&mut self, engine: &mut Engine<L>, wanted: &[usize]) {
-        let waiting: Vec<usize> = wanted
-            .iter()
-            .copied()
-            .filter(|&r| !engine.world_ready(r))
-            .collect();
-        if let Some(job) = engine.world_jobs(&waiting[..waiting.len().min(1)]).pop()
-            && let Ok(built) = job.build()
-        {
-            engine.install_world(built);
+        loop {
+            if self
+                .job
+                .as_ref()
+                .is_some_and(|j| engine.world_ready(j.room))
+            {
+                self.job = None;
+            }
+            if self.job.is_none() {
+                let next = wanted.iter().copied().find(|&r| !engine.world_ready(r));
+                self.job = next.and_then(|r| engine.world_jobs(&[r]).pop());
+            }
+            let more = match &mut self.job {
+                Some(job) => match job.advance(columns) {
+                    Ok(None) => true,
+                    Ok(Some(built)) => {
+                        engine.install_world(built);
+                        self.frame.worlds_built += 1;
+                        self.job = None;
+                        true
+                    }
+                    Err(_) => {
+                        self.job = None;
+                        true
+                    }
+                },
+                None => engine.grow_grids(columns),
+            };
+            self.frame.world_share |= more;
+            if !more || start.elapsed() >= budget {
+                break;
+            }
         }
     }
 

@@ -194,8 +194,25 @@ fn spread() -> ViewSettings {
         threads: false,
         decode_bytes_per_frame: 1024,
         upload_bytes_per_frame: 1024,
+        world_ms_per_frame: 0.0,
+        grid_columns_per_share: 500,
         ..ViewSettings::default()
     }
+}
+
+#[test]
+fn the_neighbours_collision_world_is_built_a_share_a_frame_before_the_switch() {
+    let frames = play(spread(), 90, true);
+    let shares = frames.iter().filter(|f| f.rooms.world_share).count();
+    assert!(
+        shares > 10,
+        "the hall's world is built over {shares} frames"
+    );
+    assert_eq!(
+        frames.iter().map(|f| f.rooms.worlds_built).sum::<u32>(),
+        1,
+        "the hall's, before the switch"
+    );
 }
 
 #[test]
