@@ -67,6 +67,8 @@ pub struct State {
     pub seen: Vec<(u64, Happening)>,
     pub happenings: u64,
     pub requests: Vec<CutsceneRequest>,
+    /// Entities `locate` asked for this step, answered at its end.
+    pub locates: Vec<Entity>,
 }
 
 impl State {
@@ -98,6 +100,7 @@ impl State {
             seen: Vec::new(),
             happenings: 0,
             requests: Vec::new(),
+            locates: Vec::new(),
             settings,
         }
     }

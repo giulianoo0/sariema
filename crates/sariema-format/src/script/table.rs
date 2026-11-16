@@ -189,6 +189,11 @@ batch_table! {
         /// also takes the ramp or step above it. It shares its ids with
         /// `zone`, each replacing the other; `remove_zone` removes it.
         0x00D1 ZoneCylinder zone_cylinder { zone: u32, center: Vec3, radius: f32, height: f32 }
+        /// Asks where `entity` stands: `located` answers at the next step
+        /// with its place and yaw in the world as this step left them, after
+        /// collision and the no-jump rule, the same in a replay and on every
+        /// host.
+        0x00D2 Locate locate { entity: Entity }
     }
     events {
         /// The first event of the first tick.
@@ -240,5 +245,10 @@ batch_table! {
         /// The engine refused a command, or stopped a move that carried a
         /// visible actor too far in a step (`opcode` 0); `code` says why.
         0x0060 Rejected rejected { opcode: u16, code: Str, entity: Entity }
+
+        /// Where `entity` stood at the end of the step `locate` asked in:
+        /// its origin (an actor's feet) in the world and its yaw about +Y,
+        /// the one it was given when nothing carries it.
+        0x00D0 Located located { entity: Entity, position: Vec3, yaw: f32 }
     }
 }

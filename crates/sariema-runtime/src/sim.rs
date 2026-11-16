@@ -283,6 +283,7 @@ impl<L: Logic> Simulation<L> {
         s.camera.step(&s.world);
         let events = &mut s.events;
         s.zones.step(&s.world, |e| events.push(e));
+        answer_locates(s);
         self.step += 1;
     }
 
@@ -369,6 +370,30 @@ fn happening(s: &mut State, event: &Event<'_>) {
         }),
         _ => {}
     }
+}
+
+/// Where each entity `locate` asked for stands now that the step is
+/// resolved and measured: its world place, and the yaw it was given when
+/// nothing carries it, else the world one.
+fn answer_locates(s: &mut State) {
+    for k in 0..s.locates.len() {
+        let entity = s.locates[k];
+        let (Some(node), Some(pose)) = (s.world.node(entity), s.world.pose(entity)) else {
+            continue;
+        };
+        let yaw = if node.parent.is_none() {
+            node.local.yaw
+        } else {
+            let (yaw, _, _) = pose.rotation.to_euler(glam::EulerRot::YXZ);
+            yaw.to_degrees()
+        };
+        s.events.push(Event::Located {
+            entity,
+            position: pose.position.to_array(),
+            yaw,
+        });
+    }
+    s.locates.clear();
 }
 
 fn drive_hero(s: &mut State) {
