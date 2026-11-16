@@ -21,8 +21,8 @@ fn expected_slide(approach_deg: f32) -> f32 {
     kept.max(0.85 * ((kept - head_on) / (full - head_on)).clamp(0.0, 1.0))
 }
 
-/// From the first position touching a wall (closer than `touching` along
-/// `normal` to the origin), or from the start when the actor only walks
+/// From the step that first ends touching a wall (closer than `touching`
+/// along `normal` to the origin), or from the start when the actor only walks
 /// alongside: the velocity along the wall never changes sign or stops, and the
 /// actor never moves away from the wall.
 fn steady_from_contact(positions: &[Vec3], along: Vec3, normal: Vec3, touching: f32) {
@@ -30,7 +30,10 @@ fn steady_from_contact(positions: &[Vec3], along: Vec3, normal: Vec3, touching: 
         .iter()
         .position(|p| p.dot(normal) < touching)
         .unwrap_or(0);
-    let steps: Vec<Vec3> = positions[first..].windows(2).map(|w| w[1] - w[0]).collect();
+    let steps: Vec<Vec3> = positions[first.saturating_sub(1)..]
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .collect();
     let sign = steps[0].dot(along).signum();
     for (k, d) in steps.iter().enumerate() {
         let (tangent, away) = (d.dot(along), d.dot(normal));
