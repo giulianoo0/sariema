@@ -41,7 +41,8 @@ pub const CLIP_SPANS: &str = "E_CLIP_SPANS";
 /// The code of a `clip_rate` for a clip the actor does not play.
 pub const CLIP_NOT_PLAYING: &str = "E_CLIP_NOT_PLAYING";
 
-/// The code of a `clip_rate` below 0 or not finite.
+/// The code of a `clip_rate` below 0 or not finite, or of a `play_clip` or
+/// `clip_next` at a speed of 0 or below.
 pub const CLIP_RATE: &str = "E_CLIP_RATE";
 
 /// The code of a `hold` of an actor.
@@ -264,6 +265,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             speed,
         } => {
             actor(s, entity)?;
+            moving_rate(entity, speed)?;
             s.outbox.clips.push(ClipRequest {
                 entity,
                 clip,
@@ -331,6 +333,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             after,
         } => {
             actor(s, entity)?;
+            moving_rate(entity, speed)?;
             let asset = s.world.node(entity).map_or(0, |n| n.asset);
             let next = Next {
                 clip,
@@ -773,6 +776,18 @@ fn spans_in_order(spans: &[u8], from: f32, length: Option<f32>) -> bool {
         last = span.until;
     }
     true
+}
+
+/// A clip's speed above 0: at 0 or below it would never reach its end.
+fn moving_rate(entity: Entity, speed: f32) -> Result<(), Refusal> {
+    if speed > 0.0 {
+        Ok(())
+    } else {
+        Err(Refusal {
+            code: CLIP_RATE,
+            entity,
+        })
+    }
 }
 
 fn actor(s: &State, e: Entity) -> Result<(), Refusal> {

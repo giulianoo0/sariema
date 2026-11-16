@@ -517,7 +517,7 @@ fn validate_block(block: &Block, roles: usize) -> Result<(), String> {
                 known("clip mode", ClipMode::from_u8(t.mode).is_some())?;
                 seconds("blend", t.blend)?;
                 seconds("after", t.after)?;
-                finite("speed", t.speed)?;
+                positive("speed", t.speed)?;
             }
             Ok(())
         }

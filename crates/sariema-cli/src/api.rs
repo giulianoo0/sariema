@@ -278,7 +278,7 @@ const ERRORS: &[(&str, Kind, &str)] = &[
     (
         "E_CLIP_RATE",
         Kind::Rejected,
-        "clip_rate below 0 or not finite",
+        "clip_rate below 0, or play_clip or clip_next at a speed of 0 or below",
     ),
     (
         "E_HOLD_ACTOR",

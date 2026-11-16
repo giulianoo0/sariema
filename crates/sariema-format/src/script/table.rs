@@ -62,7 +62,8 @@ batch_table! {
         /// module: with `motion.builtin` it ends at once with `blocked`.
         0x001B Traverse traverse { entity: Entity, traversal: u32, duration: f32 }
 
-        /// `blend` is the crossfade from the current clip, in seconds.
+        /// `blend` is the crossfade from the current clip, in seconds. Refused
+        /// with E_CLIP_RATE for a `speed` of 0 or below.
         0x0020 PlayClip play_clip { entity: Entity, clip: u32, mode: ClipMode, blend: f32, speed: f32 }
 
         /// `emitter` NONE plays without position. `volume` is linear gain.
@@ -201,6 +202,7 @@ batch_table! {
         /// seconds, or reached its end when `after` is 0, with the time left
         /// over, so the seam shows no still frame. Plays at once when the
         /// actor plays no clip. A `play_clip` or `clip_path` drops the queue.
+        /// Refused with E_CLIP_RATE for a `speed` of 0 or below.
         0x0023 ClipNext clip_next { entity: Entity, clip: u32, mode: ClipMode, blend: f32, speed: f32, after: f32 }
         /// `actor` holds `entity` (a room node, a light, an empty) at its
         /// socket or joint `socket`, a socket looked up first: the entity

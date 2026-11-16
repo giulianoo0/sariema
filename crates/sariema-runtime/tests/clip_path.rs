@@ -264,3 +264,41 @@ fn a_queued_clip_follows_the_path_with_no_still_frame() {
         "the time left over: {after} against {left}"
     );
 }
+
+#[test]
+fn a_clip_at_a_speed_of_zero_or_below_is_refused() {
+    let trace = run(
+        |out| {
+            for speed in [0.0, -1.0] {
+                send(
+                    out,
+                    Command::PlayClip {
+                        entity: entity(0),
+                        clip: name_id(CLIP),
+                        mode: ClipMode::Once,
+                        blend: 0.1,
+                        speed,
+                    },
+                );
+                send(
+                    out,
+                    Command::ClipNext {
+                        entity: entity(0),
+                        clip: name_id("land"),
+                        mode: ClipMode::Once,
+                        blend: 0.1,
+                        speed,
+                        after: 0.0,
+                    },
+                );
+            }
+        },
+        |_, _| {},
+        4,
+    );
+    let refused = (trace.events.iter())
+        .filter(|(_, e)| e.contains("E_CLIP_RATE"))
+        .count();
+    assert_eq!(refused, 4, "{:?}", trace.events);
+    assert!(trace.steps.iter().all(|(_, t)| *t == -1.0), "no clip plays");
+}
