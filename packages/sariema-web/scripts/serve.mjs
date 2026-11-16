@@ -3,13 +3,17 @@
 // A static file server for the package, its probe page and test fixtures.
 //
 //   node scripts/serve.mjs [--port 8787] [--host 127.0.0.1] [--mount /prefix=dir]...
+//                          [--cert cert.pem --key key.pem]
 //
 // `--host 0.0.0.0` serves the local network too, for a phone on the same
-// Wi-Fi; the addresses to open are printed. Once listening it prints one
-// JSON line: {"ok":true,"url":...,"lan":[...]}.
+// Wi-Fi; the addresses to open are printed. A phone needs HTTPS for WebGPU
+// and AudioWorklet, which browsers keep to secure contexts: give a
+// certificate with --cert and --key (docs/web.md makes one with openssl).
+// Once listening it prints one JSON line: {"ok":true,"url":...,"lan":[...]}.
 
-import { createReadStream, statSync } from "node:fs";
+import { createReadStream, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
+import { createServer as createTlsServer } from "node:https";
 import { networkInterfaces } from "node:os";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,11 +34,15 @@ const pkg = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 let port = 8787;
 let host = "127.0.0.1";
+let cert = null;
+let key = null;
 const mounts = [];
 for (let i = 0; i < argv.length; i++) {
   const [flag, value] = [argv[i], argv[i + 1]];
   if (flag === "--port") port = Number(value);
   else if (flag === "--host") host = value;
+  else if (flag === "--cert") cert = readFileSync(value);
+  else if (flag === "--key") key = readFileSync(value);
   else if (flag === "--mount") {
     const at = value.indexOf("=");
     mounts.push([value.slice(0, at).replace(/\/?$/, "/"), resolve(value.slice(at + 1))]);
@@ -57,7 +65,7 @@ function locate(pathname) {
   return null;
 }
 
-const server = createServer((req, res) => {
+const handle = (req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   let file = locate(decodeURIComponent(url.pathname));
   let stat;
@@ -81,7 +89,9 @@ const server = createServer((req, res) => {
   });
   if (req.method === "HEAD") res.end();
   else createReadStream(file).pipe(res);
-});
+};
+const scheme = cert && key ? "https" : "http";
+const server = scheme === "https" ? createTlsServer({ cert, key }, handle) : createServer(handle);
 
 server.listen(port, host, () => {
   const { port: bound } = server.address();
@@ -90,8 +100,8 @@ server.listen(port, host, () => {
       ? Object.values(networkInterfaces())
           .flat()
           .filter((a) => a && a.family === "IPv4" && !a.internal)
-          .map((a) => `http://${a.address}:${bound}/`)
+          .map((a) => `${scheme}://${a.address}:${bound}/`)
       : [];
   const shown = host === "0.0.0.0" ? "127.0.0.1" : host;
-  console.log(JSON.stringify({ ok: true, url: `http://${shown}:${bound}/`, lan, pid: process.pid }));
+  console.log(JSON.stringify({ ok: true, url: `${scheme}://${shown}:${bound}/`, lan, pid: process.pid }));
 });

@@ -171,6 +171,22 @@ async function runBrowser(name, { engine, hideWebGpu }) {
     const of = (t) => events.some((e) => e.type === t && e.node === "action");
     check(name, "a tap reaches the UI", of("press") && of("tap"), { events: events.map((e) => `${e.type}:${e.node}`) });
 
+    await page.goto(new URL("dist/probe/?auto", base).href);
+    const probe = await page.waitForFunction(() => window.probeResult?.smoke && window.probeResult, null, { timeout: 30_000 });
+    const p = await probe.jsonValue();
+    check(name, "the probe page draws and plays", p.smoke.ok && p.smoke.audio_ok === true, {
+      webgpu: p.webgpu.available,
+      webgl2: p.webgl2.available,
+      backend: p.smoke.backend,
+      first_frame_ms: Math.round(p.smoke.first_frame_ms ?? -1),
+      lit: Number((p.smoke.lit_fraction ?? 0).toFixed(3)),
+      audio: p.smoke.audio,
+      error: p.smoke.error ?? p.smoke.audio_error,
+    });
+    await page.goto(new URL("test/page.html", base).href);
+    await page.waitForFunction(() => window.suite);
+    await page.evaluate(() => window.suite.start());
+
     const plainCaps = await page.evaluate(() => window.suite.remount({ compressedTextures: false }));
     const plain = await page.evaluate(() => window.suite.game());
     check(name, "takes the RGBA8 packs without compressed textures", plain.file === "demo.rgba8.srma" && plain.max_channel_delta === 0, {

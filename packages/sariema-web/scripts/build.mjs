@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Builds dist/: the engine compiled to WebAssembly, its JavaScript bindings,
-// the shrunk .wasm, the typed API and the audio worklet. Prints the .wasm's
-// sizes as JSON.
+// the shrunk .wasm, the typed API, the audio worklet, the probe page and the
+// demo game it draws. Prints the .wasm's sizes as JSON.
 //
 //   node scripts/build.mjs [--debug] [--no-opt]
 //
@@ -10,7 +10,7 @@
 // of the repository's pinned toolchain.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,6 +93,11 @@ if (optimise) {
 
 run(join(pkg, "node_modules", ".bin", "tsc"), ["-p", join(pkg, "tsconfig.json")]);
 copyFileSync(join(pkg, "src", "audio-worklet.js"), join(dist, "audio-worklet.js"));
+cpSync(join(pkg, "probe"), join(dist, "probe"), { recursive: true });
+const cli = (...argv) =>
+  run("cargo", ["run", "-q", "-p", "sariema-cli", "--release", "--", ...argv, "--json"], { CARGO_TARGET_DIR: target });
+cli("web", join(repo, "examples", "demo"), "-o", join(dist, "demo"));
+cli("audio", "build", join(repo, "examples", "audio"), "-o", join(dist, "demo", "sounds.srms"));
 
 const bytes = readFileSync(wasm);
 const sizes = {
