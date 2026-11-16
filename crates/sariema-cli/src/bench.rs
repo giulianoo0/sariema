@@ -80,8 +80,9 @@ impl BenchArgs {
 #[derive(Default)]
 struct Samples {
     frame: Vec<f64>,
-    /// A game's step and HUD, inside `frame`.
+    /// A game's step, audio feed and HUD, inside `frame`.
     step: Vec<f64>,
+    feed: Vec<f64>,
     hud: Vec<f64>,
     stages: Vec<FrameTimings>,
     allocations: Vec<u64>,
@@ -210,6 +211,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
             samples.frame.push(ms(cpu));
             if let Some(parts) = parts {
                 samples.step.push(ms(parts.step));
+                samples.feed.push(ms(parts.feed));
                 samples.hud.push(ms(parts.hud));
             }
             samples.stages.push(renderer.last_frame_timings());
@@ -284,6 +286,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
             "cpu_ms": {
                 "frame": stats::summary(&samples.frame),
                 "step": counted(&samples.step),
+                "feed": counted(&samples.feed),
                 "hud": counted(&samples.hud),
                 "cull": samples.stage(|t| t.cull),
                 "bin": samples.stage(|t| t.bin),

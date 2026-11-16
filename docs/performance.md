@@ -78,13 +78,13 @@ sariema bench game.srmg --input examples/climb/input/play.json --json
 Given a game pack, each frame bench draws is one engine step, with the
 input log's actions when `--input` names one, and the frame at its end: the
 room, the actors and the HUD ([engine.md](engine.md)). `cpu_ms.frame` then
-covers all of it, `cpu_ms.step` the step alone and `cpu_ms.hud` the HUD's
-layout, draw list and pass. `per_frame` counts the HUD pass with the rest,
-and `game.hud_pass` gives its passes, draws and bytes uploaded apart. The
-steps run as `run --headless` runs them, the music decoded in the step, so
-`per_frame.allocations` includes the stream decoder's; a game playing to a
-device decodes on a thread of its own and its steady step allocates
-nothing (`crates/sariema-engine/tests/steady.rs`). The cost of a step with
+covers all of it, `cpu_ms.step` the step alone, `cpu_ms.feed` the audio
+feed after it (decoding the music, mixing the step) and `cpu_ms.hud` the
+HUD's layout, draw list and pass. `per_frame` counts the HUD pass with the
+rest, and `game.hud_pass` gives its passes, draws and bytes uploaded apart.
+The steps run as `run --headless` runs them, so `per_frame.allocations`
+includes the feed's decoder; a steady step allocates nothing on every host
+(`crates/sariema-engine/tests/steady.rs`). The cost of a step with
 a crowd walking under the collision module is
 `cargo run --release -p sariema-engine --example crowd -- 2000`.
 

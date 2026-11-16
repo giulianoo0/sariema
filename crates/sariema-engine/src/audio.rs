@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The sound stage of a step: the game's sound and music requests as mixer
-//! commands stamped with the step's mixer frame, sounds tied to an entity
-//! heard from the camera as it moves, and, without a device, the step's
-//! samples mixed at once.
+//! The sound stage: the game's sound and music requests as mixer commands
+//! stamped with the step's mixer frame, sounds tied to an entity heard from
+//! the camera as it moves, and the feed between steps that opens and decodes
+//! streams and, without a device, mixes the steps' samples. The step itself
+//! never decodes: a decoder allocates as it reads.
 
 use glam::Vec3;
 use sariema_audio::{
@@ -12,9 +13,9 @@ use sariema_audio::{
 };
 use sariema_core::{STEP_HZ, STEP_SECONDS};
 use sariema_format::script::{Bus, Command, Entity, Event, name_id};
-use sariema_format::sound::SoundBank;
+use sariema_format::sound::{Load, SoundBank};
 use sariema_runtime::camera::CameraPose;
-use sariema_runtime::outbox::MusicRequest;
+use sariema_runtime::outbox::{MusicRequest, SoundRequest};
 use sariema_runtime::state::State;
 
 use crate::settings::SoundSettings;
@@ -29,6 +30,22 @@ struct Emitter {
     sent: (f32, f32),
 }
 
+/// A request the step left to the feed: a sound still to be decoded or
+/// opened as a stream, or any music request, kept in order.
+#[derive(Clone, Copy)]
+enum Pending {
+    Sound {
+        at: u64,
+        id: SoundId,
+        request: SoundRequest,
+        heard: (f32, f32),
+    },
+    Music {
+        at: u64,
+        request: MusicRequest,
+    },
+}
+
 pub struct Sound {
     pub audio: Audio,
     /// Kept to mix offline; the host takes it to feed a device.
@@ -37,6 +54,9 @@ pub struct Sound {
     settings: SoundSettings,
     /// Oldest first.
     emitters: Vec<Emitter>,
+    pending: Vec<Pending>,
+    /// The next step to mix offline.
+    mixed: u64,
     scratch: Vec<f32>,
     hash: u64,
     /// Requests the mixer refused, for the game at the next step.
@@ -49,7 +69,13 @@ impl Sound {
         base: MixerSettings,
         settings: SoundSettings,
     ) -> Result<Sound, AudioError> {
-        let (mixer_settings, defs) = sariema_audio::runtime(bank, base);
+        let (mixer_settings, mut defs) = sariema_audio::runtime(bank, base);
+        if settings.predecode_streams {
+            for def in defs.iter_mut().filter(|d| d.stream) {
+                def.stream = false;
+                def.load = Load::Bank;
+            }
+        }
         let ids = defs.iter().map(|d| name_id(&d.name)).collect();
         let rate = mixer_settings.sample_rate;
         let (audio, mixer) = Audio::new(mixer_settings, defs, feeding(settings.stream_thread))?;
@@ -58,10 +84,12 @@ impl Sound {
             mixer: Some(mixer),
             ids,
             emitters: Vec::with_capacity(settings.emitters),
+            pending: Vec::with_capacity(settings.pending),
+            mixed: 0,
             settings,
             scratch: vec![0.0; 2 * (frame(1, rate) as usize + 1)],
             hash: FNV_OFFSET,
-            rejected: Vec::new(),
+            rejected: Vec::with_capacity(settings.pending),
         })
     }
 
@@ -71,8 +99,8 @@ impl Sound {
         self.mixer.take()
     }
 
-    /// Whether the steps mix the sound themselves, no device having taken
-    /// the mixer.
+    /// Whether the feed mixes the sound itself, no device having taken the
+    /// mixer.
     pub fn offline(&self) -> bool {
         self.mixer.is_some()
     }
@@ -82,7 +110,8 @@ impl Sound {
         frame(n, self.audio.settings().sample_rate)
     }
 
-    /// Carries out step `n`'s requests at mixer frame `at`.
+    /// Carries out step `n`'s requests at mixer frame `at` where that needs
+    /// no decoding, leaving the rest to [`Sound::feed`].
     pub fn step(&mut self, s: &State, at: u64) {
         let listener = s.camera.pose();
         for &request in &s.outbox.sounds {
@@ -95,75 +124,118 @@ impl Sound {
                 );
                 continue;
             };
-            if let Err(e) = self.audio.preload(id) {
-                reject(&mut self.rejected, &PLAY_SOUND, e, request.emitter);
-                continue;
-            }
-            let gain = self.audio.sounds()[id.0 as usize].gain * request.volume;
             let heard = self.heard(s, listener, request.emitter);
-            let params = PlayParams {
-                gain: request.volume * heard.0,
-                pan: heard.1,
-                ..PlayParams::default()
-            };
-            match self.audio.play(at, id, params) {
-                Ok(voice) if !request.emitter.is_none() => {
-                    if self.emitters.len() == self.settings.emitters {
-                        self.emitters.remove(0);
-                    }
-                    if self.settings.emitters > 0 {
-                        self.emitters.push(Emitter {
-                            entity: request.emitter,
-                            voice,
-                            gain,
-                            sent: heard,
-                        });
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => reject(&mut self.rejected, &PLAY_SOUND, e, request.emitter),
+            let decoded = !self.audio.sounds()[id.0 as usize].stream && self.audio.is_loaded(id);
+            if decoded {
+                self.play(at, id, request, heard);
+            } else {
+                self.defer(Pending::Sound {
+                    at,
+                    id,
+                    request,
+                    heard,
+                });
             }
         }
         for &request in &s.outbox.music {
-            let result = match request {
-                MusicRequest::Play { music, fade } => match self.id(music) {
-                    Some(id) => {
-                        let fades = MusicFades {
-                            fade_in_s: Some(fade),
-                            fade_out_s: Some(fade),
-                            curve: None,
-                        };
-                        self.audio.music(at, id, fades, None).map(|_| ())
-                    }
-                    None => Err(unknown(music)),
-                },
-                MusicRequest::Stop { fade } => self.audio.stop_music(at, Some(fade)),
-                MusicRequest::BusVolume { bus, volume, fade } => {
-                    match self.audio.settings().bus(bus.name()) {
-                        Some(b) => self.audio.set_bus(at, b, gain_to_db(volume), fade),
-                        None => Ok(()),
-                    }
-                }
-            };
-            if let Err(e) = result {
-                let command = match request {
-                    MusicRequest::Play { .. } => &PLAY_MUSIC,
-                    MusicRequest::Stop { .. } => &STOP_MUSIC,
-                    MusicRequest::BusVolume { .. } => &SET_BUS_VOLUME,
-                };
-                reject(&mut self.rejected, command, e, Entity::NONE);
-            }
+            self.defer(Pending::Music { at, request });
         }
         self.follow(s, listener, at);
+    }
+
+    /// Between steps: plays what the steps left (decoding a sound loaded on
+    /// demand, opening a stream), decodes the streams ahead, and without a
+    /// device mixes every step up to `steps`. It allocates; the steps do not.
+    pub fn feed(&mut self, steps: u64) {
+        for k in 0..self.pending.len() {
+            match self.pending[k] {
+                Pending::Sound {
+                    at,
+                    id,
+                    request,
+                    heard,
+                } => match self.audio.preload(id) {
+                    Ok(()) => self.play(at, id, request, heard),
+                    Err(e) => reject(&mut self.rejected, &PLAY_SOUND, e, request.emitter),
+                },
+                Pending::Music { at, request } => self.music(at, request),
+            }
+        }
+        self.pending.clear();
         if let Err(e) = self.audio.pump() {
             reject(&mut self.rejected, &PLAY_SOUND, e, Entity::NONE);
         }
         self.audio.collect();
+        while self.mixed < steps {
+            self.mix(self.mixed);
+            self.mixed += 1;
+        }
     }
 
-    /// Mixes step `n`'s samples when no device took the mixer, folding them
-    /// into [`Sound::hash`].
-    pub fn mix(&mut self, n: u64) {
+    fn defer(&mut self, pending: Pending) {
+        if self.pending.len() < self.pending.capacity() {
+            self.pending.push(pending);
+            return;
+        }
+        let (command, entity) = match pending {
+            Pending::Sound { request, .. } => (&PLAY_SOUND, request.emitter),
+            Pending::Music { request, .. } => (music_command(request), Entity::NONE),
+        };
+        reject(&mut self.rejected, command, AudioError::QueueFull, entity);
+    }
+
+    fn play(&mut self, at: u64, id: SoundId, request: SoundRequest, heard: (f32, f32)) {
+        let gain = self.audio.sounds()[id.0 as usize].gain * request.volume;
+        let params = PlayParams {
+            gain: request.volume * heard.0,
+            pan: heard.1,
+            ..PlayParams::default()
+        };
+        match self.audio.play(at, id, params) {
+            Ok(voice) if !request.emitter.is_none() && self.settings.emitters > 0 => {
+                if self.emitters.len() == self.settings.emitters {
+                    self.emitters.remove(0);
+                }
+                self.emitters.push(Emitter {
+                    entity: request.emitter,
+                    voice,
+                    gain,
+                    sent: heard,
+                });
+            }
+            Ok(_) => {}
+            Err(e) => reject(&mut self.rejected, &PLAY_SOUND, e, request.emitter),
+        }
+    }
+
+    fn music(&mut self, at: u64, request: MusicRequest) {
+        let result = match request {
+            MusicRequest::Play { music, fade } => match self.id(music) {
+                Some(id) => {
+                    let fades = MusicFades {
+                        fade_in_s: Some(fade),
+                        fade_out_s: Some(fade),
+                        curve: None,
+                    };
+                    self.audio.music(at, id, fades, None).map(|_| ())
+                }
+                None => Err(unknown(music)),
+            },
+            MusicRequest::Stop { fade } => self.audio.stop_music(at, Some(fade)),
+            MusicRequest::BusVolume { bus, volume, fade } => {
+                match self.audio.settings().bus(bus.name()) {
+                    Some(b) => self.audio.set_bus(at, b, gain_to_db(volume), fade),
+                    None => Ok(()),
+                }
+            }
+        };
+        if let Err(e) = result {
+            reject(&mut self.rejected, music_command(request), e, Entity::NONE);
+        }
+    }
+
+    /// Mixes step `n`'s samples, folding them into [`Sound::hash`].
+    fn mix(&mut self, n: u64) {
         let frames = (self.frame_of(n + 1) - self.frame_of(n)) as usize;
         let Some(mixer) = self.mixer.as_mut() else {
             return;
@@ -279,6 +351,14 @@ const PLAY_SOUND: Command<'static> = Command::PlaySound {
     emitter: Entity::NONE,
     volume: 0.0,
 };
+fn music_command(request: MusicRequest) -> &'static Command<'static> {
+    match request {
+        MusicRequest::Play { .. } => &PLAY_MUSIC,
+        MusicRequest::Stop { .. } => &STOP_MUSIC,
+        MusicRequest::BusVolume { .. } => &SET_BUS_VOLUME,
+    }
+}
+
 const PLAY_MUSIC: Command<'static> = Command::PlayMusic {
     music: 0,
     fade: 0.0,

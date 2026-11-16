@@ -158,19 +158,37 @@ impl<L: Logic> Engine<L> {
     }
 
     /// One step with `actions`, as a headless run or an input log gives them;
-    /// the HUD's joystick and buttons are added to them.
+    /// the HUD's joystick and buttons are added to them. It allocates
+    /// nothing once the game is steady; [`Engine::feed_audio`] follows it.
     pub fn step(&mut self, actions: &Actions) {
         self.actions.clone_from(actions);
         self.run_step();
     }
 
-    /// The steps a display frame of `dt` owes, each sampling `raw`.
+    /// The sound's work between steps: plays what the steps since the last
+    /// feed left (a sound loaded on demand, a stream to open), decodes the
+    /// streams ahead and, without a device, mixes those steps' samples. A
+    /// host calls it after its steps and before drawing; its refusals reach
+    /// the game at the next step.
+    pub fn feed_audio(&mut self) {
+        let Some(sound) = &mut self.sound else {
+            return;
+        };
+        sound.feed(self.sim.steps());
+        for event in sound.rejected.drain(..) {
+            self.sim.report(event);
+        }
+    }
+
+    /// The steps a display frame of `dt` owes, each sampling `raw`, then the
+    /// audio feed.
     pub fn frame(&mut self, dt: Duration, raw: &RawInput) -> Tick {
         let tick = self.sim.advance(dt);
         for _ in 0..tick.steps {
             self.sim.state().input.map(raw, &mut self.actions);
             self.run_step();
         }
+        self.feed_audio();
         tick
     }
 
@@ -196,12 +214,12 @@ impl<L: Logic> Engine<L> {
             physics.after_step(s);
         }
         if let Some(sound) = &mut self.sound {
-            let offline = sound.offline();
-            let at = if offline { sound.frame_of(n) } else { 0 };
+            let at = if sound.offline() {
+                sound.frame_of(n)
+            } else {
+                0
+            };
             sound.step(s, at);
-            if offline {
-                sound.mix(n);
-            }
             self.rejected.append(&mut sound.rejected);
         }
         self.hud.step(s);

@@ -155,10 +155,14 @@ pub fn run(path: &Path, run: &RunArgs) -> Result<Done, Failure> {
 
     let (mut events, mut host, mut logs) = (Vec::new(), Vec::new(), Vec::new());
     let mut took = Vec::with_capacity(steps as usize);
+    let mut fed = Duration::ZERO;
     for step in 0..steps {
         let started = Instant::now();
         engine.step(replay.actions(step));
         took.push(started.elapsed());
+        let started = Instant::now();
+        engine.feed_audio();
+        fed += started.elapsed();
         if let Some(frames) = &mut frames {
             frames.after_step(step, &mut engine)?;
         }
@@ -234,6 +238,7 @@ pub fn run(path: &Path, run: &RunArgs) -> Result<Done, Failure> {
                 "mean_step_ms": ms(total) / steps as f64,
                 "median_step_ms": ms(median),
                 "max_step_ms": ms(slowest),
+                "mean_feed_ms": ms(fed) / steps as f64,
             },
         }),
         text: format!(

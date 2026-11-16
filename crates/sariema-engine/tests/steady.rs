@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! A steady step of a game playing to a device allocates nothing: the hero
-//! walking under the player's input with collision, its clip playing, music
-//! streaming and mixing, a chime ringing and the HUD stepping. The music's
-//! decoder, which allocates as it reads, runs on its own thread there.
+//! A steady step allocates nothing, on every host: the hero walking under
+//! the player's input with collision, its clip playing, music streaming and
+//! mixing, a chime ringing and the HUD stepping. The music's decoder, which
+//! allocates as it reads, runs between steps in the audio feed or on a
+//! thread of its own; decoded at load, it allocates nowhere.
 
 mod common;
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use glam::Vec2;
 use sariema_format::script::{Bus, Command, Entity, Kind, name_id};
@@ -22,18 +22,22 @@ use sariema_runtime::sim::Simulation;
 
 struct Counting;
 
-static ALLOCATIONS: AtomicU64 = AtomicU64::new(0);
-
 thread_local! {
     static ARMED: Cell<bool> = const { Cell::new(false) };
+    /// Per thread, so tests running side by side count only their own.
+    static ALLOCATIONS: Cell<u64> = const { Cell::new(0) };
+}
+
+fn count() {
+    if ARMED.with(Cell::get) {
+        ALLOCATIONS.with(|n| n.set(n.get() + 1));
+    }
 }
 
 // SAFETY: every call is passed on to the system allocator unchanged.
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if ARMED.with(Cell::get) {
-            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        }
+        count();
         unsafe { System.alloc(layout) }
     }
 
@@ -42,9 +46,7 @@ unsafe impl GlobalAlloc for Counting {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if ARMED.with(Cell::get) {
-            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        }
+        count();
         unsafe { System.realloc(ptr, layout, new_size) }
     }
 }
@@ -110,11 +112,17 @@ impl Logic for Walker {
     }
 }
 
-#[test]
-fn a_steady_step_allocates_nothing() {
+/// Allocations counted in 600 steady steps and in the audio feeds after
+/// them, with where the hero got to and what the mixer did.
+struct Steady {
+    steps: u64,
+    feeds: u64,
+    moved: glam::Vec3,
+    mixed: sariema_audio::MixStats,
+}
+
+fn steady(settings: EngineSettings) -> Steady {
     let sim = Simulation::new(wired(), Vec::new(), Walker { step: 0 }, 1);
-    let mut settings = EngineSettings::default();
-    settings.audio.stream_thread = true;
     let mut engine = Engine::new(sim, assets(), settings).unwrap();
     let mut actions = Actions::for_settings(&engine.state().settings.input);
     let walk = |actions: &mut Actions, n: u64| {
@@ -124,22 +132,64 @@ fn a_steady_step_allocates_nothing() {
     for n in 0..240 {
         walk(&mut actions, n);
         engine.step(&actions);
+        engine.feed_audio();
     }
-    let before = ALLOCATIONS.load(Ordering::Relaxed);
-    ARMED.with(|a| a.set(true));
+    let counted = |f: &mut dyn FnMut()| {
+        let before = ALLOCATIONS.with(Cell::get);
+        ARMED.with(|a| a.set(true));
+        f();
+        ARMED.with(|a| a.set(false));
+        ALLOCATIONS.with(Cell::get) - before
+    };
+    let (mut steps, mut feeds) = (0, 0);
     for n in 240..840 {
         walk(&mut actions, n);
-        engine.step(&actions);
+        steps += counted(&mut || engine.step(&actions));
+        feeds += counted(&mut || engine.feed_audio());
     }
-    ARMED.with(|a| a.set(false));
-    let allocations = ALLOCATIONS.load(Ordering::Relaxed) - before;
     let moved = engine.state().world.node(entity(0)).unwrap().local.position;
     let mixed = engine.sound().unwrap().audio.stats();
     drop(engine);
-    assert_eq!(allocations, 0, "allocations over 600 steady steps");
     assert!((moved.x - 2.5).abs() > 0.1, "the hero walked: {moved}");
     assert!(
         mixed.voices >= 1 && mixed.now >= 840 * 800,
         "the music played and was mixed: {mixed:?}"
     );
+    Steady {
+        steps,
+        feeds,
+        moved,
+        mixed,
+    }
+}
+
+#[test]
+fn a_steady_step_allocates_nothing_with_streams_decoded_on_a_thread() {
+    let mut settings = EngineSettings::default();
+    settings.audio.stream_thread = true;
+    let run = steady(settings);
+    assert_eq!(run.steps, 0, "allocations over 600 steady steps");
+}
+
+#[test]
+fn a_headless_steady_step_allocates_nothing_and_its_feed_decodes() {
+    let run = steady(EngineSettings::default());
+    assert_eq!(run.steps, 0, "allocations over 600 steady steps");
+    assert!(run.feeds > 0, "the feeds decoded the music: {}", run.feeds);
+    assert_eq!(run.mixed.underruns, 0, "{:?}", run.mixed);
+}
+
+#[test]
+fn predecoded_streams_allocate_nothing_in_the_steps_or_the_feeds() {
+    let mut settings = EngineSettings::default();
+    settings.audio.predecode_streams = true;
+    let run = steady(settings);
+    assert_eq!(
+        (run.steps, run.feeds),
+        (0, 0),
+        "{:?} {:?}",
+        run.moved,
+        run.mixed
+    );
+    assert_eq!(run.mixed.underruns, 0, "{:?}", run.mixed);
 }

@@ -54,11 +54,20 @@ pub struct SoundSettings {
     pub emitters: usize,
     /// A followed sound's gain or pan changing by less than this is not sent.
     pub min_change: f32,
-    /// Streamed sounds decode on a thread of their own instead of in the
-    /// step, for a host playing to a device: the decoder allocates as it
-    /// reads. Off, the steps decode them and the mixed sound is the same
-    /// every run. Ignored on wasm32, which has no threads.
+    /// Streamed sounds decode on a thread of their own, for a host playing
+    /// to a device. Off, [`crate::Engine::feed_audio`] decodes them between
+    /// steps and the mixed sound is the same every run. Ignored on wasm32,
+    /// which has no threads.
     pub stream_thread: bool,
+    /// Streamed sounds are decoded whole when the bank loads, so playing
+    /// them never decodes: no allocation anywhere after loading, at the cost
+    /// of their samples in memory (f32 stereo at the mixer's rate, 23 MB a
+    /// minute at 48 kHz).
+    pub predecode_streams: bool,
+    /// Requests a step can leave to the next feed (a sound to decode or
+    /// open as a stream, any music request); one past it is refused with
+    /// `E_AUDIO_QUEUE_FULL`.
+    pub pending: usize,
 }
 
 impl Default for SoundSettings {
@@ -69,6 +78,8 @@ impl Default for SoundSettings {
             emitters: 32,
             min_change: 1e-3,
             stream_thread: false,
+            predecode_streams: false,
+            pending: 16,
         }
     }
 }

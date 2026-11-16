@@ -55,6 +55,7 @@ pub unsafe extern "C" fn replay(
     };
     for step in 0..steps {
         engine.step(replay.actions(step));
+        engine.feed_audio();
     }
     let hashes = [
         engine.state_hash(),

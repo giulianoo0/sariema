@@ -64,10 +64,12 @@ fn a_sound_tied_to_an_entity_follows_it() {
     };
     for _ in 0..4 {
         engine.step(&actions);
+        engine.feed_audio();
     }
     let (near_gain, left_pan) = heard(&engine).expect("the sound follows the hero");
     for _ in 0..200 {
         engine.step(&actions);
+        engine.feed_audio();
     }
     let x = engine
         .state()

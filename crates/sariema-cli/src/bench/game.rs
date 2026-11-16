@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! A game pack's frame for `bench`: one engine step with the input log's
-//! actions, then the room, the actors and the HUD drawn at the step's end.
+//! actions and the audio feed, then the room, the actors and the HUD drawn
+//! at the step's end.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -32,6 +33,8 @@ pub struct GameFrame {
 /// What one frame of a game took on the CPU besides the room's frame.
 pub struct Parts {
     pub step: Duration,
+    /// The audio feed after the step.
+    pub feed: Duration,
     pub hud: Duration,
 }
 
@@ -86,6 +89,9 @@ impl GameFrame {
         let step = self.engine.steps();
         self.engine.step(self.replay.actions(step));
         let stepped = start.elapsed();
+        let start = Instant::now();
+        self.engine.feed_audio();
+        let fed = start.elapsed();
         if let Some(stop) = self.engine.simulation().stopped() {
             return Err(Failure::new(
                 stop.code,
@@ -104,7 +110,11 @@ impl GameFrame {
             draws: all.draws - world.draws,
             bytes_uploaded: all.bytes_uploaded - world.bytes_uploaded,
         };
-        Ok(Parts { step: stepped, hud })
+        Ok(Parts {
+            step: stepped,
+            feed: fed,
+            hud,
+        })
     }
 
     pub fn name(&self) -> &String {

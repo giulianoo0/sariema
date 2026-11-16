@@ -36,7 +36,7 @@ collision pack the runtime's built-in mover is switched off
 | 5 | Collision | the runtime's physics intents, the poses | positions written back, `arrived`, `blocked`, `hit_wall`, triggers |
 | 6 | Runtime | followers, tweens, timers, screen, dialogue | resolved world, no-jump measurement, camera, zones |
 | 7 | Collision, after | the measurement's put-backs | the actor moved back before the next step |
-| 8 | Sound | the step's sound and music requests, the camera | mixer commands; offline, the step's samples |
+| 8 | Sound | the step's sound and music requests, the camera | mixer commands for sounds already decoded; the rest left to the feed |
 | 9 | HUD | the game's `ui_*` commands, the screen state, the dialogue | the screen for the next frames |
 | 10 | Rejections | what the modules refused | `rejected` events for the game's next step |
 
@@ -75,22 +75,36 @@ collision pack the runtime's built-in mover is switched off
    hid it), the camera and the zones.
 7. **After the step** the collision module takes the measurement's
    teleports and stops, so its actors stand where the runtime put them back.
-8. **Sound.** Each sound and music request becomes a mixer command. A
-   request names its sound by id; the bus is the bank's. A sound marked
-   `on_demand` is decoded on its first play. A sound with an emitter is
-   heard from the camera: full gain within `reference_distance`, then the
-   inverse-distance model of OpenAL and Web Audio, panned along the camera's
-   right, and followed while it plays. Headless, commands are stamped with
-   the step's mixer frame and the step's samples are mixed and hashed; with
-   a device the host takes the mixer, commands play at once, and streamed
-   sounds decode on a thread of their own (`audio.stream_thread`), since the
-   decoder allocates as it reads.
+8. **Sound.** A sound request names its sound by id; the bus is the
+   bank's. A sound with an emitter is heard from the camera: full gain
+   within `reference_distance`, then the inverse-distance model of OpenAL
+   and Web Audio, panned along the camera's right, and followed while it
+   plays. A sound already decoded plays at once; a sound still to decode
+   (marked `on_demand`, first play) or to open as a stream, and every music
+   request, keeps its place in a queue of `audio.pending` for the audio
+   feed. Headless, commands are stamped with the step's mixer frame; with a
+   device the host takes the mixer and commands play at once.
 9. **HUD.** The game's `ui_visible`, `ui_text`, `ui_value` and `ui_play`
    reach the screen. Over the game's own nodes the engine draws its layer:
    the dialogue line (when the HUD has a font), the cinema bars and the fade.
 10. **Rejections** from the collision module, the mixer and the screen are
     reported to the game as `rejected` events the next step; `REJECTED`
     lists their codes.
+
+## The audio feed
+
+A decoder allocates as it reads, so the step never decodes.
+`Engine::feed_audio()`, called by the host after its steps and before it
+draws (`Engine::frame` calls it), plays what the steps queued (decoding an
+on-demand sound, opening a stream), decodes the streams ahead and, when no
+device took the mixer, mixes every step since the last feed and folds the
+samples into `audio_hash`. Run after every step, as `run --headless` does,
+the mixed sound is the same every run: the commands carry the step's mixer
+frame, and the feed mixes that step after starting them. With
+`audio.stream_thread` the streams decode on a thread of their own instead;
+with `audio.predecode_streams` they are decoded whole when the bank loads
+and neither the step nor the feed allocates. Refusals from the feed reach
+the game at the next step, as the step's do.
 
 ## A frame
 
@@ -136,6 +150,8 @@ each module's own settings stay in its crate.
 | `audio.emitters` | 32 | sounds followed at once |
 | `audio.min_change` | 0.001 | smallest gain or pan change sent |
 | `audio.stream_thread` | false | decode streams on a thread; for a host playing to a device |
+| `audio.predecode_streams` | false | decode streams whole at load: no allocation after it, 23 MB a minute at 48 kHz |
+| `audio.pending` | 16 | requests a step can leave to the feed; one more is `E_AUDIO_QUEUE_FULL` |
 | `mixer` | `MixerSettings::default()` | the mixer's; a host playing to a device sets `sample_rate` |
 | `hud.bar_fraction` | 0.12 | cinema bar height at `letterbox` 1 |
 | `hud.line_size`, `hud.line_margin` | 22, 48 | the dialogue line, in UI pixels |

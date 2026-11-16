@@ -171,7 +171,7 @@ the pack codes (`E_PACK_BAD_MAGIC`, `E_PACK_VERSION`, `E_PACK_TRUNCATED`,
 
 ```rust
 let (settings, sounds) = sariema_audio::runtime(bank, MixerSettings::default());
-// Feeding::Manual on the web, with audio.pump() every step.
+// Feeding::Manual on the web, with audio.pump() between steps.
 let (mut audio, mixer) = Audio::new(settings, sounds, Feeding::Thread)?;
 // Audio thread: mixer.render(&mut buffer), or Output::start(mixer, rate)
 // with the `device` feature.
@@ -200,8 +200,17 @@ The web (`wasm32-unknown-unknown`, for a WebView build): `sariema-audio`
 passes `cargo check` and clippy there. The web has no threads, so
 `Feeding::Thread` does not exist on `wasm32` (using it is a compile error,
 not a panic at run time); a web build uses `Feeding::Manual` and calls
-`Audio::pump` every step to decode streams ahead of the mixer. The `device`
+`Audio::pump` between steps to decode streams ahead of the mixer. The `device`
 feature was not checked for the web; the page provides the output.
+
+Decoding allocates: symphonia gives each packet it reads its own buffer, and
+opening a stream builds a decoder. So does decoding a sound loaded on demand.
+The engine keeps all of that out of its step (`docs/engine.md`): the step
+only plays sounds already decoded, and an audio feed between steps, or a
+decoding thread, does the rest. A host that wants no allocation anywhere
+decodes its streams whole at load (`audio.predecode_streams` in the engine):
+f32 stereo at the mixer's rate, 23 MB a minute at 48 kHz, against 0.58 MB
+for a stream.
 
 ## Numbers
 
