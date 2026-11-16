@@ -3,7 +3,9 @@
 mod common;
 
 use common::{NUNITO, near, screen, ui};
-use sariema_ui::{ATLAS_TEXTURE, NO_TEXTURE, NodeDesc, Ui, UiSettings, kind};
+use sariema_ui::{
+    ATLAS_TEXTURE, Color, Gradient, GradientKind, NO_TEXTURE, NodeDesc, Ui, UiSettings, kind,
+};
 use serde_json::{Value, json};
 
 fn node(v: Value) -> NodeDesc {
@@ -139,4 +141,79 @@ fn shapes_carry_their_parameters() {
         "the second segment, half drawn"
     );
     assert_eq!(q[3].params[0], 1.0);
+}
+
+#[test]
+fn gradients_ride_in_the_box_quad() {
+    let mut ui = with_image();
+    let root = ui.root();
+    let mut ids = Vec::new();
+    for desc in [
+        json!({ "width": 100, "height": 50, "opacity": 0.5,
+                "gradient": { "type": "linear", "angle": 90, "from": "#ff0000", "to": "#0000ff" } }),
+        json!({ "width": 100, "height": 50,
+                "gradient": { "type": "linear", "from": "#fff", "to": "#000", "stops": [0.25, 0.75] } }),
+        json!({ "width": 100, "height": 100, "border": { "width": 2.5, "color": "#33261C" },
+                "gradient": { "type": "radial", "center": [0.5, 0.32], "from": "#FFD86B",
+                              "to": "#F5A623", "stops": [0, 0.7] } }),
+        json!({ "width": 844, "height": 390,
+                "gradient": { "type": "radial", "center": [0.5, 0.46], "radius": [0.7, 0.62],
+                              "from": "#0000", "to": "#080C1E8C", "stops": [0.55, 1] } }),
+    ] {
+        let mut desc = desc;
+        desc["absolute"] = json!(true);
+        ids.push(ui.create(root, &node(desc)).unwrap());
+    }
+    let list = ui.draw(1.0);
+    assert_eq!(list.batches.len(), 1, "gradients are shapes: no texture");
+    let q = list.quads.clone();
+    assert_eq!(q.len(), 4);
+
+    assert_eq!(q[0].kind, kind::LINEAR);
+    assert_eq!(q[0].fill, [1.0, 0.0, 0.0, 0.5], "from, faded");
+    assert_eq!(q[0].uv, [0.0, 0.0, 1.0, 0.5], "to, faded");
+    let ends = |q: &sariema_ui::Quad| [q.params[2], q.params[3], q.gradient[0], q.gradient[1]];
+    let close = |a: [f32; 4], b: [f32; 4]| a.iter().zip(b).all(|(a, b)| near(*a, b, 1e-3));
+    assert!(
+        close(ends(&q[0]), [0.0, 25.0, 100.0, 25.0]),
+        "{:?}",
+        ends(&q[0])
+    );
+    assert!(
+        close(ends(&q[1]), [50.0, 12.5, 50.0, 37.5]),
+        "downwards by default, stops along the line: {:?}",
+        ends(&q[1])
+    );
+
+    assert_eq!(q[2].kind, kind::RADIAL);
+    assert_eq!(q[2].params[0], 2.5, "the border stays");
+    assert_eq!([q[2].params[2], q[2].params[3]], [50.0, 32.0]);
+    let farthest = (50.0f32 * 50.0 + 68.0 * 68.0).sqrt() * 0.7;
+    assert!(near(q[2].gradient[0], farthest, 1e-3) && near(q[2].gradient[1], farthest, 1e-3));
+    assert_eq!(q[2].gradient[2], 0.0);
+    assert!(near(q[3].params[3], 179.4, 1e-3));
+    assert!(near(q[3].gradient[0], 590.8, 1e-3) && near(q[3].gradient[1], 241.8, 1e-3));
+    assert!(
+        near(q[3].gradient[2], 0.55, 1e-6),
+        "the inner stop over the outer"
+    );
+
+    let card = ids[1];
+    let red = Color::parse("#E0650F").unwrap();
+    ui.set_gradient(
+        card,
+        Some(Gradient {
+            kind: GradientKind::Radial,
+            from: Color::WHITE,
+            to: red,
+            ..Gradient::default()
+        }),
+    )
+    .unwrap();
+    let q = ui.draw(1.0).quads[1];
+    assert_eq!((q.kind, q.uv), (kind::RADIAL, red.0));
+    ui.set_gradient(card, None).unwrap();
+    ui.set_fill(card, red).unwrap();
+    let q = ui.draw(1.0).quads[1];
+    assert_eq!((q.kind, q.fill), (kind::RECT, red.0));
 }

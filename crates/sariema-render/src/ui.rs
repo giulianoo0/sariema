@@ -32,7 +32,7 @@ pub struct UiInstance {
     pub radii_y: [f32; 4],
     pub params: [f32; 4],
     pub kind: u32,
-    pub pad: [u32; 3],
+    pub gradient: [f32; 3],
 }
 
 /// Quads `start..start + count` with one texture and one scissor.
@@ -72,6 +72,7 @@ struct Instance {
     @location(7) radii_y: vec4f,
     @location(8) params: vec4f,
     @location(9) kind: u32,
+    @location(10) grad: vec3f,
 }
 
 struct Varyings {
@@ -86,6 +87,7 @@ struct Varyings {
     @location(7) @interpolate(flat) radii_y: vec4f,
     @location(8) @interpolate(flat) params: vec4f,
     @location(9) @interpolate(flat) seg: vec4f,
+    @location(10) @interpolate(flat) grad: vec3f,
 }
 
 const RECT: u32 = 0u;
@@ -93,6 +95,8 @@ const GLYPH: u32 = 1u;
 const IMAGE: u32 = 2u;
 const RING: u32 = 3u;
 const SEGMENT: u32 = 4u;
+const LINEAR: u32 = 5u;
+const RADIAL: u32 = 6u;
 const TAU: f32 = 6.28318530718;
 
 @vertex
@@ -100,12 +104,13 @@ fn vs(@builtin(vertex_index) vi: u32, i: Instance) -> Varyings {
     let corner = vec2f(f32(vi & 1u), f32(vi >> 1u));
     var lo = i.rect.xy;
     var size = i.rect.zw;
-    if (i.kind == RECT || i.kind == RING || i.kind == SEGMENT) {
+    let boxed = i.kind == RECT || i.kind == LINEAR || i.kind == RADIAL;
+    if (boxed || i.kind == RING || i.kind == SEGMENT) {
         // Room for the antialiased edge, and for a shadow's blur.
         let sx = max(length(i.xf.xy), 1e-6);
         let sy = max(length(i.xf.zw), 1e-6);
         var pad = vec2f(1.5 / sx, 1.5 / sy);
-        if (i.kind == RECT) {
+        if (boxed) {
             pad += vec2f(i.params.y * 1.5);
         }
         lo -= pad;
@@ -128,6 +133,7 @@ fn vs(@builtin(vertex_index) vi: u32, i: Instance) -> Varyings {
     out.radii_y = i.radii_y;
     out.params = i.params;
     out.seg = i.uv;
+    out.grad = i.grad;
     return out;
 }
 
@@ -167,6 +173,21 @@ fn corner(p: vec2f, rx: vec4f, ry: vec4f) -> vec2f {
     return vec2f(rx.z, ry.z);
 }
 
+// Premultiplied, mixed in the colours' own encoding as browsers do.
+fn box_fill(v: Varyings) -> vec4f {
+    var t = 0.0;
+    if (v.kind == LINEAR) {
+        let ab = v.grad.xy - v.params.zw;
+        t = dot(v.local - v.params.zw, ab) / max(dot(ab, ab), 1e-12);
+    } else if (v.kind == RADIAL) {
+        let q = (v.local - v.params.zw) / max(v.grad.xy, vec2f(1e-6));
+        t = (length(q) - v.grad.z) / max(1.0 - v.grad.z, 1e-6);
+    } else {
+        return premul(v.fill);
+    }
+    return mix(premul(v.fill), premul(v.seg), clamp(t, 0.0, 1.0));
+}
+
 fn coverage(d: f32, w: f32) -> f32 {
     return clamp(0.5 - d / w, 0.0, 1.0);
 }
@@ -185,7 +206,7 @@ fn fs(v: Varyings) -> @location(0) vec4f {
     let w = max(length(fl) * 0.70710678, 1e-6);
     var color = vec4f(0.0);
     switch v.kind {
-        case RECT: {
+        case RECT, LINEAR, RADIAL: {
             let half = v.rect.zw * 0.5;
             let p = v.local - (v.rect.xy + half);
             let d = box_distance(p, half, corner(p, v.radii, v.radii_y));
@@ -196,12 +217,13 @@ fn fs(v: Varyings) -> @location(0) vec4f {
                 color = premul(v.fill) * cov;
             } else {
                 let outer = coverage(d, w);
+                let fill = box_fill(v);
                 let bw = v.params.x;
                 if (bw > 0.0) {
                     let inner = coverage(d + bw, w);
-                    color = premul(v.stroke) * (outer - inner) + premul(v.fill) * inner;
+                    color = premul(v.stroke) * (outer - inner) + fill * inner;
                 } else {
-                    color = premul(v.fill) * outer;
+                    color = fill * outer;
                 }
             }
         }
@@ -425,7 +447,8 @@ impl UiPass {
         });
         let attributes = wgpu::vertex_attr_array![
             0 => Float32x4, 1 => Float32x4, 2 => Float32x2, 3 => Float32x4, 4 => Float32x4,
-            5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4, 9 => Uint32
+            5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4, 9 => Uint32,
+            10 => Float32x3
         ];
         let blend = wgpu::BlendComponent {
             src_factor: wgpu::BlendFactor::One,
@@ -812,5 +835,65 @@ mod tests {
             3,
             "grows past its capacity once"
         );
+    }
+
+    #[test]
+    fn gradients_blend_premultiplied_along_their_line_and_radius() {
+        let mut ui = UiHeadless::new(100, 60, 4).unwrap();
+        let linear = UiInstance {
+            uv: [0.0; 4],
+            params: [0.0, 0.0, 0.0, 10.0],
+            kind: 5,
+            gradient: [100.0, 10.0, 0.0],
+            ..rect(0.0, 0.0, 100.0, 20.0, [0.0, 0.0, 1.0, 1.0])
+        };
+        let radial = UiInstance {
+            uv: [0.0, 1.0, 0.0, 1.0],
+            params: [0.0, 0.0, 20.0, 20.0],
+            kind: 6,
+            gradient: [20.0, 20.0, 0.5],
+            ..rect(30.0, 20.0, 40.0, 40.0, [1.0, 0.0, 0.0, 1.0])
+        };
+        let img = ui.render(&[linear, radial], &[batch(0, 2, [0, 0, 100, 60])]);
+        let near = |p: [u8; 4], e: [u8; 4]| p.iter().zip(e).all(|(a, b)| a.abs_diff(b) <= 2);
+        assert!(near(img.get_pixel(0, 10).0, [0, 0, 252, 252]));
+        // Blue into transparent at t = 0.505: half the blue and half the
+        // alpha, premultiplied; a straight mix would give a quarter blue.
+        let mid = img.get_pixel(50, 10).0;
+        assert!(near(mid, [0, 0, 126, 126]), "{mid:?}");
+        assert!(near(img.get_pixel(99, 10).0, [0, 0, 1, 1]));
+        assert_eq!(
+            img.get_pixel(50, 40).0,
+            [255, 0, 0, 255],
+            "inside the inner stop"
+        );
+        // 14.5 units out of 20, the inner stop at 10: t = 0.451.
+        let ring = img.get_pixel(64, 40).0;
+        assert!(near(ring, [140, 115, 0, 255]), "{ring:?}");
+        assert_eq!(img.get_pixel(31, 21).0, [0, 255, 0, 255], "past the radius");
+    }
+
+    #[test]
+    fn the_pipeline_fits_webgl2() {
+        let instance =
+            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+        let adapter =
+            pollster::block_on(instance.request_adapter(&Default::default())).expect("an adapter");
+        let limits = wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits());
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            required_limits: limits,
+            ..Default::default()
+        }))
+        .expect("a device with WebGL2's limits");
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let pass = UiPass::new(
+            Arc::new(device),
+            Arc::new(queue),
+            wgpu::TextureFormat::Rgba8Unorm,
+            4,
+        );
+        let error = pollster::block_on(scope.pop());
+        assert!(error.is_none(), "{error:?}");
+        drop(pass);
     }
 }

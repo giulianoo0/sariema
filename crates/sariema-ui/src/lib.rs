@@ -31,7 +31,7 @@ pub use desc::{
 };
 pub use draw::{ATLAS_TEXTURE, Batch, DrawList, NO_TEXTURE, Quad, kind};
 pub use input::Event;
-pub use node::{Border, NodeId, Prop, Shadow};
+pub use node::{Border, Gradient, GradientKind, NodeId, Prop, Shadow};
 pub use settings::{SafeArea, UiSettings};
 pub use text::{Align, Line};
 pub use ui::{Animation, ImageData, Screen, Ui};

@@ -29,7 +29,7 @@ fn repo(path: &str) -> String {
 }
 
 /// Golden name, description and the arguments after it.
-const GOLDENS: [(&str, &str, &[&str]); 4] = [
+const GOLDENS: [(&str, &str, &[&str]); 5] = [
     ("ui_dialogue", "dialogue", &[]),
     (
         "ui_objective",
@@ -55,6 +55,7 @@ const GOLDENS: [(&str, &str, &[&str]); 4] = [
             "0.6",
         ],
     ),
+    ("ui_gradients", "gradients", &[]),
 ];
 
 fn render_golden(name: &str, desc: &str, extra: &[&str], out: &Path) -> Value {
@@ -187,6 +188,25 @@ fn errors_name_their_cause() {
     ]);
     assert_eq!(code_of((code, v.clone())), "E_SCHEMA", "{v}");
     assert!(v["error"]["message"].as_str().unwrap().contains("/nodes/0"));
+    for gradient in [
+        r##"{ "type": "conic", "from": "#fff", "to": "#000" }"##,
+        r##"{ "type": "radial", "radius": [0, 1], "from": "#fff", "to": "#000" }"##,
+    ] {
+        let desc = format!(r#"{{ "nodes": [ {{ "gradient": {gradient} }} ] }}"#);
+        fs::write(&bad, desc).unwrap();
+        let (code, v) = sariema(&[
+            "ui",
+            "render",
+            bad.to_str().unwrap(),
+            "--width",
+            "10",
+            "--height",
+            "10",
+            "-o",
+            out,
+        ]);
+        assert_eq!(code_of((code, v.clone())), "E_SCHEMA", "{gradient}: {v}");
+    }
     fs::write(&bad, r#"{ "fonts": { "f": { "file": "missing.ttf" } } }"#).unwrap();
     let (code, v) = sariema(&[
         "ui",

@@ -75,6 +75,30 @@
       "type": "object", "additionalProperties": false, "required": ["width", "color"],
       "properties": { "width": { "type": "number", "minimum": 0 }, "color": { "$ref": "#/$defs/color" } }
     },
+    "gradient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "from", "to"],
+      "description": "Fills a box instead of fill: CSS's linear-gradient or radial-gradient with two stops, blended premultiplied.",
+      "properties": {
+        "type": { "enum": ["linear", "radial"] },
+        "from": { "$ref": "#/$defs/color" },
+        "to": { "$ref": "#/$defs/color" },
+        "stops": {
+          "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 1 }, "minItems": 2, "maxItems": 2,
+          "description": "Where from ends and to starts, as fractions of the gradient line or of the radius. Default [0, 1]."
+        },
+        "angle": { "type": "number", "description": "Linear: degrees clockwise from 'to the top', as CSS. Default 180, downwards." },
+        "center": {
+          "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2,
+          "description": "Radial: the centre as a fraction of the box. Default [0.5, 0.5]."
+        },
+        "radius": {
+          "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "minItems": 2, "maxItems": 2,
+          "description": "Radial: radii as fractions of the box's width and height. Default: a circle reaching the farthest corner."
+        }
+      }
+    },
     "shadow": {
       "type": "object", "additionalProperties": false, "required": ["color"],
       "properties": {
@@ -118,6 +142,7 @@
         "aspect": { "type": "number", "exclusiveMinimum": 0, "description": "Width over height." },
         "safe": { "type": "boolean", "description": "Covers the screen's safe area: for the node holding the HUD." },
         "fill": { "$ref": "#/$defs/color", "description": "Box colour, text colour, image tint, ring arc or stroke colour." },
+        "gradient": { "$ref": "#/$defs/gradient" },
         "border": { "$ref": "#/$defs/border" },
         "radius": {
           "oneOf": [

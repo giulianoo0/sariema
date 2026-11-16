@@ -70,6 +70,8 @@ The track that strikes the phrase, from the description:
 |---|---|
 | HUD inside notch and home bar | parent `{ "safe": true, "children": [...] }`, screen with `--safe L,T,R,B` |
 | Corner piece | `"absolute": true, "right": 16, "top": 12` |
+| Gradient face or vignette | `"gradient": {"type": "radial", "center": [0.5, 0.32], "from", "to", "stops": [0, 0.7]}`; `"type": "linear", "angle": 160` for a sheen |
+| Two shadows | a sibling box under it with only `radius` and the second `shadow` |
 | Paper card, hand-cut corners | `"fill", "border": {"width","color"}, "radius": {"x":[4],"y":[4]}, "shadow": {"y": 3, "color"}` |
 | Text that wraps at a width | `"text", "font", "size", "line_height", "max_width"` (+ `"max_lines"`) |
 | Dialogue that types | `"reveal": 0` on the text, track `{ "prop": "reveal", "typewriter": {} }` (30/s, 70 ms after `.!?`) |

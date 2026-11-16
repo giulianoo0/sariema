@@ -27,6 +27,7 @@ const _: () = {
     assert!(offset_of!(Quad, radii_y) == offset_of!(UiInstance, radii_y));
     assert!(offset_of!(Quad, params) == offset_of!(UiInstance, params));
     assert!(offset_of!(Quad, kind) == offset_of!(UiInstance, kind));
+    assert!(offset_of!(Quad, gradient) == offset_of!(UiInstance, gradient));
 };
 
 #[derive(Args)]

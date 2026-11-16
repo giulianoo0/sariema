@@ -13,7 +13,7 @@ use taffy::prelude::{
 
 use crate::anim::{Ease, Spring};
 use crate::color::Color;
-use crate::node::{Border, Prop, Shadow};
+use crate::node::{Border, Gradient, Prop, Shadow};
 use crate::settings::UiSettings;
 use crate::text::Align;
 use crate::widget::WidgetDesc;
@@ -274,6 +274,8 @@ pub struct NodeDesc {
     pub safe: bool,
 
     pub fill: Option<Color>,
+    /// Replaces `fill` on a box.
+    pub gradient: Option<Gradient>,
     pub border: Option<Border>,
     pub radius: Option<Radius>,
     pub shadow: Option<Shadow>,

@@ -13,7 +13,7 @@ use crate::color::Color;
 use crate::desc::{NodeDesc, Track, UiDesc};
 use crate::draw::DrawList;
 use crate::input::{Event, Pointer};
-use crate::node::{self, Kind, Node, NodeId, PROPS, Prop, Text};
+use crate::node::{self, Gradient, Kind, Node, NodeId, PROPS, Prop, Text};
 use crate::settings::{SafeArea, UiSettings};
 use crate::text::{Font, Line, break_lines};
 use crate::widget::{Button, Joystick, Widget, WidgetDesc};
@@ -138,6 +138,7 @@ impl Ui {
             name: None,
             kind: Kind::Box,
             border: None,
+            gradient: None,
             radius: [[0.0; 2]; 4],
             shadow: None,
             origin: [0.5, 0.5],
@@ -405,6 +406,10 @@ impl Ui {
                 "node {label} has more than one of text, image, ring and stroke"
             )));
         }
+        if let Some(g) = &desc.gradient {
+            g.check()
+                .map_err(|why| UiError::Schema(format!("node {label}: {why}")))?;
+        }
         let (kind, fill) = self.kind(desc, label)?;
         let index = self.free.last().copied().unwrap_or(self.nodes.len() as u32);
         let style = desc.style();
@@ -442,6 +447,7 @@ impl Ui {
             name: desc.name.clone(),
             kind,
             border: desc.border,
+            gradient: desc.gradient,
             radius: desc.radius.map_or([[0.0; 2]; 4], |r| r.corners()),
             shadow: desc.shadow,
             origin: desc.origin.unwrap_or([0.5, 0.5]),
@@ -682,6 +688,17 @@ impl Ui {
         {
             self.set_index(index, p, v);
         }
+        Ok(())
+    }
+
+    /// Fills a box with `gradient` instead of its fill, or with its fill
+    /// again when `None`.
+    pub fn set_gradient(&mut self, id: NodeId, gradient: Option<Gradient>) -> Result<(), UiError> {
+        let index = self.live(id)?;
+        if let Some(g) = &gradient {
+            g.check().map_err(UiError::Schema)?;
+        }
+        self.nodes[index as usize].gradient = gradient;
         Ok(())
     }
 

@@ -8,7 +8,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Affine2, Vec2};
 
 use crate::input::bounds;
-use crate::node::{Kind, Node, Prop, Text};
+use crate::node::{Gradient, GradientKind, Kind, Node, Prop, Text};
 use crate::text::Align;
 use crate::ui::Ui;
 
@@ -23,6 +23,13 @@ pub mod kind {
     pub const RING: u32 = 3;
     /// One segment of a stroke, with round caps.
     pub const SEGMENT: u32 = 4;
+    /// A [`RECT`] filled from `fill` at `params[2..4]` to `uv` at
+    /// `gradient[0..2]`.
+    pub const LINEAR: u32 = 5;
+    /// A [`RECT`] filled from `fill` at the centre `params[2..4]` to `uv`
+    /// at the radii `gradient[0..2]`, starting at the fraction `gradient[2]`
+    /// of them.
+    pub const RADIAL: u32 = 6;
 }
 
 /// Texture of the glyph atlas. An image's texture is `1 +` its index in
@@ -42,7 +49,7 @@ pub struct Quad {
     /// x' = a·x + c·y + tx, y' = b·x + d·y + ty.
     pub xform: [f32; 6],
     /// Glyphs and images: texture coordinates u0, v0, u1, v1. Segments:
-    /// the two ends in own units.
+    /// the two ends in own units. Gradients: the second colour.
     pub uv: [f32; 4],
     /// Straight-alpha sRGB, opacity applied.
     pub fill: [f32; 4],
@@ -51,12 +58,14 @@ pub struct Quad {
     /// Corner radii along x: top-left, top-right, bottom-right, bottom-left.
     pub radii: [f32; 4],
     pub radii_y: [f32; 4],
-    /// By kind. Rect: border width, blur. Glyph: outline and softness in
-    /// field units, field units per texture coordinate. Ring: width, start
-    /// angle in radians, progress. Segment: half width.
+    /// By kind. Rect: border width, blur; gradients add their start point
+    /// or centre. Glyph: outline and softness in field units, field units
+    /// per texture coordinate. Ring: width, start angle in radians,
+    /// progress. Segment: half width.
     pub params: [f32; 4],
     pub kind: u32,
-    pub pad: [u32; 3],
+    /// Gradients only, see [`kind::LINEAR`] and [`kind::RADIAL`].
+    pub gradient: [f32; 3],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -166,11 +175,14 @@ impl<'a> Painter<'a> {
         match &n.kind {
             Kind::Box => {
                 let border = n.border.filter(|b| b.width > 0.0 && b.color.0[3] > 0.0);
-                if fill[3] > 0.0 || border.is_some() {
+                if fill[3] > 0.0 || border.is_some() || n.gradient.is_some() {
                     let mut q = self.rect(xf, [0.0, 0.0, w, h], n, fill);
                     if let Some(b) = border {
                         q.stroke = faded(b.color.0, opacity);
                         q.params[0] = b.width;
+                    }
+                    if let Some(g) = &n.gradient {
+                        gradient(&mut q, g, w, h, opacity);
                     }
                     self.list.push(q, NO_TEXTURE, scissor);
                 }
@@ -413,4 +425,45 @@ fn intersect(a: [u32; 4], b: [u32; 4]) -> [u32; 4] {
     let x1 = (a[0] + a[2]).min(b[0] + b[2]);
     let y1 = (a[1] + a[3]).min(b[1] + b[3]);
     [x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0)]
+}
+
+fn gradient(q: &mut Quad, g: &Gradient, w: f32, h: f32, opacity: f32) {
+    q.fill = faded(g.from.0, opacity);
+    q.uv = faded(g.to.0, opacity);
+    let [s0, s1] = [g.stops[0], g.stops[1].max(g.stops[0])];
+    let (a, b, inner) = match g.kind {
+        GradientKind::Linear => {
+            q.kind = kind::LINEAR;
+            let (sin, cos) = g.angle.to_radians().sin_cos();
+            let dir = Vec2::new(sin, -cos);
+            let length = (w * sin).abs() + (h * cos).abs();
+            let mid = Vec2::new(w, h) * 0.5;
+            (
+                mid + dir * length * (s0 - 0.5),
+                mid + dir * length * (s1 - 0.5),
+                0.0,
+            )
+        }
+        GradientKind::Radial => {
+            q.kind = kind::RADIAL;
+            let c = Vec2::new(g.center[0] * w, g.center[1] * h);
+            let radii = match g.radius {
+                Some([rx, ry]) => Vec2::new(rx * w, ry * h),
+                None => {
+                    let corners = [
+                        Vec2::ZERO,
+                        Vec2::new(w, 0.0),
+                        Vec2::new(0.0, h),
+                        Vec2::new(w, h),
+                    ];
+                    Vec2::splat(corners.iter().map(|p| p.distance(c)).fold(0.0, f32::max))
+                }
+            };
+            let inner = if s1 > 0.0 { s0 / s1 } else { 0.0 };
+            (c, radii * s1, inner)
+        }
+    };
+    q.params[2] = a.x;
+    q.params[3] = a.y;
+    q.gradient = [b.x, b.y, inner];
 }

@@ -115,6 +115,68 @@ pub struct Border {
     pub color: Color,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GradientKind {
+    #[default]
+    Linear,
+    Radial,
+}
+
+/// A box's fill blending `from` into `to`, as CSS's `linear-gradient` and
+/// `radial-gradient` with two stops. It replaces the box's `fill`; colours
+/// blend premultiplied in sRGB, as browsers do.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Gradient {
+    #[serde(rename = "type")]
+    pub kind: GradientKind,
+    pub from: Color,
+    pub to: Color,
+    /// Where `from` ends and `to` starts, as fractions of the gradient line
+    /// (linear) or of the radius (radial). Default `[0, 1]`.
+    pub stops: [f32; 2],
+    /// Linear: degrees clockwise from "to the top", as CSS. Default 180,
+    /// downwards.
+    pub angle: f32,
+    /// Radial: the centre as a fraction of the box. Default the middle.
+    pub center: [f32; 2],
+    /// Radial: radii as fractions of the box's width and height. Default: a
+    /// circle reaching the farthest corner, as CSS's `circle`.
+    pub radius: Option<[f32; 2]>,
+}
+
+impl Default for Gradient {
+    fn default() -> Gradient {
+        Gradient {
+            kind: GradientKind::Linear,
+            from: Color::TRANSPARENT,
+            to: Color::TRANSPARENT,
+            stops: [0.0, 1.0],
+            angle: 180.0,
+            center: [0.5, 0.5],
+            radius: None,
+        }
+    }
+}
+
+impl Gradient {
+    pub(crate) fn check(&self) -> Result<(), String> {
+        let numbers = [self.angle]
+            .into_iter()
+            .chain(self.stops)
+            .chain(self.center)
+            .chain(self.radius.into_iter().flatten());
+        if numbers.into_iter().any(|v| !v.is_finite()) {
+            return Err("a gradient number is not finite".into());
+        }
+        if self.radius.is_some_and(|r| r.iter().any(|&v| v <= 0.0)) {
+            return Err("a gradient radius must be positive".into());
+        }
+        Ok(())
+    }
+}
+
 /// A box shadow or text shadow: offset and blur in UI units.
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -185,6 +247,7 @@ pub(crate) struct Node {
     pub name: Option<String>,
     pub kind: Kind,
     pub border: Option<Border>,
+    pub gradient: Option<Gradient>,
     /// Per corner (top-left, top-right, bottom-right, bottom-left): x and y radius.
     pub radius: [[f32; 2]; 4],
     pub shadow: Option<Shadow>,

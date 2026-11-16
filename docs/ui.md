@@ -49,7 +49,7 @@ Every node has a layout style, a look and a transform.
 
 | Kind | Made by | Draws |
 |---|---|---|
-| box | default | a rounded rectangle: `fill`, `border`, per-corner `radius` (elliptical corners as CSS's `x / y`), `shadow` with offset and Gaussian blur |
+| box | default | a rounded rectangle: `fill` or `gradient`, `border`, per-corner `radius` (elliptical corners as CSS's `x / y`), `shadow` with offset and Gaussian blur |
 | text | `text` | shaped glyphs from the distance-field atlas, with `outline` and `text_shadow` |
 | image | `image` | a `region` of an image, tinted by `fill`, or a nine-slice with `slice` insets |
 | ring | `ring` | a full circle `track` and an arc of `progress`, round caps, from `start` degrees |
@@ -59,6 +59,26 @@ Transforms (`x`, `y`, `scale`, `rotation` around `origin`) apply after
 layout, like CSS transforms; `opacity` multiplies down the tree; `clip`
 clips the children to the node's axis-aligned screen box. Fades and
 letterboxes are plain boxes.
+
+**Gradients** replace a box's `fill` with CSS's two-stop gradients:
+
+```json
+"gradient": { "type": "linear", "angle": 160, "from": "#FFF8EC", "to": "#FFE2A8" }
+"gradient": { "type": "radial", "center": [0.5, 0.32], "from": "#FF8A3D", "to": "#E0650F", "stops": [0, 0.7] }
+"gradient": { "type": "radial", "center": [0.5, 0.46], "radius": [0.7, 0.62],
+              "from": "#080C1E00", "to": "#080C1E8C", "stops": [0.55, 1] }
+```
+
+`angle` is degrees clockwise from "to the top" (default 180, downwards) and
+the line spans the box corner to corner, as in CSS. A radial gradient has a
+`center` as a fraction of the box and either `radius` as fractions of its
+width and height (CSS's `ellipse 70% 62%`) or none, a circle reaching the
+farthest corner (CSS's `circle`). `stops` (default `[0, 1]`) are where
+`from` ends and `to` starts. Colours blend premultiplied, in sRGB, as a
+browser blends them, so a fade from a transparent colour does not darken.
+`opacity` fades both colours; the `fill` animation does not drive a
+gradient. `Ui::set_gradient` changes or removes one at run time. A
+gradient box is a shape like any other: it joins its neighbours' batch.
 
 **Layout** is CSS flexbox through taffy 0.15 (what Bevy's UI uses):
 `direction`, `wrap`, `justify`, `align`, `align_self`, `grow`, `shrink`,
@@ -156,7 +176,8 @@ look is ordinary nodes:
 ## The draw list and the renderer
 
 `DrawList` holds `Quad`s (152 bytes: box, 2×3 transform, texture
-coordinates, fill, stroke, radii, parameters, kind) and `Batch`es (texture,
+coordinates, fill, stroke, radii, parameters, kind, gradient geometry) and
+`Batch`es (texture,
 scissor in pixels, range). Quads keep painter's order; a batch breaks only
 where the texture or the scissor changes, and shapes need no texture, so
 boxes, rings, strokes and the text over them share one batch: a HUD of
@@ -166,8 +187,12 @@ with text (pack icons into one image and use `region`).
 `sariema_render::ui::UiPass` draws a list over any target: one instanced
 draw of 4 vertices per batch, the batch's texture bound and its scissor set.
 Its WGSL evaluates each shape's distance field per pixel (rounded boxes with
-elliptical corners after Quilez, borders, CSS-like Gaussian shadows, arcs,
-capsules) and samples the glyph atlas. Its pipeline, sampler and buffers are
+elliptical corners after Quilez, borders, CSS-like Gaussian shadows,
+gradients, arcs, capsules) and samples the glyph atlas. A gradient's second
+colour rides in the texture coordinates a box does not use and its geometry
+in spare parameters, so the quad stays 152 bytes; the shader passes 11
+vectors between stages and reads 11 attributes, inside WebGL2's 15 and 16
+(a test builds the pipeline on a device held to WebGL2's limits). Its pipeline, sampler and buffers are
 created in `UiPass::new`; the instance buffer grows only when a frame has
 more quads than ever. Colours are sRGB with straight alpha and blend
 premultiplied; on an sRGB target they are turned to linear first, so there
@@ -255,8 +280,8 @@ call**.
 
 - Clipping is the node's axis-aligned box on screen; rounded clip masks and
   clipping under rotation are not there.
-- One shadow per box; no gradients (the prototype's action button has a
-  radial gradient and two shadows).
+- One shadow per box: a second shadow is a sibling box with only a
+  `shadow`. Gradients have two stops; more need stacked boxes.
 - No per-range text colour or style inside one text node (use two nodes);
   no italic synthesis; no ellipsis when `max_lines` cuts.
 - Text nodes shrink to their widest line; CSS would make a wrapping box as
@@ -283,4 +308,7 @@ call**.
   corner and the elliptical-corner estimate, capsules and arcs.
 - **iOS / SwiftUI**: springs set by response and damping.
 - **CSS**: the box model, radius scaling when corners overlap, box-shadow
-  blur as a Gaussian of half its radius, and fill-mode backwards for delays.
+  blur as a Gaussian of half its radius, fill-mode backwards for delays, and
+  the geometry of `linear-gradient` (angle, corner-to-corner line) and
+  `radial-gradient` (`circle` to the farthest corner, `ellipse` with
+  percentage radii), interpolated premultiplied.
