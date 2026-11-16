@@ -14,6 +14,7 @@ use glam::Mat4;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
+use crate::game::GameHost;
 use crate::input::PointerKind;
 use crate::settings::WebSettings;
 use crate::stage::{Stage, StageError};
@@ -44,6 +45,33 @@ pub struct Engine {
     captured: Arc<AtomicU8>,
     files: HashMap<String, Vec<u8>>,
     mixed: Vec<f32>,
+    game: Option<GameHost>,
+    /// Physical pixels per CSS pixel of the canvas.
+    scale: f32,
+}
+
+async fn open(
+    canvas: HtmlCanvasElement,
+    settings: WebSettings,
+    css_width: f32,
+    css_height: f32,
+    pixel_ratio: f32,
+) -> Result<(Gpu, Stage), JsError> {
+    let (width, height) = settings.physical_size((css_width, css_height), pixel_ratio);
+    canvas.set_width(width);
+    canvas.set_height(height);
+    let gpu = Gpu::new(canvas, &settings).await.map_err(js)?;
+    let size = (gpu.config.width, gpu.config.height);
+    let format = gpu.config.format;
+    let stage = Stage::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        settings,
+        size,
+        format,
+    )
+    .map_err(js)?;
+    Ok((gpu, stage))
 }
 
 #[wasm_bindgen]
@@ -61,20 +89,7 @@ impl Engine {
     ) -> Result<Engine, JsError> {
         let settings =
             WebSettings::from_json(&options).map_err(|e| js(StageError::new("E_USAGE", e)))?;
-        let (width, height) = settings.physical_size((css_width, css_height), pixel_ratio);
-        canvas.set_width(width);
-        canvas.set_height(height);
-        let gpu = Gpu::new(canvas, &settings).await.map_err(js)?;
-        let size = (gpu.config.width, gpu.config.height);
-        let format = gpu.config.format;
-        let stage = Stage::new(
-            gpu.device.clone(),
-            gpu.queue.clone(),
-            settings,
-            size,
-            format,
-        )
-        .map_err(js)?;
+        let (gpu, stage) = open(canvas, settings, css_width, css_height, pixel_ratio).await?;
         Ok(Engine {
             gpu,
             stage,
@@ -82,7 +97,81 @@ impl Engine {
             captured: Arc::new(AtomicU8::new(WAITING)),
             files: HashMap::new(),
             mixed: Vec::new(),
+            game: None,
+            scale: 1.0,
         })
+    }
+
+    /// This engine on a new GPU for `canvas`, after its device or context
+    /// was lost. A game goes on where it was, its room and actors loaded
+    /// again from its pack `game_pack`; anything else the page loads again.
+    pub async fn restored(
+        self,
+        canvas: HtmlCanvasElement,
+        css_width: f32,
+        css_height: f32,
+        pixel_ratio: f32,
+        game_pack: Option<Vec<u8>>,
+    ) -> Result<Engine, JsError> {
+        let settings = self.stage.settings().clone();
+        let (gpu, mut stage) = open(canvas, settings, css_width, css_height, pixel_ratio).await?;
+        let mut game = self.game;
+        if let (Some(game), Some(bytes)) = (&mut game, game_pack) {
+            game.reload_view(&bytes, stage.renderer_mut()).map_err(js)?;
+            let (w, h) = stage.size();
+            game.resize(w, h);
+        }
+        Ok(Engine {
+            gpu,
+            stage,
+            capture: None,
+            captured: Arc::new(AtomicU8::new(WAITING)),
+            files: HashMap::new(),
+            mixed: Vec::new(),
+            game,
+            scale: self.scale,
+        })
+    }
+
+    /// Plays game pack `pack` from its first step with `seed`, in place of
+    /// any room or actors shown. With `sample_rate`, the page's audio rate,
+    /// its sound is mixed for the worklet; without, with the steps, as a
+    /// replay's must be.
+    pub fn load_game(
+        &mut self,
+        pack: &[u8],
+        seed: f64,
+        sample_rate: Option<u32>,
+    ) -> Result<(), JsError> {
+        let feed = self.stage.settings().audio;
+        let shadows = self.stage.settings().shadows;
+        let size = self.stage.size();
+        let renderer = self.stage.renderer_mut();
+        let game = GameHost::load(
+            pack,
+            seed as u64,
+            sample_rate,
+            feed,
+            renderer,
+            size,
+            shadows,
+        )
+        .map_err(js)?;
+        self.game = Some(game);
+        Ok(())
+    }
+
+    /// Steps the game to step `to` with the actions of input log `log`
+    /// (JSON), as `sariema run --headless --game --input` does.
+    pub fn replay_game(&mut self, log: &str, to: f64) -> Result<(), JsError> {
+        let game = (self.game.as_mut())
+            .ok_or_else(|| js(StageError::new("E_USAGE", "no game is loaded")))?;
+        game.replay(log, to as u64).map_err(js)
+    }
+
+    /// JSON: the game's steps and its engine, state, physics and audio hashes.
+    pub fn game_hashes(&self) -> Option<String> {
+        self.game.as_ref().map(|g| g.hashes().to_string())
     }
 
     /// `webgpu` or `webgl2`.
@@ -114,9 +203,11 @@ impl Engine {
     pub fn resize(&mut self, width: u32, height: u32, css_width: f32) {
         self.gpu.resize(width, height);
         self.stage.resize(width, height);
-        self.stage
-            .input()
-            .set_scale(width as f32 / css_width.max(1.0));
+        self.scale = width as f32 / css_width.max(1.0);
+        self.stage.input().set_scale(self.scale);
+        if let Some(game) = &mut self.game {
+            game.resize(width, height);
+        }
     }
 
     pub fn load_room(&mut self, pack: &[u8]) -> Result<(), JsError> {
@@ -176,21 +267,39 @@ impl Engine {
 
     /// The audio blocks due, interleaved stereo; empty if none.
     pub fn mix(&mut self, frames_played: f64) -> js_sys::Float32Array {
-        self.stage.audio_played(frames_played as u64);
-        self.stage.mix(&mut self.mixed);
+        match &mut self.game {
+            Some(game) => game.mix(frames_played as u64, &mut self.mixed),
+            None => {
+                self.stage.audio_played(frames_played as u64);
+                self.stage.mix(&mut self.mixed);
+            }
+        }
         js_sys::Float32Array::from(self.mixed.as_slice())
     }
 
     /// `kind` is the DOM event type; positions in CSS pixels from the canvas's corner.
     pub fn pointer(&mut self, kind: &str, id: u32, x: f32, y: f32) {
-        if let Some(kind) = PointerKind::from_dom(kind) {
+        let Some(kind) = PointerKind::from_dom(kind) else {
+            return;
+        };
+        let Some(game) = &mut self.game else {
             self.stage.input().pointer(kind, id as u64, x, y);
+            return;
+        };
+        let (id, x, y) = (id as u64, x * self.scale, y * self.scale);
+        match kind {
+            PointerKind::Down => game.pointer_down(id, x, y),
+            PointerKind::Move => game.pointer_move(id, x, y),
+            PointerKind::Up | PointerKind::Cancel => game.pointer_up(id, x, y),
         }
     }
 
     /// `code` is the DOM `KeyboardEvent.code`; false for keys the engine ignores.
     pub fn key(&mut self, code: &str, down: bool) -> bool {
-        self.stage.input().key(code, down)
+        match &mut self.game {
+            Some(game) => game.key(code, down),
+            None => self.stage.input().key(code, down),
+        }
     }
 
     /// Runs the steps due at `now_ms` and draws to the canvas. Returns the
@@ -211,18 +320,24 @@ impl Engine {
             _ => return Ok(0),
         };
         let view = frame.texture.create_view(&Default::default());
-        let tick = self.stage.frame(now_ms, &view).map_err(js)?;
+        let steps = match &mut self.game {
+            Some(game) => {
+                let tick = game.advance(now_ms).map_err(js)?;
+                game.draw(self.stage.renderer_mut(), &view).map_err(js)?;
+                tick.steps
+            }
+            None => self.stage.frame(now_ms, &view).map_err(js)?.steps,
+        };
         self.gpu.queue.present(frame);
-        Ok(if self.gpu.is_lost() {
-            -1
-        } else {
-            tick.steps as i32
-        })
+        Ok(if self.gpu.is_lost() { -1 } else { steps as i32 })
     }
 
     /// After the page was hidden: no catch-up of the time it was away.
     pub fn pause(&mut self) {
         self.stage.pause();
+        if let Some(game) = &mut self.game {
+            game.pause();
+        }
     }
 
     /// Draws the current frame offscreen `draws` times, back to back, and
@@ -237,7 +352,11 @@ impl Engine {
         }
         let capture = self.capture.as_ref().expect("made above");
         for _ in 0..draws.max(1) {
-            self.stage.draw(&capture.view).map_err(js)?;
+            match &mut self.game {
+                Some(game) => game.draw(self.stage.renderer_mut(), &capture.view),
+                None => self.stage.draw(&capture.view),
+            }
+            .map_err(js)?;
         }
         self.captured.store(WAITING, Ordering::Relaxed);
         let captured = self.captured.clone();
@@ -270,6 +389,9 @@ impl Engine {
     pub fn stats(&self) -> String {
         let mut v = self.stage.stats();
         v["backend"] = self.gpu.backend().into();
+        if let Some(game) = &self.game {
+            v["game"] = game.stats();
+        }
         v.to_string()
     }
 

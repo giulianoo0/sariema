@@ -5,7 +5,6 @@
 //! reach the UI on step boundaries.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use glam::{Mat4, Quat, Vec3};
 use image::RgbaImage;
@@ -13,12 +12,10 @@ use sariema_format::actor::demo::demo_arm;
 use sariema_format::demo::demo_room;
 use sariema_format::sound::{Container, Load, Loudness, Sound, SoundBank};
 use sariema_render::{GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, compare_images};
-use sariema_web::settings::WebSettings;
-use sariema_web::stage::Stage;
 
-const W: u32 = 960;
-const H: u32 = 540;
-const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+mod common;
+use common::{H, Target, W};
+
 const FRAME_MS: f64 = 1000.0 / 60.0;
 
 fn golden(name: &str) -> RgbaImage {
@@ -27,87 +24,6 @@ fn golden(name: &str) -> RgbaImage {
         env!("CARGO_MANIFEST_DIR")
     );
     image::open(path).unwrap().to_rgba8()
-}
-
-struct Target {
-    device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
-    texture: wgpu::Texture,
-    view: wgpu::TextureView,
-}
-
-impl Target {
-    fn new() -> Target {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
-        let (device, queue) = sariema_render::request_device(&adapter, "stage test").unwrap();
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: wgpu::Extent3d {
-                width: W,
-                height: H,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        Target {
-            view: texture.create_view(&Default::default()),
-            device,
-            queue,
-            texture,
-        }
-    }
-
-    fn stage(&self, options: &str) -> Stage {
-        let settings = WebSettings::from_json(options).unwrap();
-        Stage::new(
-            self.device.clone(),
-            self.queue.clone(),
-            settings,
-            (W, H),
-            FORMAT,
-        )
-        .unwrap()
-    }
-
-    fn image(&self) -> RgbaImage {
-        let row = W * 4;
-        let padded = row.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: (padded * H) as u64,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        encoder.copy_texture_to_buffer(
-            self.texture.as_image_copy(),
-            wgpu::TexelCopyBufferInfo {
-                buffer: &buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded),
-                    rows_per_image: Some(H),
-                },
-            },
-            self.texture.size(),
-        );
-        self.queue.submit([encoder.finish()]);
-        buffer.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-        let mapped = buffer.get_mapped_range(..).unwrap();
-        let texels = (mapped.chunks_exact(padded as usize))
-            .flat_map(|r| r[..row as usize].to_vec())
-            .collect();
-        RgbaImage::from_raw(W, H, texels).unwrap()
-    }
 }
 
 fn within_tolerance(a: &RgbaImage, b: &RgbaImage) -> bool {

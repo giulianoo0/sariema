@@ -57,6 +57,70 @@ impl Key {
     }
 }
 
+/// The game runtime's key for a DOM `KeyboardEvent.code`; `None` for keys
+/// no game reads.
+pub fn runtime_key(code: &str) -> Option<sariema_runtime::input::Key> {
+    use sariema_runtime::input::Key as R;
+    const LETTERS: [R; 26] = [
+        R::A,
+        R::B,
+        R::C,
+        R::D,
+        R::E,
+        R::F,
+        R::G,
+        R::H,
+        R::I,
+        R::J,
+        R::K,
+        R::L,
+        R::M,
+        R::N,
+        R::O,
+        R::P,
+        R::Q,
+        R::R,
+        R::S,
+        R::T,
+        R::U,
+        R::V,
+        R::W,
+        R::X,
+        R::Y,
+        R::Z,
+    ];
+    const DIGITS: [R; 10] = [
+        R::Digit0,
+        R::Digit1,
+        R::Digit2,
+        R::Digit3,
+        R::Digit4,
+        R::Digit5,
+        R::Digit6,
+        R::Digit7,
+        R::Digit8,
+        R::Digit9,
+    ];
+    Some(match code {
+        "ControlLeft" | "ControlRight" => R::Control,
+        "AltLeft" | "AltRight" => R::Alt,
+        "Backspace" => R::Backspace,
+        _ => match Key::from_code(code)? {
+            Key::Up => R::Up,
+            Key::Down => R::Down,
+            Key::Left => R::Left,
+            Key::Right => R::Right,
+            Key::Space => R::Space,
+            Key::Enter => R::Enter,
+            Key::Escape => R::Escape,
+            Key::Tab => R::Tab,
+            Key::Shift => R::Shift,
+            Key::Letter(c) => LETTERS[usize::from(c - b'A')],
+            Key::Digit(d) => DIGITS[usize::from(d)],
+        },
+    })
+}
+
 /// One input event; positions in physical pixels from the canvas's top left.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum InputEvent {
@@ -226,6 +290,19 @@ mod tests {
         assert!(input.key("ShiftLeft", false));
         input.deliver(None);
         assert!(!input.shift);
+    }
+
+    #[test]
+    fn dom_codes_name_the_runtimes_keys() {
+        use sariema_runtime::input::Key as R;
+        assert_eq!(runtime_key("KeyE"), Some(R::E));
+        assert_eq!(runtime_key("KeyZ"), Some(R::Z));
+        assert_eq!(runtime_key("Digit9"), Some(R::Digit9));
+        assert_eq!(runtime_key("ArrowLeft"), Some(R::Left));
+        assert_eq!(runtime_key("NumpadEnter"), Some(R::Enter));
+        assert_eq!(runtime_key("Backspace"), Some(R::Backspace));
+        assert_eq!(runtime_key("ControlRight"), Some(R::Control));
+        assert_eq!(runtime_key("F5"), None);
     }
 
     #[test]

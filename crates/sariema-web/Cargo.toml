@@ -16,9 +16,12 @@ log.workspace = true
 sariema-anim = { path = "../sariema-anim" }
 sariema-audio = { path = "../sariema-audio" }
 sariema-core = { path = "../sariema-core" }
+sariema-engine = { path = "../sariema-engine" }
 sariema-format = { path = "../sariema-format" }
 sariema-render = { path = "../sariema-render" }
+sariema-runtime = { path = "../sariema-runtime" }
 sariema-ui = { path = "../sariema-ui" }
+sariema-view = { path = "../sariema-view" }
 serde.workspace = true
 serde_json.workspace = true
 wgpu.workspace = true
@@ -37,3 +40,4 @@ wgpu = { workspace = true, features = ["webgl", "fragile-send-sync-non-atomic-wa
 image.workspace = true
 pollster.workspace = true
 sariema-format = { path = "../sariema-format", features = ["demo"] }
+wat.workspace = true

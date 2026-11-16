@@ -20,7 +20,6 @@ use serde_json::{Value, json};
 
 use crate::clock::{FixedStep, Tick};
 use crate::feed::Feed;
-use crate::game::Game;
 use crate::input::Input;
 use crate::pose::{Model, Playing, Posed};
 use crate::settings::WebSettings;
@@ -86,7 +85,6 @@ pub struct Stage {
     sound: Option<Sound>,
     clock: FixedStep,
     input: Input,
-    game: Option<Box<dyn Game>>,
     steps: u64,
     events: Vec<Value>,
     last: Tick,
@@ -127,7 +125,6 @@ impl Stage {
             ui: None,
             sound: None,
             input: Input::new(),
-            game: None,
             steps: 0,
             events: Vec::new(),
             last: Tick {
@@ -145,17 +142,16 @@ impl Stage {
         &self.renderer
     }
 
+    pub fn renderer_mut(&mut self) -> &mut Renderer {
+        &mut self.renderer
+    }
+
     pub fn size(&self) -> (u32, u32) {
         self.size
     }
 
     pub fn input(&mut self) -> &mut Input {
         &mut self.input
-    }
-
-    /// Sets the game the fixed steps run; see [`Game`].
-    pub fn set_game(&mut self, game: Option<Box<dyn Game>>) {
-        self.game = game;
     }
 
     /// The draw size in physical pixels; sizes the device cannot hold are ignored.
@@ -183,12 +179,7 @@ impl Stage {
         let mut room =
             sariema_format::decode(bytes).map_err(|e| StageError::new(e.code(), e.to_string()))?;
         if !self.settings.shadows {
-            if let Some(sun) = &mut room.sun {
-                sun.casts_shadow = false;
-            }
-            for light in &mut room.lights {
-                light.casts_shadow = false;
-            }
+            without_shadows(&mut room);
         }
         self.renderer.load_room(&room)?;
         self.room_camera = Some(room.camera.clone());
@@ -372,10 +363,6 @@ impl Stage {
     }
 
     fn step(&mut self) -> Result<(), StageError> {
-        let step_s = self.settings.step.step_s;
-        if let Some(game) = &mut self.game {
-            game.step(step_s, self.input.queued());
-        }
         let ui = self.ui.as_mut().map(|layer| &mut layer.ui);
         self.input.deliver(ui);
         self.steps += 1;
@@ -447,6 +434,16 @@ impl Stage {
             "bytes_uploaded": f.bytes_uploaded,
             "audio_queued_frames": self.sound.as_ref().map(|s| s.feed.queued()),
         })
+    }
+}
+
+/// The room with no light or sun casting a shadow.
+pub fn without_shadows(room: &mut sariema_format::RoomPack) {
+    if let Some(sun) = &mut room.sun {
+        sun.casts_shadow = false;
+    }
+    for light in &mut room.lights {
+        light.casts_shadow = false;
     }
 }
 
