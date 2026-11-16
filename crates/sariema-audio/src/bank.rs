@@ -46,11 +46,6 @@ pub fn runtime(bank: SoundBank, base: MixerSettings) -> (MixerSettings, Vec<Soun
     for rule in &mut settings.ducking {
         rule.targets.retain(|t| has(t));
     }
-    if !has(&settings.music.bus)
-        && let Some(first) = bank.buses.first()
-    {
-        settings.music.bus = first.name.clone();
-    }
     let gains: Vec<f32> = bank
         .sounds
         .iter()

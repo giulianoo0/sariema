@@ -123,8 +123,6 @@ impl Default for DuckRule {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MusicSettings {
-    /// Bus music tracks and stingers play on. Default "music".
-    pub bus: String,
     /// Seconds a new track takes to come in when neither the command nor the
     /// sound gives one. Default 1.2.
     pub fade_in_s: f32,
@@ -145,7 +143,6 @@ pub struct MusicSettings {
 impl Default for MusicSettings {
     fn default() -> MusicSettings {
         MusicSettings {
-            bus: "music".into(),
             fade_in_s: 1.2,
             fade_out_s: 1.2,
             curve: Curve::EqualPower,

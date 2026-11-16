@@ -92,7 +92,6 @@ struct Bus {
 }
 
 struct MusicRoles {
-    bus: u16,
     current: Option<VoiceId>,
     held: Option<VoiceId>,
     stinger: Option<VoiceId>,
@@ -176,7 +175,6 @@ impl Mixer {
             master: Ramp::constant(1.0),
             pause: Ramp::constant(1.0),
             music: MusicRoles {
-                bus: settings.bus(&settings.music.bus).unwrap_or(0) as u16,
                 current: None,
                 held: None,
                 stinger: None,
@@ -575,9 +573,5 @@ impl Mixer {
                 }
             }
         }
-    }
-
-    pub(crate) fn music_bus(&self) -> u16 {
-        self.music.bus
     }
 }

@@ -105,7 +105,6 @@ pub struct Audio {
     thread: Option<(Sender<Feeder>, JoinHandle<()>)>,
     stream_errors: Arc<Mutex<Vec<String>>>,
     shared: Arc<SharedStats>,
-    music_bus: u16,
     feeding: Feeding,
 }
 
@@ -123,7 +122,6 @@ impl Audio {
         let shared = Arc::new(SharedStats::default());
         let mixer = Mixer::new(&settings, consumer, retired_producer, ducks, shared.clone());
         let mut audio = Audio {
-            music_bus: mixer.music_bus(),
             settings,
             commands,
             retired,
@@ -421,7 +419,7 @@ impl Audio {
             voice: self.voice_id(),
             sound: sound.0,
             src,
-            bus: self.music_bus,
+            bus: self.sounds[sound.0 as usize].bus as u16,
             gain,
             pan: 0.0,
             looped,
@@ -529,7 +527,6 @@ fn validate(settings: &MixerSettings, sounds: &[SoundDef]) -> Result<Vec<Duck>, 
             .map(|b| b as u16)
             .ok_or_else(|| AudioError::Settings(format!("there is no bus called {name}")))
     };
-    bus(&settings.music.bus)?;
     let mut ducks = Vec::new();
     for rule in &settings.ducking {
         let targets = rule
