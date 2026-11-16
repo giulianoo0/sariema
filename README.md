@@ -12,6 +12,7 @@ the `sariema` command-line tool.
 - `crates/sariema-import` — packaging-time import: compressed glTF kits and room
   assembly from placement and lighting files (`schemas/room.schema.json`).
 - `crates/sariema-core` — the room camera.
+- `crates/sariema-physics` — deterministic character movement and collision, collision packs (`SRMC`) and `sariema check` (`docs/physics.md`).
 - `crates/sariema-render` — the wgpu renderer: clustered forward scene pass,
   shadow atlas, post-processing chain, quality tiers, headless rendering and
   image comparison.
