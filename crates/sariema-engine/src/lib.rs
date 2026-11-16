@@ -216,6 +216,12 @@ impl<L: Logic> Engine<L> {
             .collect();
         let mut sim = sim;
         sim.set_rooms(scenes);
+        for model in &models {
+            for (k, &clip) in model.clip_ids().iter().enumerate() {
+                let info = model.rig.clip_info(sariema_anim::ClipId(k as u32));
+                sim.learn_clip(model.asset, clip, info.duration);
+            }
+        }
         Ok(Engine {
             anim: Animation::new(models, settings.anim.clone()),
             actions,

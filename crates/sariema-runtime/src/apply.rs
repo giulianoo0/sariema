@@ -242,8 +242,11 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
                 mode,
                 blend,
                 speed,
+                from: 0.0,
             });
             s.clips.play(entity, clip, speed);
+            let length = (s.world.node(entity)).and_then(|n| s.clips.length_of(n.asset, clip));
+            s.clips.set_length(entity, length);
         }
         C::PlaySound {
             sound,

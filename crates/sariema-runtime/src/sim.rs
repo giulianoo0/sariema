@@ -159,6 +159,12 @@ impl<L: Logic> Simulation<L> {
         self.state.scenery = crate::scenery::Scenery::new(rooms);
     }
 
+    /// `clip` of the actors drawn with `asset` lasts `seconds`: a clip
+    /// queued after it begins when it ends.
+    pub fn learn_clip(&mut self, asset: u32, clip: u32, seconds: f32) {
+        self.state.clips.learn(asset, clip, seconds);
+    }
+
     pub fn logic(&self) -> &L {
         &self.logic
     }
@@ -210,8 +216,8 @@ impl<L: Logic> Simulation<L> {
         s.world.begin_step();
         s.camera.begin_step();
         s.screen.begin_step();
-        s.clips.step();
         s.outbox.begin_step();
+        s.clips.step(&mut s.outbox.clips);
         s.scenery.begin_step();
         std::mem::swap(&mut s.seen, &mut s.happened);
         s.happened.clear();

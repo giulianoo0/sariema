@@ -64,6 +64,11 @@ impl Model {
         })
     }
 
+    /// Each clip's name id, by clip index.
+    pub fn clip_ids(&self) -> &[u32] {
+        &self.clips
+    }
+
     fn clip(&self, id: u32) -> Option<ClipId> {
         self.clips
             .iter()
@@ -124,6 +129,7 @@ impl Animation {
                 mode: Some(mode),
                 speed: request.speed,
                 fade_s: Some(request.blend.max(0.0)),
+                start_s: request.from,
                 restart: true,
                 ..Play::default()
             };
