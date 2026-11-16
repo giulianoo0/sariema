@@ -243,33 +243,44 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     })
 }
 
-/// Per frame, the span from its first pass's start to its last pass's end.
-/// Per pass position, the label and the median and 90th percentile of how
-/// far the pass moves the end of the frame: a tile-based GPU starts a pass's
-/// vertex stage early, so passes overlap and their own spans overstate them.
-/// And the passes of the last frame on its own timeline.
+/// A tile-based GPU starts a pass's vertex stage early and runs passes, and
+/// frames, side by side, so a pass's own span overstates it. A frame starts
+/// at its first pass's start or at the previous frame's end, whichever is
+/// later, and a pass costs how far it moves the end of its frame. Gives, per
+/// frame, its start to its end; per pass position, the label and the median
+/// and 90th percentile of its cost; and the raw spans of the last frame.
 fn gpu_json(frames: &[Vec<PassTime>]) -> Value {
-    let span: Vec<f64> = frames
-        .iter()
-        .map(|f| f.iter().map(|p| p.end_ms).fold(0.0, f64::max))
+    let end = |frame: &[PassTime]| frame.iter().map(|p| p.end_ms).fold(0.0, f64::max);
+    let starts: Vec<f64> = (frames.iter().enumerate())
+        .map(|(i, f)| {
+            let own = f.first().map_or(0.0, |p| p.start_ms);
+            i.checked_sub(1).map_or(own, |j| own.max(end(&frames[j])))
+        })
         .collect();
-    let advance = |frame: &[PassTime], k: usize| {
-        let before = k.checked_sub(1).map_or(0.0, |j| frame[j].end_ms);
-        (frame[k].end_ms - before).max(0.0)
+    let span: Vec<f64> = (frames.iter().zip(&starts))
+        .map(|(f, start)| end(f) - start)
+        .collect();
+    let cost = |i: usize, k: usize| {
+        let before = k.checked_sub(1).map_or(starts[i], |j| frames[i][j].end_ms);
+        (frames[i][k].end_ms - before).max(0.0)
     };
     let first = frames.first().map_or(&[][..], Vec::as_slice);
     let passes: Vec<Value> = (first.iter().enumerate())
         .map(|(k, pass)| {
-            let durations: Vec<f64> = (frames.iter())
-                .filter(|f| f.get(k).is_some_and(|p| p.label == pass.label))
-                .map(|f| advance(f, k))
+            let durations: Vec<f64> = (0..frames.len())
+                .filter(|&i| frames[i].get(k).is_some_and(|p| p.label == pass.label))
+                .map(|i| cost(i, k))
                 .collect();
             let summary = stats::summary(&durations);
             json!({ "label": pass.label, "median_ms": summary["median"], "p90_ms": summary["p90"] })
         })
         .collect();
+    let origin = starts.last().copied().unwrap_or(0.0);
     let last: Vec<Value> = (frames.last().into_iter().flatten())
-        .map(|p| json!({ "label": p.label, "start_ms": p.start_ms, "end_ms": p.end_ms }))
+        .map(|p| {
+            let (start, end) = (p.start_ms - origin, p.end_ms - origin);
+            json!({ "label": p.label, "start_ms": start, "end_ms": end })
+        })
         .collect();
     json!({
         "timestamps": "supported",

@@ -28,7 +28,7 @@ pub struct FrameTimings {
 }
 
 /// One render pass of one frame on the GPU, in milliseconds from the start
-/// of the frame's first pass.
+/// of the first timed frame's first pass.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PassTime {
     pub label: &'static str,
@@ -172,11 +172,11 @@ impl GpuTimer {
         let ms_per_tick = queue.get_timestamp_period() as f64 / 1e6;
         let per_frame = self.stride as usize / size_of::<u64>();
         let labels = self.labels.borrow();
+        let origin = ticks[0];
+        let ms = |t: u64| t.saturating_sub(origin) as f64 * ms_per_tick;
         Ok((0..frames as usize)
             .map(|f| {
                 let ticks = &ticks[f * per_frame..];
-                let first = ticks[0];
-                let ms = |t: u64| t.saturating_sub(first) as f64 * ms_per_tick;
                 (labels[f].iter().enumerate())
                     .map(|(k, &label)| PassTime {
                         label,

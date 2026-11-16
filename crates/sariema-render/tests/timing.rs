@@ -75,7 +75,9 @@ fn gpu_times_name_every_pass_of_every_timed_frame() {
         assert_eq!(frame.len(), passes, "{frame:?}");
         assert_eq!(frame[0].label, "scene");
         assert_eq!(frame.last().unwrap().label, "composite");
-        assert_eq!(frame[0].start_ms, 0.0);
         assert!(frame.iter().all(|p| p.end_ms >= p.start_ms), "{frame:?}");
     }
+    assert_eq!(frames[0][0].start_ms, 0.0, "one origin for every frame");
+    let ends: Vec<f64> = frames.iter().map(|f| f.last().unwrap().end_ms).collect();
+    assert!(ends.is_sorted() && ends[0] < ends[2], "{ends:?}");
 }
