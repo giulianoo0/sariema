@@ -67,6 +67,7 @@ game!(Hello);
 | a button press | `Event::Button { action, down }`, or `Event::Buffered { action, .. }` until you send `Consume { action }` |
 | randomness | `ctx.rng()`, seeded by the engine; never another source |
 | persistence | `Save { key, value }`; `SaveLoad {}` → `SaveLoaded`…, `SaveLoadDone` |
+| where an actor stands, for a save | `Locate { entity }`, then `Event::Located { entity, position, yaw }` at the next tick; save those, never a guess from zones or the last target |
 | many objects | `Transforms` bulk region: register once, `push` each tick |
 | a name as id | `id("meet")`, a `const fn` |
 | another room | `RoomSwitch { room, transition, duration }`, then `Event::RoomSwitched`; list it under `game.rooms` with its `neighbours` so it is loaded before. `Continuous` for a room whose geometry goes on (walk in, the camera keeps following); `Dissolve` (the last frame fades out over the next room, 0.5 s when `duration` is 0) for another place or a jump in time; `Cut` under a cutscene's fade |
