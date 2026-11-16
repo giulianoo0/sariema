@@ -227,15 +227,34 @@ fn replay_world() -> World {
     world
 }
 
-/// Runs `steps` steps calling `step` `batch` times between intent
-/// deliveries, as a frame loop would; returns every step's hash and the events.
+/// What a frame loop asks between steps: path searches, which refresh the
+/// walkable grid after a collider changes, and read-only queries.
+fn between_steps(world: &mut World, path: &mut Vec<Vec3>) {
+    world.find_path(
+        ActorId(0),
+        Vec3::new(-4.0, 0.0, 4.0),
+        Vec3::new(4.0, 0.0, -4.0),
+        path,
+    );
+    assert!(world.walkable_cells(ActorId(1)).count() > 0);
+    world.raycast(Vec3::new(0.5, 3.0, 0.5), Vec3::NEG_Y, 5.0);
+    let a = world.actor(ActorId(2));
+    world.actor_overlap(&hero(), a.position, a.yaw);
+}
+
+/// Runs `steps` steps, `batch` per frame, delivering each intent before its
+/// step; batched runs also query the world after every step, as a frame loop
+/// does. Returns every step's hash and the events. No actor is ever inside the
+/// room beyond the skin.
 fn replay(steps: u64, batch: u64) -> (Vec<u64>, Vec<Event>) {
     let mut world = replay_world();
     let lift = world.collider_by_name("lift").unwrap();
+    let skin = world.settings().collision.skin;
     let intents = log(steps);
     let mut next = 0;
     let mut hashes = Vec::new();
     let mut events = Vec::new();
+    let mut path = Vec::new();
     let mut k = 0;
     while k < steps {
         for _ in 0..batch.min(steps - k) {
@@ -257,6 +276,23 @@ fn replay(steps: u64, batch: u64) -> (Vec<u64>, Vec<Event>) {
             );
             world.step(&mut events);
             hashes.push(world.state_hash());
+            for id in 0..world.actor_count() {
+                let id = ActorId(id as u32);
+                let a = world.actor(id);
+                if let Some((c, separation)) =
+                    world.actor_overlap(&world.actor_collider(id), a.position, a.yaw)
+                {
+                    assert!(
+                        separation >= -skin,
+                        "step {k}: actor {} {separation} m inside {}",
+                        id.0,
+                        world.collider_name(c)
+                    );
+                }
+            }
+            if batch > 1 {
+                between_steps(&mut world, &mut path);
+            }
             k += 1;
         }
     }
@@ -291,7 +327,14 @@ fn the_replay_hash_is_the_same_on_every_platform() {
 fn a_long_random_walk_never_enters_geometry_or_rises_without_ground() {
     let steps: u64 = 100_000;
     let mut world = cluttered(11).world(Settings::default());
-    let collider = hero();
+    let collider = ActorCollider {
+        head: Some(Head {
+            radius: 0.34,
+            height: 1.1,
+            forward: 0.12,
+        }),
+        ..hero()
+    };
     let id = world
         .add_actor(ActorDesc {
             position: Vec3::new(0.0, 2.0, 6.5),
