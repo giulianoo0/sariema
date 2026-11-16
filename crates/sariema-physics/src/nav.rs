@@ -92,6 +92,15 @@ const DIRS: [(i32, i32); 8] = [
 
 impl NavGrid {
     pub fn build(ctx: &NavCtx, collider: ActorCollider) -> NavGrid {
+        let mut grid = NavGrid::start(ctx, collider);
+        let mut layers = Vec::new();
+        grid.grow(ctx, &mut layers, usize::MAX);
+        grid.finish(ctx);
+        grid
+    }
+
+    /// A grid none of whose columns is built yet.
+    pub fn start(ctx: &NavCtx, collider: ActorCollider) -> NavGrid {
         let bounds = ctx.scene.static_bounds();
         let cell = ctx.settings.nav.cell_size;
         let (nx, nz) = if bounds.is_empty() {
@@ -122,17 +131,27 @@ impl NavGrid {
             chain: Vec::new(),
             points: Vec::new(),
         };
-        let mut layers = Vec::new();
         grid.column.push(0);
-        for c in 0..nx * nz {
-            grid.floors(ctx, c, &mut layers);
-            grid.node_column
-                .extend(std::iter::repeat_n(c as u32, layers.len()));
-            grid.height.extend_from_slice(&layers);
-            grid.column.push(grid.height.len() as u32);
-        }
-        grid.scratch(ctx.settings.controller.step_height);
         grid
+    }
+
+    /// Builds up to `columns` more columns; true once every column is.
+    pub fn grow(&mut self, ctx: &NavCtx, layers: &mut Vec<f32>, columns: usize) -> bool {
+        let built = self.column.len() - 1;
+        let end = (self.nx * self.nz).min(built.saturating_add(columns));
+        for c in built..end {
+            self.floors(ctx, c, layers);
+            self.node_column
+                .extend(std::iter::repeat_n(c as u32, layers.len()));
+            self.height.extend_from_slice(layers);
+            self.column.push(self.height.len() as u32);
+        }
+        end == self.nx * self.nz
+    }
+
+    /// Joins the columns built into islands and readies the search.
+    pub fn finish(&mut self, ctx: &NavCtx) {
+        self.scratch(ctx.settings.controller.step_height);
     }
 
     fn scratch(&mut self, step: f32) {

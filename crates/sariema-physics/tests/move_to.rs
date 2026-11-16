@@ -330,3 +330,57 @@ fn a_refused_teleport_leaves_the_walk_going() {
         "{a:?}"
     );
 }
+
+#[test]
+fn a_grid_built_a_share_at_a_time_is_the_grid_built_whole() {
+    let start = Vec3::new(2.0, 0.0, -1.0);
+    let target = Vec3::new(-3.5, 0.16, -3.5);
+    let cells_and_path = |world: &mut World| {
+        let id = actor(world, start);
+        let cells: Vec<Vec3> = world.walkable_cells(id).collect();
+        let mut path = Vec::new();
+        assert!(world.find_path(id, start, target, &mut path));
+        (cells, path)
+    };
+    let whole = cells_and_path(&mut fixture().world(Settings::default()));
+
+    let mut world = fixture().world(Settings::default());
+    let mut build = world.start_grid(ActorCollider::default()).unwrap();
+    let mut shares = 1;
+    while !world.grow_grid(&mut build, 97) {
+        shares += 1;
+    }
+    world.finish_grid(build);
+    assert!(shares > 10, "{shares} shares");
+    assert!(world.start_grid(ActorCollider::default()).is_none());
+    assert_eq!(cells_and_path(&mut world), whole);
+    assert_eq!(world.grids(), 1, "the actor found the grid built");
+}
+
+#[test]
+fn a_grid_finished_after_a_collider_changed_sees_the_change() {
+    let open = |world: &mut World| {
+        let wall = world.collider_by_name("split_w").unwrap();
+        world.apply(Intent::SetColliderEnabled {
+            collider: wall,
+            enabled: false,
+        });
+    };
+    let start = Vec3::new(2.0, 0.0, -1.0);
+    let mut built = fixture().world(Settings::default());
+    open(&mut built);
+    let id = actor(&mut built, start);
+    let opened: Vec<Vec3> = built.walkable_cells(id).collect();
+
+    let mut world = fixture().world(Settings::default());
+    let mut build = world.start_grid(ActorCollider::default()).unwrap();
+    assert!(
+        !world.grow_grid(&mut build, 15_000),
+        "the columns of the wall built, not all"
+    );
+    open(&mut world);
+    while !world.grow_grid(&mut build, 97) {}
+    world.finish_grid(build);
+    let id = actor(&mut world, start);
+    assert_eq!(world.walkable_cells(id).collect::<Vec<_>>(), opened);
+}

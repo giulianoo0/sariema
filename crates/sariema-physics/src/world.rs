@@ -114,6 +114,15 @@ struct Actor {
     active: bool,
 }
 
+/// A walkable grid being built a share at a time, by
+/// [`World::start_grid`].
+pub struct GridBuild {
+    grid: NavGrid,
+    layers: Vec<f32>,
+    /// The world's collider changes when it started.
+    changes: u64,
+}
+
 pub struct World {
     settings: Settings,
     derived: Derived,
@@ -121,6 +130,8 @@ pub struct World {
     triggers: Vec<Trigger>,
     actors: Vec<Actor>,
     navs: Vec<NavGrid>,
+    /// Colliders switched on or off since the world was built.
+    collider_changes: u64,
     steps: u64,
     geometry_changed: bool,
     /// Colliders enabled since the last step, whose actors are pushed out next step.
@@ -170,6 +181,7 @@ impl World {
             triggers: Vec::new(),
             actors: Vec::new(),
             navs: Vec::new(),
+            collider_changes: 0,
             steps: 0,
             geometry_changed: false,
             enabled_now: Vec::new(),
@@ -276,13 +288,59 @@ impl World {
         if let Some(nav) = self.actors[i].nav {
             return nav;
         }
-        let collider = self.actors[i].desc.collider;
-        let nav = match self.navs.iter().position(|n| n.collider == collider) {
-            Some(n) => n,
-            None => self.build_nav(collider),
-        };
+        let nav = self.prepare_grid(self.actors[i].desc.collider);
         self.actors[i].nav = Some(nav);
         nav
+    }
+
+    /// Builds the walkable grid of actors with `collider` before any is
+    /// added, so the first one added, mid-play, finds it built.
+    pub fn prepare_grid(&mut self, collider: ActorCollider) -> usize {
+        match self.navs.iter().position(|n| n.collider == collider) {
+            Some(n) => n,
+            None => self.build_nav(collider),
+        }
+    }
+
+    /// Starts building the walkable grid of actors with `collider` a share
+    /// at a time ([`World::grow_grid`], then [`World::finish_grid`]), or
+    /// `None` when it is built.
+    pub fn start_grid(&self, collider: ActorCollider) -> Option<GridBuild> {
+        if self.navs.iter().any(|n| n.collider == collider) {
+            return None;
+        }
+        Some(GridBuild {
+            grid: NavGrid::start(&self.nav_ctx(), collider),
+            layers: Vec::new(),
+            changes: self.collider_changes,
+        })
+    }
+
+    /// Builds up to `columns` more columns of `build`; true once all are.
+    pub fn grow_grid(&self, build: &mut GridBuild, columns: usize) -> bool {
+        build.grid.grow(&self.nav_ctx(), &mut build.layers, columns)
+    }
+
+    /// Takes a grid [`World::grow_grid`] built whole, as
+    /// [`World::prepare_grid`] would have built it. A collider switched
+    /// while it was built has it built again here, whole.
+    pub fn finish_grid(&mut self, build: GridBuild) -> usize {
+        let collider = build.grid.collider;
+        if let Some(n) = self.navs.iter().position(|n| n.collider == collider) {
+            return n;
+        }
+        if build.changes != self.collider_changes {
+            return self.build_nav(collider);
+        }
+        let mut grid = build.grid;
+        grid.finish(&self.nav_ctx());
+        self.navs.push(grid);
+        self.navs.len() - 1
+    }
+
+    /// Walkable grids built so far, one per collider.
+    pub fn grids(&self) -> usize {
+        self.navs.len()
     }
 
     /// Whether a scripted move of `actor` to `target` would find a path
@@ -299,13 +357,17 @@ impl World {
     }
 
     fn build_nav(&mut self, collider: ActorCollider) -> usize {
-        let ctx = NavCtx {
+        let grid = NavGrid::build(&self.nav_ctx(), collider);
+        self.navs.push(grid);
+        self.navs.len() - 1
+    }
+
+    fn nav_ctx(&self) -> NavCtx<'_> {
+        NavCtx {
             scene: &self.scene,
             settings: &self.settings,
             derived: &self.derived,
-        };
-        self.navs.push(NavGrid::build(&ctx, collider));
-        self.navs.len() - 1
+        }
     }
 
     pub fn actor(&self, id: ActorId) -> ActorState {
@@ -469,6 +531,7 @@ impl World {
         c.enabled = enabled;
         let bounds = c.bounds;
         self.geometry_changed = true;
+        self.collider_changes += 1;
         for nav in &mut self.navs {
             nav.mark_dirty(bounds);
         }

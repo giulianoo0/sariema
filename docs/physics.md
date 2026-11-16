@@ -123,8 +123,14 @@ times.
 
 ### Paths and scripted moves
 
-Each actor collider shape gets a walkable grid, built on first use or by
-`World::prepare_paths` while loading. Like Recast's heightfield, each grid
+Each actor collider shape gets a walkable grid, built on first use, or ahead
+by `World::prepare_paths` (for an actor) or `World::prepare_grid` (for a
+collider no actor has yet). `World::start_grid`, `grow_grid` and
+`finish_grid` build one a share of its columns at a time and give the grid
+`prepare_grid` would; a collider switched on or off meanwhile has it built
+again, whole, when it is finished. The engine builds the grid of each body of
+a room's collision pack with the room's world, off the step
+(`docs/rooms.md`). Like Recast's heightfield, each grid
 column holds the floors where the actor stands (up to `max_layers`), found by
 casting down; unlike Recast, a floor is accepted by placing the actor's own
 collider there, raised by the step height so ledges it can step onto do not

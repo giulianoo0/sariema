@@ -37,4 +37,4 @@ pub use query::{ClosestPoint, Occluder, RayHit, ShapeHit};
 pub use scene::Pose;
 pub use settings::{CollisionSettings, ControllerSettings, MoveToSettings, NavSettings, Settings};
 pub use shape::{Shape, ShapeError};
-pub use world::{ActorState, BuildError, ColliderDesc, World};
+pub use world::{ActorState, BuildError, ColliderDesc, GridBuild, World};
