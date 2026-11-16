@@ -30,6 +30,9 @@ pub struct CheckArgs {
     /// Metres a collider may sit inside the room at a spot [default: 0.01].
     #[arg(long)]
     penetration_tolerance: Option<f32>,
+    /// Metres a traversal's declared contact point may lie off a surface, or inside one [default: 0.02].
+    #[arg(long)]
+    contact_tolerance: Option<f32>,
 }
 
 pub fn run(args: &CheckArgs) -> Result<Done, Failure> {
@@ -40,6 +43,7 @@ pub fn run(args: &CheckArgs) -> Result<Done, Failure> {
         penetration_tolerance: args
             .penetration_tolerance
             .unwrap_or(defaults.penetration_tolerance),
+        contact_tolerance: args.contact_tolerance.unwrap_or(defaults.contact_tolerance),
     };
     check(&args.project, args.room.as_deref(), &spots)
 }
@@ -61,12 +65,14 @@ pub fn check(dir: &Path, room: Option<&str>, spots: &SpotCheckSettings) -> Resul
     let mut rooms = Vec::new();
     for id in &ids {
         let (source, assets_root) = project::room_source(dir, id)?;
-        let mut report = json!({ "room": id, "collision": false, "spots": 0, "routes": 0 });
+        let mut report =
+            json!({ "room": id, "collision": false, "spots": 0, "routes": 0, "traversals": 0 });
         if let Some(pack) = build_collision(&source, &assets_root)? {
             spot_check::check_room(id, &pack, spots, &mut findings)?;
             report["collision"] = Value::Bool(true);
             report["spots"] = pack.spots.len().into();
             report["routes"] = pack.routes.len().into();
+            report["traversals"] = pack.traversals.len().into();
         }
         rooms.push(report);
     }

@@ -174,6 +174,48 @@ fn actors_spots_triggers_and_routes_resolve_by_name() {
 }
 
 #[test]
+fn traversals_start_at_a_spot_and_keep_their_contacts() {
+    let hero = json!({ "name": "hero", "radius": 0.3, "height": 1.0 });
+    let pack = baked(json!({
+        "primitives": [floor()],
+        "actors": [hero],
+        "spots": [{ "name": "outside", "actor": "hero", "at": [2.0, 0.0, 0.5] }],
+        "traversals": [{
+            "name": "window",
+            "from": "outside",
+            "points": [[2.0, 1.0, 0.0], [2.0, 0.0, -0.6]],
+            "yaw_deg": 180.0,
+            "contacts": [{ "name": "foot", "at": [2.0, 0.9, -0.2] }]
+        }]
+    }));
+    let t = &pack.traversals[0];
+    assert_eq!((t.name.as_str(), t.from), ("window", 0));
+    assert_eq!(t.end(), [2.0, 0.0, -0.6]);
+    assert!((t.yaw - std::f32::consts::PI).abs() < 1e-6);
+    assert_eq!(
+        (t.contacts[0].name.as_str(), t.contacts[0].point),
+        ("foot", [2.0, 0.9, -0.2])
+    );
+
+    let e = schema_error(json!({
+        "actors": [hero],
+        "spots": [{ "name": "outside", "actor": "hero", "at": [2.0, 0.0, 0.5] }],
+        "traversals": [{ "name": "window", "from": "inside", "points": [[0.0, 0.0, 0.0]] }]
+    }));
+    assert!(
+        e.contains("traversal window") && e.contains("inside"),
+        "{e}"
+    );
+    for traversal in [
+        json!({ "name": "window", "from": "outside", "points": [] }),
+        json!({ "name": "window", "from": "outside", "points": [[0.0, 0.0, 0.0]], "speed": 2.0 }),
+        json!({ "name": "window", "from": "outside", "points": [[0.0, 0.0, 0.0]], "contacts": [{ "name": "foot" }] }),
+    ] {
+        schema_error(json!({ "traversals": [traversal] }));
+    }
+}
+
+#[test]
 fn the_schema_rejects_unknown_keys_and_bad_settings() {
     for collision in [
         json!({ "colliders": [] }),

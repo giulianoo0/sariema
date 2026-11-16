@@ -49,6 +49,9 @@ pub struct CollisionSource {
     /// Pairs of spot names a script walks between; `sariema check` searches a path for each.
     #[serde(default)]
     pub routes: Vec<[String; 2]>,
+    /// Scripted moves with the collider off; `sariema check` proves where they end and touch.
+    #[serde(default)]
+    pub traversals: Vec<TraversalSource>,
     #[serde(default)]
     pub bake: BakeSettings,
 }
@@ -153,6 +156,26 @@ pub struct SpotSource {
     pub at: [f32; 3],
     #[serde(default)]
     pub yaw_deg: f32,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct TraversalSource {
+    pub name: String,
+    /// The spot it starts from, whose actor it carries.
+    pub from: String,
+    /// The last is where the actor stands again.
+    pub points: Vec<[f32; 3]>,
+    /// Facing at the end.
+    #[serde(default)]
+    pub yaw_deg: f32,
+    #[serde(default)]
+    pub contacts: Vec<ContactSource>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ContactSource {
+    pub name: String,
+    pub at: [f32; 3],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -282,6 +305,33 @@ pub fn build_collision(
         })
         .collect::<Result<_, String>>()
         .map_err(schema)?;
+    let traversals = collision
+        .traversals
+        .iter()
+        .map(|t| {
+            let from = spot_index(&t.from).ok_or_else(|| {
+                format!(
+                    "traversal {} starts at spot {}, which is not in spots",
+                    t.name, t.from
+                )
+            })?;
+            Ok(pack::Traversal {
+                name: t.name.clone(),
+                from: from as u32,
+                points: t.points.clone(),
+                yaw: t.yaw_deg.to_radians(),
+                contacts: t
+                    .contacts
+                    .iter()
+                    .map(|c| pack::Contact {
+                        name: c.name.clone(),
+                        point: c.at,
+                    })
+                    .collect(),
+            })
+        })
+        .collect::<Result<_, String>>()
+        .map_err(schema)?;
     let pack = CollisionPack {
         room: source.name.clone(),
         colliders,
@@ -289,6 +339,7 @@ pub fn build_collision(
         actors,
         spots,
         routes,
+        traversals,
     };
     pack::decode(&pack::encode(&pack)).map_err(|e| schema(e.to_string()))?;
     Ok(Some(pack))

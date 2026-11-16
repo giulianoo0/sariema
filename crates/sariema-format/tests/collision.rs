@@ -2,8 +2,8 @@
 
 use sariema_format::Aabb;
 use sariema_format::collision::{
-    ActorBody, Collider, CollisionError, CollisionPack, HeadSphere, Shape, Spot, Trigger, decode,
-    encode,
+    ActorBody, Collider, CollisionError, CollisionPack, Contact, HeadSphere, Shape, Spot,
+    Traversal, Trigger, decode, encode,
 };
 
 const IDENTITY: [f32; 9] = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
@@ -87,6 +87,16 @@ fn pack() -> CollisionPack {
             },
         ],
         routes: vec![[0, 1]],
+        traversals: vec![Traversal {
+            name: "window".into(),
+            from: 1,
+            points: vec![[3.0, 1.0, 0.4], [3.0, 0.0, -0.4]],
+            yaw: 3.1,
+            contacts: vec![Contact {
+                name: "foot".into(),
+                point: [3.0, 0.9, 0.0],
+            }],
+        }],
     }
 }
 
@@ -103,6 +113,7 @@ fn a_pack_survives_the_round_trip() {
     assert_eq!(decode(&encode(&p)).unwrap(), p);
     assert_eq!(p.triangles(), 1 + 12 + 8);
     assert_eq!(p.spot("door").unwrap().position, [3.0, 0.0, 1.0]);
+    assert_eq!(p.traversals[0].end(), [3.0, 0.0, -0.4]);
 }
 
 #[test]
@@ -167,4 +178,26 @@ fn a_pack_with_bad_numbers_or_indices_is_rejected() {
         radius: 1.0,
     };
     assert!(invalid(&p).contains("trigger door"));
+
+    let mut p = pack();
+    p.traversals[0].from = 2;
+    assert!(invalid(&p).contains("traversal window"));
+
+    let mut p = pack();
+    p.traversals[0].points.clear();
+    assert!(invalid(&p).contains("traversal window"));
+
+    let mut p = pack();
+    p.traversals[0].contacts[0].point[1] = f32::INFINITY;
+    assert!(invalid(&p).contains("traversal window"));
+
+    let mut p = pack();
+    let again = p.traversals[0].contacts[0].clone();
+    p.traversals[0].contacts.push(again);
+    assert!(invalid(&p).contains("two contacts"));
+
+    let mut p = pack();
+    let again = p.traversals[0].clone();
+    p.traversals.push(again);
+    assert!(invalid(&p).contains("two traversals"));
 }

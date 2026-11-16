@@ -82,6 +82,7 @@ pub fn inspect(path: &Path, bytes: &[u8]) -> Result<Done, Failure> {
         .collect();
     let triggers: Vec<&str> = pack.triggers.iter().map(|t| t.name.as_str()).collect();
     let spots: Vec<&str> = pack.spots.iter().map(|s| s.name.as_str()).collect();
+    let traversals: Vec<&str> = pack.traversals.iter().map(|t| t.name.as_str()).collect();
     let routes: Vec<[&str; 2]> = pack
         .routes
         .iter()
@@ -108,9 +109,10 @@ pub fn inspect(path: &Path, bytes: &[u8]) -> Result<Done, Failure> {
             "actors": actors,
             "spots": spots,
             "routes": routes,
+            "traversals": traversals,
         }),
         text: format!(
-            "{} collision: {} colliders ({} boxes, {} spheres, {} capsules, {} hulls, {} meshes; {} triangles)\ndisabled: {}\ntriggers: {}\nactors: {}\nspots: {}\nroutes: {}",
+            "{} collision: {} colliders ({} boxes, {} spheres, {} capsules, {} hulls, {} meshes; {} triangles)\ndisabled: {}\ntriggers: {}\nactors: {}\nspots: {}\nroutes: {}\ntraversals: {}",
             pack.room,
             pack.colliders.len(),
             shapes[0],
@@ -129,6 +131,7 @@ pub fn inspect(path: &Path, bytes: &[u8]) -> Result<Done, Failure> {
                     .map(|[a, b]| format!("{a} → {b}"))
                     .collect::<Vec<_>>()
             ),
+            list(&traversals),
         ),
     })
 }

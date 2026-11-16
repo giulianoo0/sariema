@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The collision pack of a room: static colliders, triggers, the actors'
-//! collision bodies, named action spots and the routes scripts walk between
-//! them.
+//! collision bodies, named action spots, the routes scripts walk between
+//! them, and the traversals scripts carry actors along.
 //!
 //! A pack is the 4-byte [`MAGIC`], the [`VERSION`] as a little-endian `u32`,
 //! then a postcard body holding a [`CollisionPack`]. Coordinates follow the
@@ -30,6 +30,7 @@ pub struct CollisionPack {
     pub spots: Vec<Spot>,
     /// Pairs of indices into `spots` that a script walks between.
     pub routes: Vec<[u32; 2]>,
+    pub traversals: Vec<Traversal>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -106,6 +107,35 @@ pub struct Spot {
     pub actor: u32,
     pub position: [f32; 3],
     pub yaw: f32,
+}
+
+/// A scripted move with the actor's collider off (climbing in through a
+/// window, vaulting a sill): from a spot through `points`, the last of which
+/// is where the actor stands again, facing `yaw`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Traversal {
+    pub name: String,
+    /// Index into [`CollisionPack::spots`]; its actor is the one carried.
+    pub from: u32,
+    pub points: Vec<[f32; 3]>,
+    pub yaw: f32,
+    /// Where an authored pose touches the room on purpose.
+    pub contacts: Vec<Contact>,
+}
+
+/// A point of an actor's pose that rests on a surface by design, like a foot
+/// hooked on a sill.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Contact {
+    pub name: String,
+    pub point: [f32; 3],
+}
+
+impl Traversal {
+    /// Where the actor stands when the traversal ends.
+    pub fn end(&self) -> [f32; 3] {
+        self.points.last().copied().unwrap_or_default()
+    }
 }
 
 impl CollisionPack {
@@ -339,5 +369,30 @@ fn validate(pack: &CollisionPack) -> Result<(), CollisionError> {
     unique("triggers", pack.triggers.iter().map(|t| t.name.as_str())).map_err(invalid)?;
     unique("actors", pack.actors.iter().map(|a| a.name.as_str())).map_err(invalid)?;
     unique("spots", pack.spots.iter().map(|s| s.name.as_str())).map_err(invalid)?;
+    for t in &pack.traversals {
+        let fail = |why: String| invalid(format!("traversal {}: {why}", t.name));
+        if t.from as usize >= pack.spots.len() {
+            return Err(fail(format!(
+                "starts at spot {} but there are {} spots",
+                t.from,
+                pack.spots.len()
+            )));
+        }
+        if t.points.is_empty()
+            || !t.points.iter().all(|p| finite(p))
+            || !t.yaw.is_finite()
+            || !t.contacts.iter().all(|c| finite(&c.point))
+        {
+            return Err(fail(
+                "needs at least one point, and finite points, yaw and contacts".into(),
+            ));
+        }
+        unique("contacts", t.contacts.iter().map(|c| c.name.as_str())).map_err(fail)?;
+    }
+    unique(
+        "traversals",
+        pack.traversals.iter().map(|t| t.name.as_str()),
+    )
+    .map_err(invalid)?;
     Ok(())
 }

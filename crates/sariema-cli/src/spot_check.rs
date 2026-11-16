@@ -2,7 +2,8 @@
 
 //! The collision part of `check`: every action spot must hold its actor's
 //! collider clear of the room and over walkable ground, every route must have
-//! a path, and every actor's model should fit its collider.
+//! a path, every traversal must end on free floor with its contact points on
+//! a surface, and every actor's model should fit its collider.
 
 use glam::Vec3;
 use sariema_format::collision::CollisionPack;
@@ -21,6 +22,8 @@ pub struct SpotCheckSettings {
     pub ground_depth: f32,
     /// Metres an actor's model may reach past its collider before a warning.
     pub bounds_margin: f32,
+    /// Metres a declared contact point may lie off a surface, or inside one.
+    pub contact_tolerance: f32,
 }
 
 impl Default for SpotCheckSettings {
@@ -29,6 +32,7 @@ impl Default for SpotCheckSettings {
             penetration_tolerance: 0.01,
             ground_depth: 0.05,
             bounds_margin: 0.05,
+            contact_tolerance: 0.02,
         }
     }
 }
@@ -40,9 +44,11 @@ pub fn check_room(
     findings: &mut Vec<Finding>,
 ) -> Result<(), Failure> {
     let physics = Settings::default();
-    let max_slope_deg = physics.controller.max_slope_deg;
-    let lift = physics.controller.step_height;
-    let cos_max_slope = max_slope_deg.to_radians().cos();
+    let limits = Limits {
+        max_slope_deg: physics.controller.max_slope_deg,
+        lift: physics.controller.step_height,
+        settings: *settings,
+    };
     let mut world = World::from_pack(physics, pack)
         .map_err(|e| Failure::new("E_SCHEMA", format!("room {room}: {e}")))?;
     let error = |code, message| Finding {
@@ -70,44 +76,66 @@ pub fn check_room(
 
     for spot in &pack.spots {
         let body = &pack.actors[spot.actor as usize];
-        let collider = actor_collider(body);
-        let feet = Vec3::from(spot.position);
         let at = format!("room {room}: spot {}: {}", spot.name, body.name);
-        if let Some((c, separation)) = world.actor_overlap(&collider, feet, spot.yaw)
-            && separation < -settings.penetration_tolerance
-        {
-            let clear = resting_height(&world, &collider, feet, spot.yaw, lift, settings)
-                .map_or_else(String::new, |y| format!("; it stands clear at y {y:.3}"));
-            findings.push(error(
-                "E_SPOT_BLOCKED",
-                format!(
-                    "{at}'s collider is {:.3} m inside {}{clear}",
-                    -separation,
-                    world.collider_name(c)
-                ),
-            ));
-            continue;
-        }
-        let bottom = feet + Vec3::Y * collider.radius;
-        match world.shapecast(
-            bottom,
-            bottom,
-            collider.radius,
-            Vec3::NEG_Y * settings.ground_depth,
+        match placement(
+            &world,
+            &actor_collider(body),
+            spot.position.into(),
+            spot.yaw,
+            &limits,
         ) {
-            Some(hit) if hit.normal.y >= cos_max_slope => {}
-            Some(hit) => findings.push(error(
-                "E_SPOT_NO_GROUND",
-                format!(
-                    "{at} stands on {}, steeper than {}°",
-                    world.collider_name(hit.collider),
-                    max_slope_deg
-                ),
-            )),
-            None => findings.push(error(
-                "E_SPOT_NO_GROUND",
-                format!("{at} stands on nothing within {} m", settings.ground_depth),
-            )),
+            Some(Misplaced::Inside(why)) => {
+                findings.push(error("E_SPOT_BLOCKED", format!("{at}'s {why}")))
+            }
+            Some(Misplaced::NoGround(why)) => {
+                findings.push(error("E_SPOT_NO_GROUND", format!("{at} {why}")))
+            }
+            None => {}
+        }
+    }
+
+    for t in &pack.traversals {
+        let from = &pack.spots[t.from as usize];
+        let body = &pack.actors[from.actor as usize];
+        let at = format!(
+            "room {room}: traversal {}: at the end, {}",
+            t.name, body.name
+        );
+        match placement(
+            &world,
+            &actor_collider(body),
+            t.end().into(),
+            t.yaw,
+            &limits,
+        ) {
+            Some(Misplaced::Inside(why)) => {
+                findings.push(error("E_TRAVERSAL_END", format!("{at}'s {why}")))
+            }
+            Some(Misplaced::NoGround(why)) => {
+                findings.push(error("E_TRAVERSAL_END", format!("{at} {why}")))
+            }
+            None => {}
+        }
+        let tolerance = settings.contact_tolerance;
+        for contact in &t.contacts {
+            let off = match world.closest_point(contact.point.into(), tolerance) {
+                None => Some(format!("is not within {tolerance} m of a surface")),
+                Some(c) if c.distance < -tolerance => Some(format!(
+                    "is {:.3} m inside {}",
+                    -c.distance,
+                    world.collider_name(c.collider)
+                )),
+                Some(_) => None,
+            };
+            if let Some(off) = off {
+                findings.push(error(
+                    "E_CONTACT_OFF_SURFACE",
+                    format!(
+                        "room {room}: traversal {}: contact {} {off}",
+                        t.name, contact.name
+                    ),
+                ));
+            }
         }
     }
 
@@ -139,7 +167,64 @@ pub fn check_room(
     Ok(())
 }
 
-/// The feet height, within `lift` above `feet`, where the collider dropped
+struct Limits {
+    max_slope_deg: f32,
+    /// How far above a sunk placement to look for where it would rest.
+    lift: f32,
+    settings: SpotCheckSettings,
+}
+
+/// Why an actor cannot stand somewhere, ending a sentence about it.
+enum Misplaced {
+    /// Follows "<actor>'s".
+    Inside(String),
+    /// Follows "<actor>".
+    NoGround(String),
+}
+
+/// Whether the actor's collider at `feet` is clear of the room and stands on
+/// walkable ground.
+fn placement(
+    world: &World,
+    collider: &ActorCollider,
+    feet: Vec3,
+    yaw: f32,
+    limits: &Limits,
+) -> Option<Misplaced> {
+    let settings = &limits.settings;
+    if let Some((c, separation)) = world.actor_overlap(collider, feet, yaw)
+        && separation < -settings.penetration_tolerance
+    {
+        let clear = resting_height(world, collider, feet, yaw, limits)
+            .map_or_else(String::new, |y| format!("; it stands clear at y {y:.3}"));
+        return Some(Misplaced::Inside(format!(
+            "collider is {:.3} m inside {}{clear}",
+            -separation,
+            world.collider_name(c)
+        )));
+    }
+    let bottom = feet + Vec3::Y * collider.radius;
+    let ground = world.shapecast(
+        bottom,
+        bottom,
+        collider.radius,
+        Vec3::NEG_Y * settings.ground_depth,
+    );
+    match ground {
+        Some(hit) if hit.normal.y >= limits.max_slope_deg.to_radians().cos() => None,
+        Some(hit) => Some(Misplaced::NoGround(format!(
+            "stands on {}, steeper than {}°",
+            world.collider_name(hit.collider),
+            limits.max_slope_deg
+        ))),
+        None => Some(Misplaced::NoGround(format!(
+            "stands on nothing within {} m",
+            settings.ground_depth
+        ))),
+    }
+}
+
+/// The feet height, within the lift above `feet`, where the collider dropped
 /// straight down comes to rest clear of the room, as an actor settles on a
 /// slope or a ledge; `None` when the overlap is not one a lift resolves.
 fn resting_height(
@@ -147,9 +232,9 @@ fn resting_height(
     collider: &ActorCollider,
     feet: Vec3,
     yaw: f32,
-    lift: f32,
-    settings: &SpotCheckSettings,
+    limits: &Limits,
 ) -> Option<f32> {
+    let (lift, settings) = (limits.lift, &limits.settings);
     let top = feet + Vec3::Y * lift;
     let (a, b) = (
         top + Vec3::Y * collider.radius,

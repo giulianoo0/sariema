@@ -148,6 +148,11 @@
             "items": false
           }
         },
+        "traversals": {
+          "type": "array",
+          "description": "Scripted moves with the actor's collider off, such as climbing in through a window; sariema check proves that each ends on free floor and that its contacts lie on a surface.",
+          "items": { "$ref": "#/$defs/collision_traversal" }
+        },
         "bake": {
           "type": "object",
           "additionalProperties": false,
@@ -269,6 +274,36 @@
         "actor": { "type": "string", "description": "A name from actors." },
         "at": { "$ref": "#/$defs/vec3", "description": "The actor's feet." },
         "yaw_deg": { "type": "number", "description": "Facing. 0 when absent." }
+      }
+    },
+    "collision_traversal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "from", "points"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "from": { "type": "string", "description": "The spot it starts from; its actor is the one carried." },
+        "points": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/vec3" },
+          "description": "The feet along the way; the last is where the actor stands again."
+        },
+        "yaw_deg": { "type": "number", "description": "Facing at the end. 0 when absent." },
+        "contacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/collision_contact" }
+        }
+      }
+    },
+    "collision_contact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "at"],
+      "description": "A point of an authored pose that rests on a surface on purpose, like a foot hooked on a sill.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "at": { "$ref": "#/$defs/vec3" }
       }
     },
     "rgb": {

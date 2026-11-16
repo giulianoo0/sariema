@@ -137,7 +137,8 @@ fn check_passes_the_example() {
     assert_eq!(out["warnings"], json!([]));
     let (code, all) = sariema(&["check", arg(&example("collision"))]);
     assert_eq!(code, 0, "{all}");
-    assert_eq!(all["rooms"], out["rooms"]);
+    assert_eq!(all["rooms"][0], out["rooms"][0]);
+    assert_eq!(all["rooms"][1]["room"], "sill");
 }
 
 #[test]
@@ -300,4 +301,83 @@ fn a_spot_sunk_into_a_crate_top_says_where_it_stands_clear() {
     let (code, message) = failure(&["check", arg(&dir), "--room", "hall"]);
     assert_eq!(code, "E_SPOT_BLOCKED");
     assert!(message.contains("stands clear at y 1.0"), "{message}");
+}
+
+fn sill_with(edit: impl FnOnce(&mut Value)) -> Value {
+    let mut room: Value = serde_json::from_slice(
+        &std::fs::read(example("collision").join("rooms/sill.json")).unwrap(),
+    )
+    .unwrap();
+    edit(&mut room["collision"]["traversals"][0]);
+    room
+}
+
+#[test]
+fn a_traversal_over_a_sill_ending_on_free_floor_passes_and_inspect_lists_it() {
+    let (code, out) = sariema(&["check", arg(&example("collision")), "--room", "sill"]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["rooms"][0]["traversals"], 1);
+    let tmp = TempDir::new().unwrap();
+    let pack = tmp.path().join("sill.srma");
+    let (code, built) = sariema(&[
+        "build",
+        arg(&example("collision")),
+        "--room",
+        "sill",
+        "-o",
+        arg(&pack),
+    ]);
+    assert_eq!(code, 0, "{built}");
+    let (code, inspected) = sariema(&["inspect", arg(&tmp.path().join("sill.srmc"))]);
+    assert_eq!(code, 0, "{inspected}");
+    assert_eq!(inspected["traversals"], json!(["window"]));
+}
+
+#[test]
+fn a_traversal_ending_inside_the_sill_or_in_the_air_fails() {
+    for (end, says) in [
+        ([3.5, 0.0, -3.2], "hero's collider is 0.500 m inside sill"),
+        ([3.5, 0.5, -4.2], "hero stands on nothing within 0.05 m"),
+    ] {
+        let tmp = TempDir::new().unwrap();
+        let dir = project_with(&tmp, sill_with(|t| t["points"][1] = json!(end)));
+        let (code, message) = failure(&["check", arg(&dir), "--room", "hall"]);
+        assert_eq!(code, "E_TRAVERSAL_END");
+        assert!(
+            message.contains("room hall: traversal window: at the end, ") && message.contains(says),
+            "{message}"
+        );
+    }
+}
+
+#[test]
+fn a_contact_off_the_sill_or_sunk_into_it_fails() {
+    for (at, says) in [
+        ([3.5, 1.2, -3.2], "is not within 0.02 m of a surface"),
+        ([3.5, 0.5, -3.0], "is 0.400 m inside sill"),
+    ] {
+        let tmp = TempDir::new().unwrap();
+        let dir = project_with(&tmp, sill_with(|t| t["contacts"][0]["at"] = json!(at)));
+        let (code, message) = failure(&["check", arg(&dir), "--room", "hall"]);
+        assert_eq!(code, "E_CONTACT_OFF_SURFACE");
+        assert!(
+            message.contains("room hall: traversal window: contact foot ")
+                && message.contains(says),
+            "{message}"
+        );
+    }
+    let tmp = TempDir::new().unwrap();
+    let dir = project_with(
+        &tmp,
+        sill_with(|t| t["contacts"][0]["at"] = json!([3.5, 1.2, -3.2])),
+    );
+    let (code, out) = sariema(&[
+        "check",
+        arg(&dir),
+        "--room",
+        "hall",
+        "--contact-tolerance",
+        "0.35",
+    ]);
+    assert_eq!(code, 0, "{out}");
 }
