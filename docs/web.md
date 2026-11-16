@@ -326,9 +326,10 @@ sariema web ../../examples/climb -o dist/demo --json   # game.srmg (ASTC), game.
 ```
 
 `npm test` writes the fixtures and native references with `cargo run
---example fixtures`, builds `examples/demo` and `examples/climb` with
-`sariema web`, renders the climb natively at steps 120, 300, 600 and 900
-with `sariema run --headless --game --input --screenshot` and times its
+--example fixtures`, builds `examples/demo`, `examples/climb` and
+`examples/guide` with `sariema web`, renders the climb natively at steps
+120, 300, 600 and 900 and the guide at 150 and 300 with `sariema run
+--headless --game --input --screenshot`, times the climb's
 native replay (`cargo run --example replay`), builds the counting `.wasm`
 (`npm run build -- --alloc-count`, whose allocator counts), serves them,
 and in Chromium with WebGPU, Chromium with WebGPU hidden (WebGL2), WebKit
@@ -351,8 +352,11 @@ moves the hero; a game whose logic never returns raises `E_GAME_BUDGET`,
 stops the loop, and a timer fires on time after it; a GPU lost mid-game
 leaves the game at its step and hash, and it goes on drawing; and, on the
 counting build, its replayed steps allocate nothing from step 600 to
-1200. Results and the numbers land in `test/out/results.json`, the
-browsers' climb frames in `test/out/renders/`. The tolerance is the
+1200. Then the guide, replayed without input: at both steps it reaches
+the native `engine_hash`, `state_hash` and `fx_hash` (its particles,
+trail and highlight decided the same way), and its frame matches the
+native one. Results and the numbers land in `test/out/results.json`, the
+browsers' climb and guide frames in `test/out/renders/`. The tolerance is the
 goldens' own: no channel more than 6 apart, or at most 0.5% of pixels.
 `SARIEMA_BROWSERS=chromium-webgl2,webkit-webgpu` picks configurations;
 `SARIEMA_GAME_PACKS=<dir>` adds every room pack in `<dir>`, compared with a
