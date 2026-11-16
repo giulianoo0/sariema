@@ -18,9 +18,14 @@ npm run check      # route types, TypeScript and scripts/*.test.mjs
   the climb's still frame, drawn natively.
 - **f.UI.** The buttons, gooey drop, theme toggle, entrances, counters,
   segmented control and cards are f.UI pieces, licensed PolyForm Strict
-  1.0.0. `scripts/fui.mjs` fetches them with the public CLI into
-  `components/fui/`, which git ignores; they are never committed.
-  `app/theme.css` sets their tokens to the Sariema palette.
+  1.0.0. Their CLI, `@flashz-so/f.ui`, is an exact devDependency, so the
+  lockfile holds its integrity hash; at install, `scripts/fui.mjs` runs
+  that local binary to fetch the pieces into `components/fui/`, which git
+  ignores. They are never committed. `app/theme.css` sets their tokens to
+  the Sariema palette.
+- **Publishing.** `out/` carries the f.UI pieces compiled into the page.
+  Whether their license allows a published site is the owner's decision,
+  and nothing is published or deployed without him.
 - **The brand.** `npm run brand` remakes the word, lockups and PNGs in
   `assets/brand/` from the hand-drawn marks (docs/brand.md).
 - **Screenshots.** `node scripts/shots.mjs http://localhost:3000 <dir>`
