@@ -3,8 +3,9 @@
 //! The hero walks the room under the move axis, with collision. Moving
 //! brings the objective in; the action button waves, and the wave's `tap`
 //! marker rings a chime at the hero. Reaching the spot by the sill plays
-//! `climb`: the hero climbs through the window, a line is said over the
-//! music, and the screen fades while the hero is put back in the room.
+//! `climb`: the hero climbs through the window and says a line over the
+//! music past it, and the screen dips to black to a wide shot of the hero
+//! where the climb left it.
 
 use sariema_sdk::{Bus, ClipMode, Command, Ctx, Ease, Entity, Event, Events, Game, Kind, game, id};
 
