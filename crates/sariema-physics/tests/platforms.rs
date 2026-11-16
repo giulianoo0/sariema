@@ -282,3 +282,28 @@ fn a_door_that_cannot_push_the_actor_out_stays_open() {
         [EventKind::EnableRefused { collider: door }]
     );
 }
+
+#[test]
+fn an_actor_inside_another_wall_does_not_keep_a_far_door_open() {
+    let (mut world, _, door) = door_closing_on(Vec3::new(0.0, 0.0, 3.0), 0.1);
+    let wall = world.collider_by_name("left").unwrap();
+    let stuck = actor(&mut world, Vec3::new(-2.0, 0.0, 0.35));
+    let mut events = Vec::new();
+    for _ in 0..5 {
+        world.step(&mut events);
+    }
+    let a = world.actor(stuck);
+    let overlap = world.actor_overlap(&world.actor_collider(stuck), a.position, a.yaw);
+    assert!(
+        overlap.is_some_and(|(c, separation)| c == wall && separation < -0.01),
+        "the fixture needs the actor inside the wall: {overlap:?}"
+    );
+    world.apply(Intent::SetColliderEnabled {
+        collider: door,
+        enabled: true,
+    });
+    events.clear();
+    world.step(&mut events);
+    assert!(world.collider_enabled(door), "{events:?}");
+    assert!(events.is_empty(), "{events:?}");
+}

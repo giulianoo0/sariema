@@ -358,9 +358,10 @@ impl Mover<'_> {
     }
 
     /// The actor at `at` pushed out of what `of` sees it overlap, level only
-    /// when `level`, each push a sweep so the body never passes through
-    /// anything: `at` itself when nothing overlaps; `None` when the pushes
-    /// leave it inside anything or exceed the depenetration limits.
+    /// when `level`, each push a sweep against everything so the body never
+    /// passes through anything: `at` itself when `of` sees no overlap; `None`
+    /// when the pushes leave it inside what `of` sees or exceed the
+    /// depenetration limits. Overlaps `of` does not see are left as they were.
     pub fn push_out(&self, at: Vec3, of: Filter, level: bool) -> Option<Vec3> {
         let c = &self.settings.collision;
         let mut pos = at;
@@ -383,7 +384,7 @@ impl Mover<'_> {
             pos = self.push(pos, n / reach * distance);
         }
         self.scene
-            .deepest(&self.probe(pos), self.filter)
+            .deepest(&self.probe(pos), of)
             .is_none()
             .then_some(pos)
     }
