@@ -18,14 +18,17 @@ const SCHEMA: &str = include_str!("../../../schemas/project.schema.json");
 
 /// `schemas/project.schema.json`; `name` is checked there and not needed here.
 #[derive(Deserialize)]
-struct Project {
-    assets_root: PathBuf,
+pub struct Project {
+    pub assets_root: PathBuf,
     /// Room id to its room description, relative to the project directory.
     rooms: BTreeMap<String, PathBuf>,
+    /// Actor id to its actor description, relative to the project directory.
+    #[serde(default)]
+    pub actors: BTreeMap<String, PathBuf>,
 }
 
 /// Reads the project in `dir` and checks it against the schema.
-fn load(dir: &Path) -> Result<Project, Failure> {
+pub fn load(dir: &Path) -> Result<Project, Failure> {
     let path = dir.join(FILE);
     let text = fs::read_to_string(&path).map_err(|e| Failure::io(&path, e))?;
     let schema_error = |why: String| Failure::new("E_SCHEMA", format!("{}: {why}", path.display()));

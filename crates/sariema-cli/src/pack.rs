@@ -16,6 +16,10 @@ pub fn read(path: &Path) -> Result<RoomPack, Failure> {
 }
 
 pub fn inspect(path: &Path) -> Result<Done, Failure> {
+    let bytes = fs::read(path).map_err(|e| Failure::io(path, e))?;
+    if bytes.starts_with(&sariema_format::actor::MAGIC) {
+        return crate::actor::inspect(path);
+    }
     let room = read(path)?;
     let lights: Vec<&str> = room.lights.iter().map(|l| l.name.as_str()).collect();
     let materials: Vec<&str> = room.materials.iter().map(|m| m.name.as_str()).collect();

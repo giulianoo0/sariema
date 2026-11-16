@@ -9,6 +9,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum, value_parser};
 use sariema_import::TextureMode;
 use sariema_render::Quality;
 
+mod actor;
 mod golden;
 mod output;
 mod pack;
@@ -32,21 +33,25 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Build one room of a project into a pack.
+    /// Build one room or one actor of a project into a pack.
     Build {
         /// Directory holding sariema.json.
         project: PathBuf,
         /// Room id from the project's `rooms`.
+        #[arg(long, required_unless_present = "actor", conflicts_with = "actor")]
+        room: Option<String>,
+        /// Actor id from the project's `actors`.
         #[arg(long)]
-        room: String,
-        /// Pack to write, conventionally `.srma`.
+        actor: Option<String>,
+        /// Pack to write, conventionally `.srma` for a room and `.srmk` for an actor.
         #[arg(short, long)]
         output: PathBuf,
         /// How to store colour textures, overriding the room file's `textures`.
         #[arg(long, value_enum)]
         textures: Option<Textures>,
     },
-    /// Show a pack's stats, lights, materials and loose draws.
+    /// Show a room pack's stats, lights, materials and loose draws, or an
+    /// actor pack's joints, clips, parts, sockets and faces.
     Inspect { pack: PathBuf },
     /// Draw a pack's room in a window, or offscreen with --headless.
     ///
@@ -143,9 +148,16 @@ fn main() -> ExitCode {
         Command::Build {
             project,
             room,
+            actor,
             output,
             textures,
-        } => project::build(project, room, output, textures.map(Textures::mode)),
+        } => match (room, actor) {
+            (Some(room), _) => project::build(project, room, output, textures.map(Textures::mode)),
+            (None, Some(actor)) => {
+                actor::build(project, actor, output, textures.map(Textures::mode))
+            }
+            (None, None) => unreachable!("clap requires --room or --actor"),
+        },
         Command::Inspect { pack } => pack::inspect(pack),
         Command::Run(args) => run::run(args),
         Command::Test { dir, update } => golden::test(dir, *update),
