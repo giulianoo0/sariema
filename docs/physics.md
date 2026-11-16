@@ -18,12 +18,14 @@ The public API takes and returns `glam` types and plain ids. It depends on
 A `World` is built from colliders (`World::new`, or `World::from_pack` for a
 collision pack, which `World::build_from_pack` builds a share at a time:
 `WorldBuild::advance(units)` adds colliders, then folds, sorts and writes
-the tree over their parts, and gives the world `from_pack` would). A collider is a box, sphere, capsule, convex hull or
-two-sided triangle mesh, static or a platform whose pose the game sets each
-step. Colliders can be enabled and disabled (a door that opens, a piece that
-appears); a disabled one blocks nothing and the walkable grid around it is
-rebuilt on the next search. Triggers are named volumes of the same shapes that
-report actors entering and leaving.
+the tree over their parts, and gives the world `from_pack` would). A
+collider is a box, sphere, capsule, convex hull or two-sided triangle mesh,
+static or a platform whose pose the game sets each step; a collision pack's
+hinged collider (a door leaf) is a platform that turns about its hinge (see
+"Hinged leaves"). Colliders can be enabled and disabled (a door that opens,
+a piece that appears); a disabled one blocks nothing and the walkable grid
+around it is rebuilt on the next search. Triggers are named volumes of the
+same shapes that report actors entering and leaving.
 
 Shapes are decomposed at build time into triangles and rounded segments
 (sphere and capsule), plus the face planes of solid shapes so the inside of a
@@ -195,9 +197,11 @@ body over geometry it could never walk through. They follow five rules.
    traversal or at rest.
 5. **Hinged set pieces are moving colliders.** A window leaf or a door that
    the actor opens is a platform collider, with its hinge at the origin of
-   its own frame. The game sets its `Pose` yaw each step from the same clip
-   time that drives the actor. The leaf swings over the clip's frames and
-   never pops open, and actors and queries see it where it is drawn.
+   its own frame, turned from the same value that turns the leaf drawn: a
+   game's tween, or a cutscene's `hinge` step on the clock of the actor's
+   clip. The leaf swings over the clip's frames and never pops open, actors
+   and queries see it where it is drawn, and it stops at an actor in its
+   way instead of pushing it (see "Hinged leaves").
 
 A room declares a traversal's geometry under `collision.traversals`, so
 `check` can prove it. The clip timing (which points the clip reaches at
@@ -240,6 +244,46 @@ The check is coarse: any point inside those turned bounds passes, including
 points the pose never touches. Sampling the clip's pose is the next step
 (see "Known limits").
 
+### Hinged leaves
+
+A collision pack's `hinges` turn some of its colliders: each names a
+collider, the pivot (a point on the hinge's axis, in the room), the axis
+(+Y or −Y) and the angle the collider is turned from closed, in degrees.
+The collider is stored closed; `World::from_pack` builds it as a platform
+whose origin is the pivot and whose yaw is the angle (negated for a −Y
+axis), and `hinge_turned` gives the pose for any other angle. The angle is
+always about the hinge from the closed pose, never a yaw in the room.
+
+`World::try_platform_pose(collider, pose)` moves a platform only where no
+actor is in the way. It sweeps from the current pose to the new one in
+samples no farther apart than the thinnest active actor's radius (at the
+collider's farthest point from its origin), and at each sample asks
+whether any active actor that is not placed by `Intent::Pose` lies within
+the collision skin of the collider. On the first one it finds, it puts the
+collider back where it was, as if it had not been asked, and names that
+actor; the actor is never moved. A leaf moving away from an actor leaning
+on it is free: the actor rests a skin away, so the leaf is only near it
+when the turn brings it closer.
+
+The engine turns every hinge of the active room from the scene parameter
+`hinge.<node>` that also turns the leaf drawn (the node is
+`<room>.<piece>_<hinge>`, the collider's name too). Before the world
+steps, it reads the value the parameter's tween will write in that step,
+or the value the game set; if the leaf can turn there, it does, and the
+tween writes it. If an actor is in the way, the tween is held for the
+step (it writes nothing and goes on from where it was the step after),
+the parameter keeps the angle the leaf holds, and the game gets
+`hinge_blocked { hinge, entity }` once, until the leaf moves again or
+another actor stops it. The game decides what then: wait, open again, or
+cancel the tween. A cutscene's `hinge` step drives the same parameter, so
+it stops the same way.
+
+The walkable grid leaves platforms out: a path goes through a doorway
+whatever its leaf does, and a closed leaf stops an actor walked into it
+like a wall: a `MoveTo` that meets it stops there, and after
+`stuck_steps` steps without progress the game gets `blocked` (stuck). A
+game opens a door before it walks an actor through it.
+
 ### Queries and the camera
 
 `raycast`, `shapecast` (a capsule), `overlap`, `closest_point` and
@@ -276,8 +320,8 @@ grid allocates when built or rebuilt after a collider changes.
 
 A collision pack (`SRMC`, `sariema_format::collision`) holds a room's
 colliders, triggers, actor colliders, action spots (feet and facing, for one
-actor), the routes scripts walk between spots and the traversals scripts
-carry actors along. Encoding follows the room
+actor), the routes scripts walk between spots, the traversals scripts
+carry actors along and the hinges that turn colliders. Encoding follows the room
 pack: magic, version, postcard body; `decode` validates numbers, sizes,
 indices and unique names and never panics.
 
@@ -301,6 +345,15 @@ piece:
    for it; otherwise the hull.
 
 `exclude`, `as_mesh`, `as_hull` and `as_box` override the choice by piece name.
+
+A hinged node of a loose piece (a kit node `<piece>_<hinge>` with
+`extras.giro`) whose axis is vertical once placed becomes a collider of
+its own, named like its scene node, `<room>.<piece>_<hinge>`: it is baked
+closed, with a hinge whose angle is the instance's `giros` value for it.
+The rest of the piece is baked as above, without it. A hinge of a piece
+that is not loose, or one that turns about a level axis (a lid, a
+trapdoor), stays part of its piece's collider at the angle it is placed
+at. `examples/door` is a house of two rooms whose door opens by itself.
 
 ```json
 "collision": {
@@ -442,6 +495,12 @@ Silicon Mac under load from other builds; medians, as the range of two runs.
 | 100 | 0.60–0.86 ms | 3.6–5.1 % | 0 |
 | 2,000 (packed, constantly touching) | 11.3–11.8 ms | 68–71 % | 0 |
 
+A hinged leaf costs, per step it turns, 0.06 µs with an actor elsewhere in
+the room, 0.38–0.44 µs when it stops at an actor in its swing or with 8
+actors around, and 0.72–0.79 µs for a quarter turn of a 1 m leaf in one
+step (5 samples): release, one core, three runs, measured with a timing
+loop over `try_platform_pose` in the doorway of `tests/hinge.rs`.
+
 The walkable grid of that room builds in 107–134 ms (once, at load). A 20 m
 path search takes 0.4–1.4 ms; a 61 m detour 4.4–6.0 ms; an unreachable target
 1 µs, refused by islands.
@@ -493,11 +552,16 @@ room with 135 colliders in 0.2 s.
   is to sample the clip along the traversal's timing and test each frame's
   bounds against the room, allowing only the declared contacts. At rest,
   rule 4 is covered by the collider check and `W_ACTOR_BOUNDS`.
-- Collision packs do not declare hinged pieces yet. `World::from_pack`
-  builds static colliders only, so a hinged leaf is a platform that only
-  `World::new` can create. The next step is a hinge (pivot and angle range)
-  in the pack, which `from_pack` builds as a platform, plus a binding from
-  clip time to hinge angle in the runtime.
+- Hinges turn about a vertical axis only. A lid or a trapdoor is drawn
+  turning but collides where it was placed.
+- A leaf never pushes and is never pushed: it waits for the game, which
+  hears `hinge_blocked`. Actors placed by a pose (as a traversal carries
+  them) or left out with `set_actor_active` are not in a leaf's way.
+- Paths do not see leaves: the grid does not mark a door closed, so a
+  `MoveTo` through a closed door ends against the leaf with `blocked`
+  (stuck) instead of `blocked` (no path) at once.
+- The leaf is checked against actors only. Two leaves, or a leaf and a
+  wall, may overlap if the game turns them so.
 - `physics-map` does not draw traversals or contact points.
 - Actors push each other apart as vertical circles (radius of the body
   capsule, overlapping heights); head spheres do not push.
