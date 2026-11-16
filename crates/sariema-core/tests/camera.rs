@@ -52,6 +52,6 @@ fn vertical_fov_is_respected() {
 #[test]
 fn depth_spans_zero_at_near_to_one_at_far() {
     let c = camera();
-    assert!(c.proj.project_point3(vec3(0.0, 0.0, -c.near)).z.abs() < 1e-6);
-    assert!((c.proj.project_point3(vec3(0.0, 0.0, -c.far)).z - 1.0).abs() < 1e-6);
+    assert!(c.proj.project_point3(vec3(0.0, 0.0, -0.05)).z.abs() < 1e-6);
+    assert!((c.proj.project_point3(vec3(0.0, 0.0, -100.0)).z - 1.0).abs() < 1e-6);
 }

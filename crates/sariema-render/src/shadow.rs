@@ -4,6 +4,8 @@
 //! lights. A slot is drawn when a light gets it, and again only when a shadow
 //! caster within that light's reach is shown or hidden.
 
+use std::collections::VecDeque;
+
 use bytemuck::{Pod, Zeroable};
 use glam::camera::rh::{proj::directx, view::look_to_mat4};
 use glam::{BVec3, Mat4, Vec2, Vec3, vec2, vec3};
@@ -56,28 +58,56 @@ impl Rect {
     }
 }
 
-/// Squares for the sun, if `sun`, and for `lights` lights, largest first: the
-/// sun takes a quadrant, then the largest free square is split in four until
-/// there are enough or they are single texels.
-fn allocate(atlas: u32, sun: bool, lights: usize) -> (Option<Rect>, Vec<Rect>) {
+/// Squares of at least `min` texels for the sun, if `sun`, and for `lights`
+/// lights, largest first: the sun takes a quadrant, then the largest free
+/// square is split in four until there are enough or halves would be too small.
+fn allocate(atlas: u32, sun: bool, lights: usize, min: u32) -> (Option<Rect>, Vec<Rect>) {
     let root = Rect {
         x: 0,
         y: 0,
         size: atlas,
     };
-    let (sun, mut free) = if sun && atlas >= 2 {
+    let (sun, mut free) = if sun {
         let [first, rest @ ..] = root.quadrants();
-        (Some(first), rest.to_vec())
+        (Some(first), VecDeque::from(rest))
     } else {
-        (None, vec![root])
+        (None, VecDeque::from([root]))
     };
     // Splitting only the largest keeps `free` sorted largest first.
-    while free.len() < lights && free[0].size >= 2 {
-        let largest = free.remove(0);
+    while free.len() < lights && free[0].size / 2 >= min {
+        let largest = free.pop_front().expect("never empty");
         free.extend(largest.quadrants());
     }
     free.truncate(lights);
-    (sun, free)
+    free.retain(|r| r.size >= min);
+    (sun.filter(|r| r.size >= min), free.into())
+}
+
+/// The square for each rank, of `rects[rank]`'s size. A light keeps the
+/// square it `held` while that size holds; the others take free squares of
+/// their size.
+fn place(rects: &[Rect], held: &[Option<Rect>]) -> Vec<Rect> {
+    let mut taken = vec![false; rects.len()];
+    let mut placed: Vec<Option<usize>> = (held.iter().enumerate())
+        .map(|(rank, held)| {
+            let kept = rects.iter().position(|r| Some(*r) == *held)?;
+            (rects[kept].size == rects[rank].size).then(|| {
+                taken[kept] = true;
+                kept
+            })
+        })
+        .collect();
+    for (rank, square) in placed.iter_mut().enumerate() {
+        if square.is_none() {
+            let size = rects[rank].size;
+            let free = (0..rects.len())
+                .find(|&i| !taken[i] && rects[i].size == size)
+                .expect("there are as many squares of a size as ranks that want it");
+            taken[free] = true;
+            *square = Some(free);
+        }
+    }
+    placed.into_iter().flatten().map(|i| rects[i]).collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -146,6 +176,11 @@ pub(crate) struct Shadows {
     view_stride: u32,
     atlas_size: u32,
     max_lights: u32,
+    min_slot: u32,
+    /// The room's squares: the sun's, then one per shadowed rank, largest first.
+    layout: (Option<Rect>, Vec<Rect>),
+    /// Bounds of all the room's draws.
+    room_bounds: Option<(Vec3, Vec3)>,
     /// What the atlas holds, by slot index.
     slots: Vec<Slot>,
     /// Slots to draw this frame.
@@ -285,6 +320,9 @@ impl Shadows {
             view_stride: view_stride as u32,
             atlas_size,
             max_lights: quality.max_shadowed_lights,
+            min_slot: quality.shadow_min_slot_px,
+            layout: (None, Vec::new()),
+            room_bounds: None,
             slots: Vec::new(),
             stale: Vec::new(),
             toggled: Vec::new(),
@@ -315,11 +353,19 @@ impl Shadows {
         self.drawn
     }
 
-    /// Forgets what the atlas holds, for a new room.
-    pub fn forget(&mut self) {
+    /// Forgets what the atlas holds and lays it out for `room`: a quadrant
+    /// for its sun if that casts shadows, and a square per shadow-casting
+    /// light up to the budget. Lights that join or leave the view never
+    /// change the layout, so they never move another light's square.
+    pub fn reset(&mut self, room: &Room) {
         self.slots.clear();
         self.stale.clear();
         self.toggled.clear();
+        self.room_bounds = bounds(room.draws.iter());
+        let sun = room.sun.as_ref().is_some_and(|s| s.casts_shadow);
+        let lights = room.lights.iter().filter(|l| l.casts_shadow).count();
+        let lights = lights.min(self.max_lights as usize);
+        self.layout = allocate(self.atlas_size, sun, lights, self.min_slot);
     }
 
     /// Redraws, next frame, the slots that can see a caster within `min..max`.
@@ -345,10 +391,6 @@ impl Shadows {
         let Some(room) = room else {
             return assigned;
         };
-        // Without a visible draw nothing casts or receives a shadow.
-        let Some(bounds) = visible_bounds(&room.draws) else {
-            return assigned;
-        };
         let mut ranked: Vec<(f32, usize)> = visible
             .iter()
             .enumerate()
@@ -357,14 +399,16 @@ impl Shadows {
             .collect();
         // Stable, so equal priorities keep the frame's order.
         ranked.sort_by(|a, b| b.0.total_cmp(&a.0));
-        let sun = room.sun.as_ref().filter(|s| s.casts_shadow);
-        let sun = sun.and_then(|s| sun_view(s, bounds));
-        let wanted = ranked.len().min(self.max_lights as usize);
-        let (sun_rect, rects) = allocate(self.atlas_size, sun.is_some(), wanted);
-        assigned.skipped = (ranked.len() - rects.len()) as u32;
+        let (sun_rect, rects) = &self.layout;
+        let casting = ranked.len();
+        ranked.truncate(rects.len());
+        assigned.skipped = (casting - ranked.len()) as u32;
 
-        let mut slots = Vec::with_capacity(rects.len() + 1);
-        if let (Some((view_proj, texel)), Some(rect)) = (sun, sun_rect) {
+        let mut slots = Vec::with_capacity(ranked.len() + 1);
+        let casters = bounds(room.draws.iter().filter(|d| d.visible && d.casts_shadow));
+        let sun = (sun_rect.zip(room.sun.as_ref()).zip(casters))
+            .and_then(|((rect, sun), casters)| Some((rect, sun_view(sun, casters)?)));
+        if let Some((rect, (view_proj, texel))) = sun {
             assigned.sun = Some(0);
             slots.push(Slot {
                 source: Source::Sun,
@@ -373,8 +417,17 @@ impl Shadows {
                 texel,
             });
         }
-        for (&(_, k), rect) in ranked.iter().zip(rects) {
-            let (view_proj, texel) = light_view(&room.lights[visible[k]], bounds);
+        let held: Vec<Option<Rect>> = (ranked.iter())
+            .map(|&(_, k)| {
+                let source = Source::Light(visible[k]);
+                self.slots
+                    .iter()
+                    .find(|s| s.source == source)
+                    .map(|s| s.rect)
+            })
+            .collect();
+        for (&(_, k), rect) in ranked.iter().zip(place(rects, &held)) {
+            let (view_proj, texel) = light_view(&room.lights[visible[k]], self.room_bounds);
             assigned.lights[k] = Some(slots.len() as u32);
             slots.push(Slot {
                 source: Source::Light(visible[k]),
@@ -489,11 +542,9 @@ pub(crate) fn layout_entries() -> [wgpu::BindGroupLayoutEntry; 3] {
     ]
 }
 
-/// World bounds of the visible draws; `None` if none is visible.
-fn visible_bounds(draws: &[DrawItem]) -> Option<(Vec3, Vec3)> {
+/// World bounds of `draws`; `None` if there are none.
+fn bounds<'a>(draws: impl Iterator<Item = &'a DrawItem>) -> Option<(Vec3, Vec3)> {
     draws
-        .iter()
-        .filter(|d| d.visible)
         .map(|d| (d.min, d.max))
         .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
 }
@@ -507,7 +558,8 @@ fn up_for(forward: Vec3) -> Vec3 {
     }
 }
 
-/// An orthographic map along the sun's rays, fitted to `min..max`.
+/// An orthographic map along the sun's rays, fitted to the casters within
+/// `min..max`; receivers beyond them compare at its far plane.
 fn sun_view(sun: &Sun, (min, max): (Vec3, Vec3)) -> Option<(Mat4, Vec2)> {
     let rays = -Vec3::from(sun.direction).try_normalize()?;
     let view = look_to_mat4(Vec3::ZERO, rays, up_for(rays));
@@ -526,7 +578,7 @@ fn sun_view(sun: &Sun, (min, max): (Vec3, Vec3)) -> Option<(Mat4, Vec2)> {
 /// A perspective map along a spot's cone. A point light is treated as a
 /// spot of 120° pointing straight down: nothing beside or above it casts a
 /// shadow from it (known limitation).
-fn light_view(light: &Light, (min, max): (Vec3, Vec3)) -> (Mat4, Vec2) {
+fn light_view(light: &Light, room_bounds: Option<(Vec3, Vec3)>) -> (Mat4, Vec2) {
     let position = Vec3::from(light.position);
     let (axis, cone_deg) = match light.kind {
         LightKind::Spot { target, cone_deg } => (spot_axis(light.position, target), cone_deg),
@@ -535,7 +587,10 @@ fn light_view(light: &Light, (min, max): (Vec3, Vec3)) -> (Mat4, Vec2) {
     let far = if light.range > 0.0 {
         light.range
     } else {
-        (position - min).abs().max((position - max).abs()).length()
+        // An empty room's maps hold nothing, so any far plane does.
+        room_bounds.map_or(1.0, |(min, max)| {
+            (position - min).abs().max((position - max).abs()).length()
+        })
     };
     // One perspective map holds at most 170°; a wider cone is shadowed only within it.
     let fov = cone_deg.clamp(1.0, 170.0).to_radians();
@@ -555,7 +610,7 @@ mod tests {
 
     #[test]
     fn sun_takes_a_quadrant_and_higher_ranks_get_larger_slots() {
-        let (sun, lights) = allocate(1024, true, 5);
+        let (sun, lights) = allocate(1024, true, 5, 1);
         assert_eq!(sun.map(|r| r.size), Some(512));
         let sizes: Vec<u32> = lights.iter().map(|r| r.size).collect();
         assert_eq!(sizes, [512, 512, 256, 256, 256]);
@@ -563,14 +618,14 @@ mod tests {
 
     #[test]
     fn one_light_alone_gets_the_whole_atlas() {
-        let (sun, lights) = allocate(1024, false, 1);
+        let (sun, lights) = allocate(1024, false, 1, 1);
         assert_eq!((sun, lights[0].size), (None, 1024));
     }
 
     #[test]
     fn slots_are_disjoint_and_inside_the_atlas() {
         for (sun, count) in [(true, 0), (true, 3), (false, 7), (true, 32), (false, 200)] {
-            let (s, lights) = allocate(4096, sun, count);
+            let (s, lights) = allocate(4096, sun, count, 1);
             let all: Vec<Rect> = s.into_iter().chain(lights.iter().copied()).collect();
             assert_eq!(lights.len(), count);
             for (i, &a) in all.iter().enumerate() {
@@ -581,9 +636,35 @@ mod tests {
     }
 
     #[test]
-    fn splitting_stops_at_single_texels() {
-        let (_, lights) = allocate(2, false, 100);
-        assert_eq!(lights.len(), 4);
-        assert!(lights.iter().all(|r| r.size == 1));
+    fn no_square_is_below_the_minimum() {
+        let (sun, lights) = allocate(1024, true, 100, 256);
+        assert_eq!(sun.map(|r| r.size), Some(512));
+        let sizes: Vec<u32> = lights.iter().map(|r| r.size).collect();
+        assert_eq!(sizes, [256; 12]);
+        assert_eq!(allocate(1024, true, 1, 1024), (None, vec![]));
+    }
+
+    #[test]
+    fn a_light_keeps_its_square_when_another_joins_or_leaves() {
+        let (_, rects) = allocate(4096, false, 3, 1);
+        let alone = place(&rects, &[None]);
+        let joined = place(&rects, &[None, Some(alone[0])]);
+        assert_eq!(joined[1], alone[0]);
+        assert_ne!(joined[0], alone[0]);
+        assert_eq!(place(&rects, &[Some(joined[0])]), [joined[0]]);
+    }
+
+    #[test]
+    fn a_light_moves_only_when_its_rank_needs_another_size() {
+        let (_, rects) = allocate(1024, true, 5, 1);
+        let sizes = |placed: &[Rect]| placed.iter().map(|r| r.size).collect::<Vec<_>>();
+        let first = place(&rects, &[None, None, None]);
+        assert_eq!(sizes(&first), [512, 512, 256]);
+        let swapped = place(&rects, &[Some(first[1]), Some(first[0]), Some(first[2])]);
+        assert_eq!(swapped, [first[1], first[0], first[2]]);
+        let demoted = place(&rects, &[None, None, Some(first[0])]);
+        assert_eq!(sizes(&demoted), [512, 512, 256]);
+        assert!(demoted[0] == first[0] || demoted[1] == first[0]);
+        assert_ne!(demoted[2], first[0]);
     }
 }

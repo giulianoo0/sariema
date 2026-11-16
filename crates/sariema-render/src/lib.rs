@@ -80,7 +80,8 @@ pub struct FrameStats {
     /// Clusters that had more than `Quality::max_lights_per_cluster` lights.
     pub cluster_overflows: u32,
     /// Lights with `casts_shadow` that were shaded without a shadow: past
-    /// `Quality::max_shadowed_lights`, or with no room left in the atlas.
+    /// `Quality::max_shadowed_lights`, or left without a square of at least
+    /// `Quality::shadow_min_slot_px` in the atlas.
     pub shadows_skipped: u32,
 }
 
@@ -194,8 +195,9 @@ impl Renderer {
     /// Uploads the room's meshes, textures and materials, replacing any room
     /// loaded before, and applies its look.
     pub fn load_room(&mut self, room: &RoomPack) -> Result<(), RenderError> {
-        self.room = Some(resources::upload(&self.gpu, self.scene.layouts(), room)?);
-        self.shadows.forget();
+        let uploaded = resources::upload(&self.gpu, self.scene.layouts(), room)?;
+        self.shadows.reset(&uploaded);
+        self.room = Some(uploaded);
         self.set_look(&room.look);
         self.warned = false;
         Ok(())

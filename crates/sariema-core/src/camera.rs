@@ -4,8 +4,8 @@ use glam::camera::rh::proj::directx;
 use glam::{Mat4, Vec3};
 use sariema_format::RoomCamera;
 
-pub const NEAR: f32 = 0.05;
-pub const FAR: f32 = 100.0;
+const NEAR: f32 = 0.05;
+const FAR: f32 = 100.0;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Camera {
@@ -16,8 +16,6 @@ pub struct Camera {
     pub position: Vec3,
     /// The point the camera looks at.
     pub focus: Vec3,
-    pub near: f32,
-    pub far: f32,
 }
 
 /// The fixed room camera: facing north (−Z), pitched down `pitch_deg`,
@@ -31,7 +29,5 @@ pub fn room_camera(cam: &RoomCamera, aspect: f32) -> Camera {
         proj: directx::perspective(cam.fov_y_deg.to_radians(), aspect, NEAR, FAR),
         position,
         focus: cam.focus.into(),
-        near: NEAR,
-        far: FAR,
     }
 }

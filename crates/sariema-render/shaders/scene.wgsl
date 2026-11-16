@@ -143,16 +143,18 @@ fn shadow(slot: i32, world: vec3<f32>, n: vec3<f32>, light_distance: f32) -> f32
     // Looking up from beyond the filter's reach off the surface keeps lit faces from shadowing themselves.
     let p = s.to_atlas * vec4(world + n * texel * (0.5 * f32(PCF_SIDE) + 1.0), 1.0);
     let at = p.xyz / p.w;
-    if p.w <= 0.0 || at.z > 1.0 || any(at.xy < s.bounds.xy) || any(at.xy > s.bounds.zw) {
+    if p.w <= 0.0 || any(at.xy < s.bounds.xy) || any(at.xy > s.bounds.zw) {
         return 1.0;
     }
+    // A receiver beyond the far plane, behind every caster, compares there.
+    let depth = min(at.z, 1.0);
     let step = 1.0 / vec2<f32>(textureDimensions(shadow_atlas));
     let centre = 0.5 * f32(PCF_SIDE - 1u);
     var lit = 0.0;
     for (var i = 0u; i < PCF_SIDE * PCF_SIDE; i++) {
         let offset = (vec2(f32(i % PCF_SIDE), f32(i / PCF_SIDE)) - centre) * step;
         let uv = clamp(at.xy + offset, s.bounds.xy, s.bounds.zw);
-        lit += textureSampleCompareLevel(shadow_atlas, shadow_sampler, uv, at.z);
+        lit += textureSampleCompareLevel(shadow_atlas, shadow_sampler, uv, depth);
     }
     return lit / f32(PCF_SIDE * PCF_SIDE);
 }

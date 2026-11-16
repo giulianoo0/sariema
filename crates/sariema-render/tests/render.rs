@@ -399,6 +399,7 @@ fn quality_is_clamped_to_the_device() {
         depth_slices: u32::MAX,
         msaa: 1000,
         shadow_atlas_size: u32::MAX,
+        max_shadowed_lights: u32::MAX,
         ..Quality::high()
     };
     let renderer = Renderer::new(device, queue, config(greedy)).unwrap();
@@ -414,6 +415,13 @@ fn quality_is_clamped_to_the_device() {
     assert!(q.msaa.is_power_of_two() && q.msaa <= 1000, "{q:?}");
     assert!(
         q.shadow_atlas_size <= limits.max_texture_dimension_2d,
+        "{q:?}"
+    );
+    let atlas_bytes = q.shadow_atlas_size as u64 * q.shadow_atlas_size as u64 * 4;
+    assert!(atlas_bytes <= q.shadow_atlas_max_bytes, "{q:?}");
+    let min_slots_per_side = q.shadow_atlas_size / q.shadow_min_slot_px;
+    assert!(
+        q.max_shadowed_lights <= min_slots_per_side * min_slots_per_side,
         "{q:?}"
     );
 }

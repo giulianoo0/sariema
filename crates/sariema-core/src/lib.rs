@@ -4,4 +4,4 @@
 
 mod camera;
 
-pub use camera::{Camera, FAR, NEAR, room_camera};
+pub use camera::{Camera, room_camera};

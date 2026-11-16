@@ -20,8 +20,14 @@ pub struct Quality {
     pub msaa: u32,
     /// Side in texels of the one depth texture every shadow map shares.
     pub shadow_atlas_size: u32,
+    /// Most memory the shadow atlas may take; a larger `shadow_atlas_size`
+    /// is reduced to fit.
+    pub shadow_atlas_max_bytes: u64,
     /// Local lights with a shadow map; the sun's does not count.
     pub max_shadowed_lights: u32,
+    /// Smallest shadow map side in texels; a light that would get less is
+    /// left unshadowed.
+    pub shadow_min_slot_px: u32,
     /// Depth comparisons per shadow lookup, as the largest square grid that
     /// fits; each one filters 2×2 texels.
     pub shadow_pcf_taps: u32,
@@ -37,7 +43,9 @@ impl Quality {
             depth_slices: 16,
             msaa: 2,
             shadow_atlas_size: 1024,
+            shadow_atlas_max_bytes: 4 << 20,
             max_shadowed_lights: 4,
+            shadow_min_slot_px: 64,
             shadow_pcf_taps: 1,
         }
     }
@@ -49,7 +57,9 @@ impl Quality {
             cluster_budget: 3072,
             msaa: 4,
             shadow_atlas_size: 2048,
+            shadow_atlas_max_bytes: 16 << 20,
             max_shadowed_lights: 12,
+            shadow_min_slot_px: 128,
             shadow_pcf_taps: 4,
             ..Quality::low()
         }
@@ -62,7 +72,9 @@ impl Quality {
             cluster_budget: 6144,
             cluster_tile_px: 32,
             shadow_atlas_size: 4096,
+            shadow_atlas_max_bytes: 64 << 20,
             max_shadowed_lights: 32,
+            shadow_min_slot_px: 256,
             shadow_pcf_taps: 16,
             ..Quality::medium()
         }
@@ -70,7 +82,14 @@ impl Quality {
 
     /// These settings reduced to what `device` and the cluster packing can hold.
     pub(crate) fn clamped(&self, device: &wgpu::Device) -> Quality {
-        let limits = device.limits();
+        Quality {
+            msaa: supported_samples(device, self.msaa),
+            ..self.clamped_to(&device.limits())
+        }
+    }
+
+    /// [`Quality::clamped`] for everything but `msaa`, which needs the device.
+    fn clamped_to(&self, limits: &wgpu::Limits) -> Quality {
         let storage = limits
             .max_storage_buffer_binding_size
             .min(limits.max_buffer_size);
@@ -81,20 +100,28 @@ impl Quality {
             .cluster_budget
             .min(indices / max_lights_per_cluster)
             .max(1);
+        let texel_bytes = DEPTH_FORMAT.block_copy_size(None).expect("one aspect") as u64;
+        let atlas_side_in_budget = (self.shadow_atlas_max_bytes / texel_bytes).isqrt();
+        let shadow_atlas_size = (self.shadow_atlas_size as u64)
+            .min(atlas_side_in_budget)
+            .clamp(1, limits.max_texture_dimension_2d as u64)
+            as u32;
+        let shadow_min_slot_px = self.shadow_min_slot_px.max(1);
+        let min_slots_per_side = (shadow_atlas_size / shadow_min_slot_px) as u64;
+        let min_slots = (min_slots_per_side * min_slots_per_side).min(u32::MAX as u64) as u32;
         Quality {
             max_visible_lights: self.max_visible_lights.min(entries(GPU_LIGHT_SIZE)),
             max_lights_per_cluster,
             cluster_budget,
             cluster_tile_px: self.cluster_tile_px.max(1),
             depth_slices: self.depth_slices.clamp(1, cluster_budget),
-            msaa: supported_samples(device, self.msaa),
-            shadow_atlas_size: self
-                .shadow_atlas_size
-                .clamp(1, limits.max_texture_dimension_2d),
+            shadow_atlas_size,
             // The slot buffers also hold the sun's.
             max_shadowed_lights: self
                 .max_shadowed_lights
-                .min(entries(view_stride(&limits).max(GPU_SHADOW_SIZE)).saturating_sub(1)),
+                .min(min_slots)
+                .min(entries(view_stride(limits).max(GPU_SHADOW_SIZE)).saturating_sub(1)),
+            shadow_min_slot_px,
             ..self.clone()
         }
     }
@@ -128,4 +155,32 @@ fn supported_samples(device: &wgpu::Device, wanted: u32) -> u32 {
         .map(|log2| 1 << log2)
         .find(|&count| count <= wanted && accepts(count))
         .unwrap_or(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tiers_fit_their_own_budgets() {
+        for tier in [Quality::low(), Quality::medium(), Quality::high()] {
+            assert_eq!(tier.clamped_to(&wgpu::Limits::default()), tier);
+        }
+    }
+
+    #[test]
+    fn shadow_settings_are_held_to_memory_and_slot_size() {
+        let greedy = Quality {
+            shadow_atlas_size: u32::MAX,
+            max_shadowed_lights: u32::MAX,
+            shadow_pcf_taps: 0,
+            ..Quality::high()
+        };
+        let q = greedy.clamped_to(&wgpu::Limits::default());
+        let side = q.shadow_atlas_size as u64;
+        assert!(side * side * 4 <= q.shadow_atlas_max_bytes, "{q:?}");
+        assert_eq!(q.shadow_atlas_size, Quality::high().shadow_atlas_size);
+        let per_side = q.shadow_atlas_size / q.shadow_min_slot_px;
+        assert_eq!(q.max_shadowed_lights, per_side * per_side);
+    }
 }

@@ -86,17 +86,23 @@ fn spot(position: [f32; 3], target: [f32; 3], importance: f32) -> Light {
     }
 }
 
-/// The demo room's floor, made plain white, with its red box and spot, seen
-/// from straight above the box. Its ambient is a fifth of the demo's, so the
-/// luma in a shadow shows how much of the light it blocks.
-fn box_room() -> RoomPack {
+/// The demo room with a fifth of its ambient, so the luma in a shadow shows
+/// how much of the light it blocks.
+fn dim_demo_room() -> RoomPack {
     let mut room = demo_room();
-    room.draws.truncate(2);
-    room.materials[0].base_color_texture = None;
-    room.lights.truncate(1);
     room.ambient = Ambient {
         sh9: hemisphere_sh9([0.6, 0.7, 0.85], [0.3, 0.25, 0.2], 0.1),
     };
+    room
+}
+
+/// The dim demo room's floor, made plain white, with its red box and spot,
+/// seen from straight above the box.
+fn box_room() -> RoomPack {
+    let mut room = dim_demo_room();
+    room.draws.truncate(2);
+    room.materials[0].base_color_texture = None;
+    room.lights.truncate(1);
     room.camera = RoomCamera {
         fov_y_deg: 40.0,
         pitch_deg: 90.0,
@@ -169,6 +175,82 @@ fn toggling_a_caster_out_of_range_rerenders_nothing() {
     assert!(h.renderer().set_draw_visible("far_box", false));
     h.render(&camera_of(&room), 0.0);
     assert_eq!(h.renderer().shadow_passes_rendered(), drawn);
+}
+
+#[test]
+fn moving_the_camera_without_changing_the_ranking_draws_nothing() {
+    let room = demo_room();
+    let mut h = headless(Quality::high(), &room);
+    h.render(&camera_of(&room), 0.0);
+    let drawn = h.renderer().shadow_passes_rendered();
+    let moved = RoomCamera {
+        pitch_deg: 60.0,
+        distance: 14.0,
+        ..room.camera.clone()
+    };
+    h.render(&room_camera(&moved, W as f32 / H as f32), 0.0);
+    assert_eq!(h.renderer().shadow_passes_rendered(), drawn);
+}
+
+#[test]
+fn a_light_keeps_its_slot_while_another_enters_and_leaves_view() {
+    let mut room = demo_room();
+    // Far off to the east: out of the room camera's view, in a wider one's.
+    room.lights
+        .push(spot([30.0, 4.0, 0.0], [30.0, 0.0, 0.0], 1.0));
+    let close = camera_of(&room);
+    let wide = room_camera(
+        &RoomCamera {
+            distance: 80.0,
+            ..room.camera.clone()
+        },
+        W as f32 / H as f32,
+    );
+    let mut h = headless(Quality::high(), &room);
+    let mut drawn_after = |camera: &Camera| {
+        h.render(camera, 0.0);
+        h.renderer().shadow_passes_rendered()
+    };
+    assert_eq!(drawn_after(&close), 1);
+    assert_eq!(drawn_after(&wide), 2, "only the newcomer's slot is drawn");
+    assert_eq!(drawn_after(&close), 2, "a light leaving draws nothing");
+}
+
+#[test]
+fn hiding_a_draw_that_casts_no_shadow_redraws_nothing() {
+    let room = sunny_demo_room();
+    assert!(!room.draws[0].casts_shadow);
+    let mut h = headless(Quality::high(), &room);
+    h.render(&camera_of(&room), 0.0);
+    let drawn = h.renderer().shadow_passes_rendered();
+    assert!(h.renderer().set_draw_visible("floor", false));
+    h.render(&camera_of(&room), 0.0);
+    assert_eq!(h.renderer().shadow_passes_rendered(), drawn);
+}
+
+#[test]
+fn unshadowed_lights_are_counted_with_nothing_visible() {
+    let mut room = demo_room();
+    for draw in &mut room.draws {
+        draw.visible = false;
+    }
+    let mut h = headless(with_max_shadowed(0), &room);
+    h.render(&camera_of(&room), 0.0);
+    assert_eq!(h.renderer().last_frame_stats().shadows_skipped, 1);
+}
+
+#[test]
+fn lights_whose_slot_would_be_too_small_are_skipped() {
+    let mut room = demo_room();
+    room.lights[1].casts_shadow = true;
+    let whole_atlas_only = Quality {
+        shadow_min_slot_px: Quality::high().shadow_atlas_size,
+        ..Quality::high()
+    };
+    let mut h = headless(whole_atlas_only, &room);
+    h.render(&camera_of(&room), 0.0);
+    assert_eq!(h.renderer().last_frame_stats().shadows_skipped, 1);
+    assert_eq!(h.renderer().shadow_passes_rendered(), 1);
 }
 
 #[test]
@@ -285,7 +367,7 @@ fn point_light_casts_shadow_downwards() {
 }
 
 fn sunny_demo_room() -> RoomPack {
-    let mut room = demo_room();
+    let mut room = dim_demo_room();
     room.sun = Some(Sun {
         direction: vec3(-0.6, 0.6, -0.4).normalize().into(),
         color: [1.0, 0.85, 0.7],
