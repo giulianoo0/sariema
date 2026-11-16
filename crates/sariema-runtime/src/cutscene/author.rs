@@ -538,7 +538,11 @@ impl Compiler<'_> {
                     Some("cut") => Some(Cover::Cut),
                     Some("fade") => Some(Cover::Fade),
                     Some(other) => {
-                        return Err(self.error("E_SCHEMA", &at, format!("unknown cover {other:?}")));
+                        return Err(self.error(
+                            "E_SCHEMA",
+                            &at,
+                            format!("unknown cover {other:?}"),
+                        ));
                     }
                 };
                 Block::Teleport {

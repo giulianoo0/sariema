@@ -2,6 +2,7 @@
 
 //! The engine's seeded random numbers: PCG32 (O'Neill, pcg-random.org,
 //! `pcg32_random_r`), the generator Godot's `RandomNumberGenerator` uses.
+//! Shared verbatim with the no_std `sariema-sdk`, so it uses only `core`.
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pcg32 {
@@ -13,7 +14,7 @@ const MULTIPLIER: u64 = 6_364_136_223_846_793_005;
 
 impl Pcg32 {
     /// `stream` selects one of 2⁶³ independent sequences.
-    pub fn new(seed: u64, stream: u64) -> Pcg32 {
+    pub const fn new(seed: u64, stream: u64) -> Pcg32 {
         let mut rng = Pcg32 {
             state: 0,
             increment: (stream << 1) | 1,
@@ -24,7 +25,7 @@ impl Pcg32 {
         rng
     }
 
-    pub fn next_u32(&mut self) -> u32 {
+    pub const fn next_u32(&mut self) -> u32 {
         let old = self.state;
         self.state = old.wrapping_mul(MULTIPLIER).wrapping_add(self.increment);
         let xorshifted = (((old >> 18) ^ old) >> 27) as u32;
