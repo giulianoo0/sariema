@@ -213,7 +213,7 @@ fn wrongly_sized_mip_is_room_error() {
 }
 
 #[test]
-fn astc_texture_is_room_error() {
+fn rgba8_bytes_tagged_astc_is_room_error() {
     let mut room = demo_room();
     room.textures[0].format = TextureFormat::Astc4x4Srgb;
     assert!(room_error(&room).contains("checker"));

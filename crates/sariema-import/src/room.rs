@@ -14,14 +14,16 @@ use std::path::{Path, PathBuf};
 use glam::{Mat3, Mat4, Vec3};
 use sariema_format::{
     Aabb, Ambient, Background, Draw, Light, LightKind, Look, Material, Mesh, Mobility, RoomCamera,
-    RoomPack, Shading, Stats, Sun, Texture, TextureFormat, Vertex, hemisphere_sh9,
+    RoomPack, Shading, Stats, Sun, Texture, Vertex, hemisphere_sh9,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::texture::srgb_to_linear;
-use crate::{ImportError, Kit, KitPiece, KitPrimitive, load_kit, mip_chain_rgba8, read};
+use crate::{
+    ImportError, Kit, KitPiece, KitPrimitive, TextureMode, encode_texture, load_kit, read,
+};
 
 const SCHEMA: &str = include_str!("../../../schemas/room.schema.json");
 
@@ -43,6 +45,9 @@ pub struct RoomSource {
     pub look: Look,
     pub camera: RoomCamera,
     pub background: Background,
+    /// ASTC 4×4 when absent.
+    #[serde(default)]
+    pub textures: Option<TextureMode>,
 }
 
 impl RoomSource {
@@ -173,16 +178,11 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         .ok_or_else(|| {
             ImportError::Schema(format!("luz: room {first}: sol_dir_three has no direction"))
         })?;
+    let mode = source.textures.unwrap_or_default();
     let textures: Vec<Texture> = kit
         .images
         .iter()
-        .map(|image| Texture {
-            name: image.name.clone(),
-            width: image.rgba.width(),
-            height: image.rgba.height(),
-            format: TextureFormat::Rgba8Srgb,
-            mips: mip_chain_rgba8(&image.rgba),
-        })
+        .map(|image| encode_texture(&image.name, &image.rgba, mode))
         .collect();
     Ok(RoomPack {
         name: source.name.clone(),

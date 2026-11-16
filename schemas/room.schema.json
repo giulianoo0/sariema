@@ -74,6 +74,10 @@
         "top": { "$ref": "#/$defs/rgb" },
         "bottom": { "$ref": "#/$defs/rgb" }
       }
+    },
+    "textures": {
+      "enum": ["rgba8", "astc"],
+      "description": "How colour textures are stored. ASTC 4x4 (the default) needs a GPU that samples ASTC; RGBA8 is four times larger."
     }
   },
   "$defs": {

@@ -1,12 +1,82 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Mip chains for sRGB colour textures.
+//! Mip chains for sRGB colour textures, stored as RGBA8 or ASTC 4×4.
+
+use ctt_astcenc::bindings::{astcenc_image, astcenc_type_ASTCENC_TYPE_U8};
+use ctt_astcenc::{Context, Flags, Preset, Profile, Swizzle, config_init};
+use image::RgbaImage;
+use sariema_format::{Texture, TextureFormat};
+use serde::Deserialize;
+
+/// How a pack stores its colour textures.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextureMode {
+    Rgba8,
+    /// 8 bits per texel; the renderer needs `Features::TEXTURE_COMPRESSION_ASTC`.
+    #[default]
+    #[serde(rename = "astc")]
+    Astc4x4,
+}
+
+/// `img` with its mip chain. In [`TextureMode::Astc4x4`] each mip is compressed
+/// on its own and a mip under 4×4 takes one block; an image whose sides are
+/// not positive multiples of 4 stays RGBA8, since the GPU only takes whole blocks.
+pub fn encode_texture(name: &str, img: &RgbaImage, mode: TextureMode) -> Texture {
+    let (width, height) = img.dimensions();
+    let mips = mip_chain_rgba8(img);
+    let whole_blocks = [width, height]
+        .iter()
+        .all(|&s| s > 0 && s.is_multiple_of(4));
+    let astc = mode == TextureMode::Astc4x4 && whole_blocks;
+    let (format, mips) = if astc {
+        (TextureFormat::Astc4x4Srgb, astc_4x4(mips, width, height))
+    } else {
+        (TextureFormat::Rgba8Srgb, mips)
+    };
+    Texture {
+        name: name.to_owned(),
+        width,
+        height,
+        format,
+        mips,
+    }
+}
+
+/// `mips` are the RGBA8 levels of a `width × height` image, as [`mip_chain_rgba8`] makes them.
+fn astc_4x4(mips: Vec<Vec<u8>>, width: u32, height: u32) -> Vec<Vec<u8>> {
+    let config = config_init(Profile::LdrSrgb, 4, 4, 1, Preset::Medium, Flags::empty())
+        .expect("astcenc takes 4×4 LDR sRGB blocks");
+    let mut context = Context::new(&config).expect("astcenc context");
+    (0u32..)
+        .zip(mips)
+        .map(|(level, mut mip)| {
+            let (w, h) = ((width >> level).max(1), (height >> level).max(1));
+            // astcenc reads w × h texels through this pointer.
+            assert_eq!(mip.len(), w as usize * h as usize * 4);
+            let mut texels = mip.as_mut_ptr().cast();
+            let mut image = astcenc_image {
+                dim_x: w,
+                dim_y: h,
+                dim_z: 1,
+                data_type: astcenc_type_ASTCENC_TYPE_U8,
+                data: &mut texels,
+            };
+            let mut blocks = vec![0; w.div_ceil(4) as usize * h.div_ceil(4) as usize * 16];
+            context
+                .compress(&mut image, Swizzle::IDENTITY, &mut blocks)
+                .expect("astcenc compresses a whole RGBA8 image");
+            context.compress_reset().expect("astcenc context reset");
+            blocks
+        })
+        .collect()
+}
 
 /// Every mip level of `img`, largest first, down to 1×1, as RGBA8 sRGB bytes.
 /// Each texel averages the 2×2 texels above it in linear light; alpha is
 /// averaged as stored. With an odd width or height above 1, the last column
 /// or row does not reach the next level.
-pub fn mip_chain_rgba8(img: &image::RgbaImage) -> Vec<Vec<u8>> {
+pub fn mip_chain_rgba8(img: &RgbaImage) -> Vec<Vec<u8>> {
     let (mut width, mut height) = img.dimensions();
     let mut level: Vec<[f32; 4]> = img
         .pixels()

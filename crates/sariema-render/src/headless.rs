@@ -140,9 +140,11 @@ fn device() -> Result<(Arc<wgpu::Device>, Arc<wgpu::Queue>), RenderError> {
     .map_err(|_| RenderError::NoAdapter)?;
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("sariema headless"),
-        // Lets the quality clamp offer sample counts beyond WebGPU's 1 and 4.
+        // Adapter-specific format features let the quality clamp offer sample
+        // counts beyond WebGPU's 1 and 4; ASTC lets packs keep compressed textures.
         required_features: adapter.features()
-            & wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+            & (wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+                | wgpu::Features::TEXTURE_COMPRESSION_ASTC),
         required_limits: adapter.limits(),
         ..Default::default()
     }))

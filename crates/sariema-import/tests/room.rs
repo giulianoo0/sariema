@@ -315,13 +315,32 @@ fn unknown_state_is_error() {
 
 #[test]
 fn textures_carry_mip_chains() {
-    let r = build(sala_min());
+    let r = build(with(sala_min(), json!({ "textures": "rgba8" })));
     let texture = &r.textures[0];
     assert_eq!(texture.format, TextureFormat::Rgba8Srgb);
     assert_eq!((texture.width, texture.height), (4, 4));
     let sizes: Vec<_> = texture.mips.iter().map(Vec::len).collect();
     assert_eq!(sizes, [64, 16, 4]);
     assert_eq!(r.stats.texture_bytes, 84);
+}
+
+#[test]
+fn texture_mode_selects_format() {
+    let rgba8 = build(with(sala_min(), json!({ "textures": "rgba8" })));
+    let astc = build(with(sala_min(), json!({ "textures": "astc" })));
+    assert_eq!(astc.textures[0].format, TextureFormat::Astc4x4Srgb);
+    assert!(
+        astc.stats.texture_bytes < rgba8.stats.texture_bytes,
+        "{} vs {}",
+        astc.stats.texture_bytes,
+        rgba8.stats.texture_bytes
+    );
+}
+
+#[test]
+fn textures_default_to_astc() {
+    let r = build(sala_min());
+    assert_eq!(r.textures[0].format, TextureFormat::Astc4x4Srgb);
 }
 
 #[test]

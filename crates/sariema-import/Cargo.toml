@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 bytemuck.workspace = true
+ctt-astcenc.workspace = true
 sariema-format = { path = "../sariema-format" }
 glam.workspace = true
 image.workspace = true

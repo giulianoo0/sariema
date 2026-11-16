@@ -93,7 +93,7 @@ impl Room {
 /// Checks what `decode` leaves to the renderer, then uploads everything.
 pub(crate) fn upload(gpu: &Gpu, layouts: &Layouts, room: &RoomPack) -> Result<Room, RenderError> {
     let limits = gpu.device.limits();
-    validate(room, &limits).map_err(RenderError::Room)?;
+    validate(room, &limits, gpu.device.features()).map_err(RenderError::Room)?;
 
     let mut vertices: Vec<Vertex> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
@@ -232,7 +232,11 @@ pub(crate) fn upload(gpu: &Gpu, layouts: &Layouts, room: &RoomPack) -> Result<Ro
     })
 }
 
-fn validate(room: &RoomPack, limits: &wgpu::Limits) -> Result<(), String> {
+fn validate(
+    room: &RoomPack,
+    limits: &wgpu::Limits,
+    features: wgpu::Features,
+) -> Result<(), String> {
     for (i, mesh) in room.meshes.iter().enumerate() {
         let count = mesh.indices.len();
         if !count.is_multiple_of(3) {
@@ -257,7 +261,7 @@ fn validate(room: &RoomPack, limits: &wgpu::Limits) -> Result<(), String> {
         ));
     }
     for (i, texture) in room.textures.iter().enumerate() {
-        if let Some(why) = texture_problem(texture, limits.max_texture_dimension_2d) {
+        if let Some(why) = texture_problem(texture, limits.max_texture_dimension_2d, features) {
             return Err(format!("texture {i} ({}) {why}", texture.name));
         }
     }
@@ -282,15 +286,43 @@ fn validate(room: &RoomPack, limits: &wgpu::Limits) -> Result<(), String> {
     Ok(())
 }
 
-fn texture_problem(t: &Texture, max_side: u32) -> Option<String> {
-    match t.format {
-        TextureFormat::Rgba8Srgb => {}
-        TextureFormat::Astc4x4Srgb => return Some("is ASTC, which is not supported yet".into()),
+fn gpu_format(format: TextureFormat) -> wgpu::TextureFormat {
+    match format {
+        TextureFormat::Rgba8Srgb => wgpu::TextureFormat::Rgba8UnormSrgb,
+        TextureFormat::Astc4x4Srgb => wgpu::TextureFormat::Astc {
+            block: wgpu::AstcBlock::B4x4,
+            channel: wgpu::AstcChannel::UnormSrgb,
+        },
+    }
+}
+
+/// Texel blocks of `format`: width, height and bytes.
+fn block(format: wgpu::TextureFormat) -> (u32, u32, u32) {
+    let (width, height) = format.block_dimensions();
+    let bytes = format
+        .block_copy_size(None)
+        .expect("colour formats have one aspect");
+    (width, height, bytes)
+}
+
+fn texture_problem(t: &Texture, max_side: u32, features: wgpu::Features) -> Option<String> {
+    let format = gpu_format(t.format);
+    if !features.contains(format.required_features()) {
+        return Some(format!(
+            "is {:?}, which this device cannot sample; pack the room with --textures rgba8",
+            t.format
+        ));
     }
     let (w, h) = (t.width, t.height);
     if w == 0 || h == 0 || w > max_side || h > max_side {
         return Some(format!(
             "is {w}×{h}; the device takes 1 to {max_side} per side"
+        ));
+    }
+    let (block_w, block_h, block_bytes) = block(format);
+    if !(w.is_multiple_of(block_w) && h.is_multiple_of(block_h)) {
+        return Some(format!(
+            "is {w}×{h}, which is not whole {block_w}×{block_h} blocks"
         ));
     }
     let levels = 32 - w.max(h).leading_zeros() as usize;
@@ -301,7 +333,8 @@ fn texture_problem(t: &Texture, max_side: u32) -> Option<String> {
         ));
     }
     t.mips.iter().enumerate().find_map(|(level, mip)| {
-        let expected = (w >> level).max(1) as usize * (h >> level).max(1) as usize * 4;
+        let blocks = |side: u32, block: u32| (side >> level).max(1).div_ceil(block) as usize;
+        let expected = blocks(w, block_w) * blocks(h, block_h) * block_bytes as usize;
         (mip.len() != expected).then(|| {
             format!(
                 "has {} bytes in mip {level} instead of {expected}",
@@ -313,6 +346,8 @@ fn texture_problem(t: &Texture, max_side: u32) -> Option<String> {
 
 /// `t` must have passed [`texture_problem`].
 fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
+    let format = gpu_format(t.format);
+    let (block_w, block_h, block_bytes) = block(format);
     let size = |level: u32| wgpu::Extent3d {
         width: (t.width >> level).max(1),
         height: (t.height >> level).max(1),
@@ -324,12 +359,13 @@ fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
         mip_level_count: t.mips.len() as u32,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        format,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
     for (level, mip) in (0..).zip(&t.mips) {
-        let extent = size(level);
+        // A copy covers whole blocks, also for mips smaller than one.
+        let extent = size(level).physical_size(format);
         gpu.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
@@ -340,8 +376,8 @@ fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
             mip,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(extent.width * 4),
-                rows_per_image: Some(extent.height),
+                bytes_per_row: Some(extent.width / block_w * block_bytes),
+                rows_per_image: Some(extent.height / block_h),
             },
             extent,
         );
