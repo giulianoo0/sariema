@@ -17,10 +17,13 @@
 //! - No walk is faster than an actor may be seen to move: neither a `walk`
 //!   nor, for a role with a start, `cutscene.start_walk_speed` exceeds the
 //!   project's `motion.max_visible_speed`. (`E_CUTSCENE_SPEED`)
+//! - A `hinge` step names a hinged node some room of the game has, which
+//!   only the project knows: [`check_hinges`]. (`E_CUTSCENE_HINGE`)
 
 use std::collections::BTreeSet;
 
 use sariema_format::script::cutscene::{Await, Block, Cover, Cutscene, Shot};
+use sariema_format::script::name_id;
 
 use crate::settings::Settings;
 
@@ -43,7 +46,7 @@ impl std::fmt::Display for CheckError {
 }
 
 /// Every error code the check can give.
-pub const CODES: [&str; 7] = [
+pub const CODES: [&str; 8] = [
     "E_CUTSCENE_TELEPORT",
     "E_CUTSCENE_COVER",
     "E_CUTSCENE_START",
@@ -51,6 +54,7 @@ pub const CODES: [&str; 7] = [
     "E_CUTSCENE_SPAWN",
     "E_CUTSCENE_RACE",
     "E_CUTSCENE_SPEED",
+    "E_CUTSCENE_HINGE",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -411,6 +415,53 @@ fn collect(blocks: &[Block], w: &mut Writes) {
             _ => {}
         }
     }
+}
+
+/// Every `hinge` step of `c` whose parameter `rooms` does not know; `names`
+/// are the names `c` was compiled with, which name the node.
+pub fn check_hinges(
+    c: &Cutscene,
+    rooms: &dyn Fn(u32) -> bool,
+    names: &[String],
+) -> Vec<CheckError> {
+    fn list(blocks: &[Block], at: &str, each: &mut dyn FnMut(u32, String)) {
+        for (i, b) in blocks.iter().enumerate() {
+            let at = format!("{at}[{i}]");
+            match b {
+                Block::Sequence(blocks) => list(blocks, &format!("{at}.sequence"), each),
+                Block::Parallel(branches) => {
+                    for (j, branch) in branches.iter().enumerate() {
+                        list(branch, &format!("{at}.parallel[{j}]"), each);
+                    }
+                }
+                Block::Branch {
+                    then, otherwise, ..
+                } => {
+                    list(then, &format!("{at}.branch.then"), each);
+                    list(otherwise, &format!("{at}.branch.else"), each);
+                }
+                Block::Hinge { hinge, .. } => each(*hinge, format!("{at}.hinge")),
+                _ => {}
+            }
+        }
+    }
+    let mut errors = Vec::new();
+    list(&c.body, "steps", &mut |hinge, at| {
+        if rooms(hinge) {
+            return;
+        }
+        let node = (names.iter()).find(|n| name_id(n) == hinge).map_or_else(
+            || format!("#{hinge}"),
+            |n| n.trim_start_matches("hinge.").to_owned(),
+        );
+        errors.push(CheckError {
+            code: "E_CUTSCENE_HINGE",
+            cutscene: c.name.clone(),
+            at,
+            message: format!("no room of the game has a hinged node {node}"),
+        });
+    });
+    errors
 }
 
 /// The rules of `c` for a game run with `settings`.

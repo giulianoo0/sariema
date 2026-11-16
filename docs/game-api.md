@@ -437,6 +437,7 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `cutscene.advance_action` | `confirm` | Button that ends a tap dialogue line. |
 | `cutscene.end_blend` | 0.6 | Seconds of the camera blend back to the game's rig when a cutscene ends. |
 | `cutscene.end_ease` | `in_out_cubic` | Easing of that blend. |
+| `cutscene.hinge_clip_wait` | 2 | Seconds a hinge step waits for its role to play its clip; then it ends, the leaf where it was, with a rejected E_CUTSCENE_HINGE_WAIT. |
 | `cutscene.skip_action` | `skip` | Button that skips a skippable cutscene. |
 | `cutscene.skip_fade` | 0.3 | Seconds of the fade a skip runs under, out and back in. |
 | `cutscene.start_blend` | 0.25 | Seconds of that easing. |

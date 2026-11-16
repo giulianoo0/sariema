@@ -42,11 +42,26 @@ pub const LINE: u32 = u32::MAX;
 /// Tween ids from here up belong to the sequencer.
 pub const TWEENS: u32 = 0xFFFF_0000;
 
-/// The codes of a refused `cutscene_play`, reported in `rejected`.
-pub const CODES: [&str; 3] = [
+/// A `hinge` step turns its node as a `tween` of its scene parameter would,
+/// and is reported under that command's opcode.
+const TURN_OPCODE: u16 = Command::Tween {
+    tween: 0,
+    entity: Entity::NONE,
+    property: Property::Scene,
+    var: 0,
+    to: 0.0,
+    duration: 0.0,
+    ease: Ease::Linear,
+}
+.opcode();
+
+/// The codes of a refused `cutscene_play`, and of a `hinge` step that gave
+/// up waiting for its clip, reported in `rejected`.
+pub const CODES: [&str; 4] = [
     "E_CUTSCENE_BUSY",
     "E_CUTSCENE_UNKNOWN",
     "E_CUTSCENE_UNBOUND",
+    "E_CUTSCENE_HINGE_WAIT",
 ];
 
 // A macro rather than a function so the borrow of `run` stays per field.
@@ -93,6 +108,8 @@ enum Running {
         from: f32,
         /// The role has played the clip.
         seen: bool,
+        /// Steps waited for it.
+        waited: u32,
     },
 }
 
@@ -599,7 +616,7 @@ fn tick_block(current: &mut Option<Box<Running>>, block: &Block, ctx: &mut Ctx<'
             ctx.s.screen.fade.done() && ctx.s.screen.fade.target() == *to
         }
         (
-            Running::Hinge { from, seen },
+            Running::Hinge { from, seen, waited },
             Block::Hinge {
                 hinge,
                 role,
@@ -615,7 +632,19 @@ fn tick_block(current: &mut Option<Box<Running>>, block: &Block, ctx: &mut Ctx<'
             }
             let playing = ctx.s.clips.time(ctx.role(*role));
             let Some(t) = playing.and_then(|(c, t)| (c == *clip).then_some(t)) else {
-                return *seen;
+                if *seen {
+                    return true;
+                }
+                *waited += 1;
+                if *waited < steps_of(ctx.s.settings.cutscene.hinge_clip_wait) {
+                    return false;
+                }
+                ctx.s.events.push(Event::Rejected {
+                    opcode: TURN_OPCODE,
+                    code: "E_CUTSCENE_HINGE_WAIT",
+                    entity: ctx.role(*role),
+                });
+                return true;
             };
             *seen = true;
             let f = ((t - span[0]) / (span[1] - span[0])).clamp(0.0, 1.0);
@@ -769,9 +798,20 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
             });
             None
         }
-        Block::Hinge { hinge, .. } => match ctx.s.scenery.param(*hinge) {
-            Ok(from) => Some(Running::Hinge { from, seen: false }),
-            Err(_) => None,
+        Block::Hinge { hinge, role, .. } => match ctx.s.scenery.param(*hinge) {
+            Ok(from) => Some(Running::Hinge {
+                from,
+                seen: false,
+                waited: 0,
+            }),
+            Err(e) => {
+                ctx.s.events.push(Event::Rejected {
+                    opcode: TURN_OPCODE,
+                    code: e.code(),
+                    entity: ctx.role(*role),
+                });
+                None
+            }
         },
         Block::TimeScale { scale, blend } => {
             ctx.issue(Command::TimeScale {

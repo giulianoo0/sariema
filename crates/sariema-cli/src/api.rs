@@ -156,6 +156,11 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "a cutscene walk, or the walk to a role's start, is faster than motion.max_visible_speed",
     ),
     (
+        "E_CUTSCENE_HINGE",
+        Kind::Failure,
+        "a cutscene hinge step names a hinged node no room of the game has",
+    ),
+    (
         "E_SETTINGS",
         Kind::Failure,
         "the runtime settings cannot run: a time scale bound is not positive or min_time_scale is above max_time_scale",
@@ -274,6 +279,11 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "E_CUTSCENE_BUSY",
         Kind::Rejected,
         "cutscene_play while a cutscene plays",
+    ),
+    (
+        "E_CUTSCENE_HINGE_WAIT",
+        Kind::Rejected,
+        "a cutscene hinge step's role did not play its clip within cutscene.hinge_clip_wait",
     ),
     (
         "E_CUTSCENE_UNKNOWN",

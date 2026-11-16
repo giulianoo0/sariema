@@ -120,6 +120,7 @@ The message names the file, cutscene and step: `cutscene meet, steps[4].teleport
 | `E_CUTSCENE_SPEED` | slow the `walk` (or `cutscene.start_walk_speed`) to `motion.max_visible_speed` or less; to cross faster, hide it or cut |
 | `E_SETTINGS` | in `game.settings`, keep `min_time_scale` and `max_time_scale` positive, the minimum no larger |
 | `E_CUTSCENE_ROLE` | declare the role under `roles` |
+| `E_CUTSCENE_HINGE` | the `hinge` step's `node` is `<room>.<piece>_<hinge>` of a loose piece of some room; fix the name or make the piece loose |
 | `E_SCHEMA` | the message names the field; `shot` needs `blend`, an `auto` line needs `duration`, a `hinge` span starts at 0 s or later and ends after it starts |
 
 At run time a refused `cutscene_play` arrives as a `rejected` event:
@@ -140,10 +141,12 @@ role stands, played or skipped alike.
 - Hiding a move with a cut: a cut is not a cover for a walk you skipped;
   rule 1 wants the walk on screen.
 - Waiting real seconds in slow motion: `wait` counts world time.
-- A `hinge` step whose role never plays its clip waits for ever; one whose
-  node is not in the active room ends at once, silently. Check the node
-  with `sariema inspect <room>.srmc` (`hinges:`). A leaf an actor stops
-  stays where it stopped once the span is over.
+- A `hinge` step whose role never plays its clip ends after
+  `cutscene.hinge_clip_wait` (2 s) with `rejected` `E_CUTSCENE_HINGE_WAIT`,
+  the leaf unturned: put the `clip` in the same `parallel`. One on a node
+  the active room lacks ends at once with `E_SCENE_UNKNOWN`; `sariema
+  check` already refuses a node no room has (`E_CUTSCENE_HINGE`). List the
+  nodes with `sariema inspect <room>.srmc` (`hinges:`).
 - Skipping: `cutscene_skip` (or the `skip` button) lands the same end state
   as playing through, under a fade; do not undo the cutscene's effects in
   the game after `cutscene_ended { skipped: true }`.

@@ -301,13 +301,14 @@ part waits on the limits below: the hero's root crossing the sill (5, 6).
   accepting declared contact points on a surface and failing on any other
   penetration, or on a traversal that does not end on free floor. Today a
   traversal is a clip plus `walk`s, and slow motion covers the whole world.
-- **A `hinge` step** waits for its role to play its clip, with no
-  timeout: one whose role never plays it holds the cutscene. One that
-  names a node the active room does not have ends at once, without a
-  word; `check` does not know the rooms. A leaf an actor stops stays
-  where it stopped once the span is over: the step does not try again,
-  and the game hears `hinge_blocked`. Hinges turn about a vertical axis
-  only.
+- **A `hinge` step** waits for its role to play its clip for
+  `cutscene.hinge_clip_wait` seconds (2); then it ends with the leaf where
+  it was, and the game gets `rejected` `E_CUTSCENE_HINGE_WAIT`. A step on
+  a node the active room lacks ends at once with `rejected`
+  `E_SCENE_UNKNOWN`; `sariema check` and `build` refuse a node that no
+  room of the project has (`E_CUTSCENE_HINGE`, naming the node and the
+  step), building the rooms only when some cutscene has a `hinge` step.
+  Hinges turn about a vertical axis only.
 - **A room switch inside a cutscene** (port item L1): a cutscene plays
   inside one room.
 - **Bones and sockets** are data until the animation module is integrated:

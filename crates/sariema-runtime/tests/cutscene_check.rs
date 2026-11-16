@@ -141,3 +141,24 @@ fn a_hinge_step_names_a_cast_role_and_a_span_that_ends_after_it_starts() {
         );
     }
 }
+
+#[test]
+fn a_hinge_step_must_name_a_hinged_node_of_some_room() {
+    use sariema_format::script::name_id;
+    use sariema_runtime::cutscene::check::check_hinges;
+    let text = r#"{"name":"x","roles":{"hero":{"start":{"position":[0,0,0]}}},"steps":[
+        {"clip":{"role":"hero","clip":"push"}},
+        {"parallel":[[{"wait":0.1}],[{"hinge":{"node":"a.door_lef","role":"hero","clip":"push","span":[0.2,0.6],"to":90}}]]}]}"#;
+    let (cutscene, names) = compile_json(text).unwrap();
+    let rooms = |id: u32| id == name_id("hinge.a.door_leaf");
+    let e = check_hinges(&cutscene, &rooms, &names);
+    assert_eq!(e.len(), 1, "{e:?}");
+    assert_eq!(
+        (e[0].code, e[0].at.as_str()),
+        ("E_CUTSCENE_HINGE", "steps[1].parallel[1][0].hinge")
+    );
+    assert!(e[0].message.contains("a.door_lef"), "{}", e[0]);
+    let fixed = text.replace("door_lef\"", "door_leaf\"");
+    let (cutscene, names) = compile_json(&fixed).unwrap();
+    assert_eq!(check_hinges(&cutscene, &rooms, &names), Vec::new());
+}

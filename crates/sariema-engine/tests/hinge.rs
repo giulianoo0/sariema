@@ -309,3 +309,83 @@ fn a_cutscene_turns_a_leaf_with_the_time_of_an_actors_clip() {
     assert!(compared > 45, "{compared}");
     assert!(ended.borrow().is_some(), "the cutscene ended with the span");
 }
+
+/// Plays a cutscene of one hinge step (and a clip when `clip`), and gives
+/// the steps it ended at and every rejected code, with the leaf's angle at
+/// the end.
+fn hinge_alone(node: &str, clip: bool, steps: u64) -> (Option<u64>, Vec<(u64, String)>, f32) {
+    let wave = if clip {
+        r#"{ "clip": { "role": "hero", "clip": "wave", "mode": "once", "blend": 0.0 } },"#
+    } else {
+        ""
+    };
+    let text = format!(
+        r#"{{ "name": "shut", "skippable": false,
+  "roles": {{ "hero": {{ "start": {{ "position": [0.0, 0.0, 1.5], "yaw": 0.0 }} }} }},
+  "steps": [ {wave}
+    {{ "hinge": {{ "node": "{node}", "role": "hero", "clip": "wave", "span": [0.2, 0.7], "to": 0.0 }} }} ] }}"#
+    );
+    let cutscene = compile_json(&text).unwrap().0;
+    let seen = Rc::new(RefCell::new((None, Vec::new())));
+    let log = seen.clone();
+    let logic = native(move |n, events, out| {
+        for e in events {
+            match e {
+                Event::CutsceneEnded { .. } => log.borrow_mut().0 = Some(n),
+                Event::Rejected { code, .. } => log.borrow_mut().1.push((n, code.to_string())),
+                _ => {}
+            }
+        }
+        if n == 0 {
+            spawn_hero(out, [0.0, 0.0, 1.5], 0.0);
+        }
+        if n == 2 {
+            let (role, entity) = (name_id("hero"), entity(0));
+            send(out, Command::CutsceneBind { role, entity });
+            let cutscene = name_id("shut");
+            send(out, Command::CutscenePlay { cutscene });
+        }
+    });
+    let mut assets = assets();
+    assets.rooms = vec![doorway()];
+    let sim = Simulation::new(wired(), vec![cutscene], logic, 1);
+    let mut engine = Engine::new(sim, assets, EngineSettings::default()).unwrap();
+    let actions = Actions::for_settings(&engine.state().settings.input);
+    for _ in 0..steps {
+        engine.step(&actions);
+    }
+    let leaf = engine
+        .state()
+        .scenery
+        .param(name_id(&format!("hinge.{LEAF}")))
+        .unwrap();
+    let (ended, rejected) = seen.take();
+    (ended, rejected, leaf)
+}
+
+#[test]
+fn a_hinge_step_on_a_node_the_room_lacks_is_rejected_and_ends() {
+    let (ended, rejected, leaf) = hinge_alone("doorway.door_lef", true, 30);
+    assert!(
+        rejected.iter().any(|(_, code)| code == "E_SCENE_UNKNOWN"),
+        "{rejected:?}"
+    );
+    assert!(ended.is_some(), "the cutscene goes on");
+    assert_eq!(leaf, 90.0);
+}
+
+#[test]
+fn a_hinge_step_whose_role_never_plays_its_clip_gives_up_after_its_setting() {
+    let limit = wired().cutscene.hinge_clip_wait;
+    assert!(limit > 0.0 && limit <= 5.0, "{limit}");
+    let (ended, rejected, leaf) = hinge_alone(LEAF, false, 60 * 6);
+    let gave_up: Vec<u64> = (rejected.iter())
+        .filter(|(_, code)| code == "E_CUTSCENE_HINGE_WAIT")
+        .map(|(n, _)| *n)
+        .collect();
+    assert_eq!(gave_up.len(), 1, "{rejected:?}");
+    let waited = (gave_up[0] as f32 - 3.0) / 60.0;
+    assert!((waited - limit).abs() < 0.1, "gave up after {waited} s");
+    assert!(ended.is_some(), "the cutscene goes on");
+    assert_eq!(leaf, 90.0, "the leaf does not pop to its end");
+}

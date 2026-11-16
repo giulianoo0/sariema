@@ -593,3 +593,43 @@ fn the_door_example_opens_stops_on_the_hero_in_its_swing_and_shuts_once_it_walks
         assert_eq!(again[hash], played[hash], "{hash} differs between two runs");
     }
 }
+
+#[test]
+fn check_refuses_a_hinge_step_on_a_node_no_room_has() {
+    let tmp = TempDir::new().unwrap();
+    let door = repo().join("examples/door");
+    for file in ["kit.glb", "montagem.json", "luz.json"] {
+        fs::copy(door.join(file), tmp.path().join(file)).unwrap();
+    }
+    fs::create_dir_all(tmp.path().join("rooms")).unwrap();
+    fs::copy(
+        door.join("rooms/house.json"),
+        tmp.path().join("rooms/house.json"),
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("sariema.json"),
+        r#"{ "name": "t", "assets_root": ".", "rooms": { "house": "rooms/house.json" }, "game": {} }"#,
+    )
+    .unwrap();
+    fs::create_dir_all(tmp.path().join("cutscenes")).unwrap();
+    let shut = |node: &str| {
+        let text = format!(
+            r#"{{ "name": "shut", "roles": {{ "hero": {{ "start": {{ "position": [1, 0, -2] }} }} }},
+  "steps": [ {{ "parallel": [
+    [ {{ "clip": {{ "role": "hero", "clip": "push" }} }} ],
+    [ {{ "hinge": {{ "node": "{node}", "role": "hero", "clip": "push", "span": [0.2, 0.6], "to": 90 }} }} ] ] }} ] }}"#
+        );
+        fs::write(tmp.path().join("cutscenes/shut.json"), text).unwrap();
+    };
+    shut("house.door_lef");
+    let (code, message) = error_code(&["check", arg(tmp.path())]);
+    assert_eq!(code, "E_CUTSCENE_HINGE");
+    assert!(
+        message.contains("steps[0].parallel[1][0].hinge") && message.contains("house.door_lef"),
+        "{message}"
+    );
+    shut("house.door_leaf");
+    let checked = ok(&["check", arg(tmp.path())]);
+    assert_eq!(checked["cutscenes"], json!(["shut"]));
+}
