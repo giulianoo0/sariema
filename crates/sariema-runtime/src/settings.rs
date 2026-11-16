@@ -275,6 +275,10 @@ pub const DOCS: &[(&str, &str)] = &[
         "How much larger a dot is at the crest: 0.25 is a quarter larger.",
     ),
     (
+        "fx.trail.wave_alpha",
+        "How much of its opacity a dot far from every crest loses: 0.4 leaves it at 60%.",
+    ),
+    (
         "fx.trail.additive",
         "1 adds the dots' light to the floor, 0 covers it, between both.",
     ),

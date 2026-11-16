@@ -68,6 +68,8 @@ pub struct TrailStyle {
     /// How much brighter, and larger, a dot is at the crest.
     pub wave_gain: f32,
     pub wave_grow: f32,
+    /// How much of its opacity a dot far from every crest loses.
+    pub wave_alpha: f32,
     pub additive: f32,
 }
 
@@ -80,6 +82,7 @@ impl Default for TrailStyle {
             wave_every: 8.0,
             wave_gain: 1.0,
             wave_grow: 0.25,
+            wave_alpha: 0.4,
             additive: 1.0,
         }
     }
@@ -175,15 +178,17 @@ impl FxSettings {
             t.wave_every,
             t.wave_gain,
             t.wave_grow,
+            t.wave_alpha,
             t.additive,
         ];
         if style.iter().any(|v| !v.is_finite())
             || t.wave_length <= 0.0
             || t.wave_every <= 0.0
             || !(0.0..=1.0).contains(&t.additive)
+            || !(0.0..=1.0).contains(&t.wave_alpha)
         {
             return Err(
-                "fx.trail: wave_length and wave_every must be positive, additive within 0 and 1"
+                "fx.trail: wave_length and wave_every must be positive, additive and wave_alpha within 0 and 1"
                     .into(),
             );
         }

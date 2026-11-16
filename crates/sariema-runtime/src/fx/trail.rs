@@ -172,7 +172,7 @@ impl Trails {
                         look.color.x * glow,
                         look.color.y * glow,
                         look.color.z * glow,
-                        ends * shown,
+                        ends * shown * (1.0 - style.wave_alpha * (1.0 - wave)),
                     ],
                     rotation: 0.0,
                     additive: style.additive,

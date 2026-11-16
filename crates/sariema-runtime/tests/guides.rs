@@ -87,6 +87,13 @@ fn trail(points: &'static [[f32; 3]], from: Entity, fade: f32) -> Command<'stati
     }
 }
 
+/// Opacity from the ends and the fade alone.
+fn without_wave_alpha() -> Settings {
+    let mut s = Settings::default();
+    s.fx.trail.wave_alpha = 0.0;
+    s
+}
+
 fn with(c: Command<'static>, f: impl FnOnce(&mut Command<'static>)) -> Command<'static> {
     let mut c = c;
     f(&mut c);
@@ -125,7 +132,7 @@ fn at(hero: Entity, x: f32) -> Command<'static> {
 #[test]
 fn a_trail_lays_soft_flat_dots_back_from_its_goal_at_its_spacing() {
     let (seen, sim) = run(
-        Settings::default(),
+        without_wave_alpha(),
         vec![(0, trail(&LINE, Entity::NONE, 0.0))],
         2,
     );
@@ -170,7 +177,7 @@ fn the_dots_fade_out_near_the_start_and_near_the_goal() {
             (*spacing, *fade_from, *fade_to) = (0.5, 1.0, 1.0);
         }
     });
-    let (_, sim) = run(Settings::default(), vec![(0, soft)], 2);
+    let (_, sim) = run(without_wave_alpha(), vec![(0, soft)], 2);
     let alpha: Vec<f32> = dots(&sim, 1.0).iter().map(|d| d.color[3]).collect();
     assert_eq!(alpha.len(), 9);
     assert_eq!(alpha[0], 0.0, "on the goal");
@@ -226,6 +233,51 @@ fn the_wave_runs_towards_the_goal_smoothly_between_steps() {
             "the glow eases in between"
         );
     }
+}
+
+#[test]
+fn the_wave_raises_the_dots_opacity_as_well_as_their_light() {
+    const LONG: [[f32; 3]; 2] = [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]];
+    let still = with(trail(&LONG, Entity::NONE, 0.0), |c| {
+        if let Command::Trail {
+            spacing,
+            wave_speed,
+            fade_from,
+            fade_to,
+            ..
+        } = c
+        {
+            (*spacing, *wave_speed, *fade_from, *fade_to) = (0.25, 0.0, 0.0, 0.0);
+        }
+    });
+    let (_, sim) = run(Settings::default(), vec![(0, still)], 60);
+    let shown = dots(&sim, 1.0);
+    let brightest = shown
+        .iter()
+        .max_by(|a, b| a.color[0].total_cmp(&b.color[0]))
+        .unwrap();
+    let dimmest = shown
+        .iter()
+        .min_by(|a, b| a.color[0].total_cmp(&b.color[0]))
+        .unwrap();
+    let depth = Settings::default().fx.trail.wave_alpha;
+    assert!(depth > 0.0);
+    assert!(
+        (brightest.color[3] - 1.0).abs() < 1e-3,
+        "{:?}",
+        brightest.color
+    );
+    assert!(
+        (dimmest.color[3] - (1.0 - depth)).abs() < 0.02,
+        "a dot far from every crest is {} opaque",
+        dimmest.color[3]
+    );
+    let (_, sim) = run(without_wave_alpha(), vec![(0, still)], 60);
+    assert!(
+        dots(&sim, 1.0)
+            .iter()
+            .all(|d| (d.color[3] - 1.0).abs() < 1e-3)
+    );
 }
 
 #[test]

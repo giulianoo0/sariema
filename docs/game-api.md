@@ -453,6 +453,7 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `fx.trail.wave_every` | 8 | Metres between one wave's crest and the next. |
 | `fx.trail.wave_gain` | 1 | How much brighter a dot is at the crest: 1 is twice as bright. |
 | `fx.trail.wave_grow` | 0.25 | How much larger a dot is at the crest: 0.25 is a quarter larger. |
+| `fx.trail.wave_alpha` | 0.4 | How much of its opacity a dot far from every crest loses: 0.4 leaves it at 60%. |
 | `fx.trail.wave_length` | 1 | Metres from a wave's crest to where it has fallen to e^-2 of it. |
 | `fx.trail_dots` | 256 | Dots one trail draws at most, counted from its goal. |
 | `fx.trail_points` | 64 | Points a trail's route may have; more are refused with E_FX_POINTS. |
