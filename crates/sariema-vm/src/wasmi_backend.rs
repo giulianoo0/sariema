@@ -151,9 +151,12 @@ impl Interpreter for Wasmi {
 }
 
 impl Machine for WasmiMachine {
-    fn tick(&mut self, fuel: u64) -> Result<(), VmError> {
+    fn tick(&mut self, fuel: u64, host: &mut HostState) -> Result<(), VmError> {
         self.store.set_fuel(fuel).expect("fuel metering is enabled");
-        self.tick.call(&mut self.store, ()).map_err(classify)
+        std::mem::swap(&mut self.store.data_mut().host, host);
+        let result = self.tick.call(&mut self.store, ()).map_err(classify);
+        std::mem::swap(&mut self.store.data_mut().host, host);
+        result
     }
 
     fn batch_version(&mut self, fuel: u64) -> Result<Option<u32>, VmError> {
@@ -164,14 +167,6 @@ impl Machine for WasmiMachine {
         f.call(&mut self.store, ())
             .map(|v| Some(v as u32))
             .map_err(classify)
-    }
-
-    fn host(&mut self) -> &mut HostState {
-        &mut self.store.data_mut().host
-    }
-
-    fn host_ref(&self) -> &HostState {
-        &self.store.data().host
     }
 
     fn memory(&self) -> &[u8] {

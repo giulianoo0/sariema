@@ -2221,6 +2221,7 @@ name = "sariema-vm"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "tinywasm",
  "wasmi",
  "wat",
 ]
@@ -2559,6 +2560,36 @@ dependencies = [
  "arrayref",
  "bytemuck",
  "strict-num",
+]
+
+[[package]]
+name = "tinywasm"
+version = "0.12.0-beta.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "675ea817118f109f5b321062f52d3a8a2e22a73cbc8534a4248a4f2021d68b95"
+dependencies = [
+ "autocfg",
+ "tinywasm-parser",
+ "tinywasm-types",
+]
+
+[[package]]
+name = "tinywasm-parser"
+version = "0.12.0-beta.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0af678a0cf264993fc2f0f651d93524989cd8bbbc6e60d5250bd6e6c5440ea01"
+dependencies = [
+ "tinywasm-types",
+ "wasmparser 0.263.0",
+]
+
+[[package]]
+name = "tinywasm-types"
+version = "0.12.0-beta.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d17d39e03206e71f1e0658fbaf0ee7784a2d3d3364fa7c8ee80a1f6cc0ab908"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

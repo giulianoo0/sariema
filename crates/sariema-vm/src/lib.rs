@@ -12,9 +12,13 @@
 use serde::{Deserialize, Serialize};
 
 pub mod host;
+#[cfg(feature = "tinywasm")]
+mod tinywasm_backend;
 mod wasmi_backend;
 
 pub use host::{LogLine, Region};
+#[cfg(feature = "tinywasm")]
+pub use tinywasm_backend::Tinywasm;
 pub use wasmi_backend::Wasmi;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -96,12 +100,10 @@ impl std::error::Error for VmError {}
 /// What an interpreter backend runs: the small interface the engine needs,
 /// so interpreters can be swapped and measured against each other.
 pub trait Machine {
-    /// Runs `sariema_tick` with `fuel`.
-    fn tick(&mut self, fuel: u64) -> Result<(), VmError>;
+    /// Runs `sariema_tick` with `fuel`, its imports working on `host`.
+    fn tick(&mut self, fuel: u64, host: &mut host::HostState) -> Result<(), VmError>;
     /// The value of `sariema_batch_version`, if exported.
     fn batch_version(&mut self, fuel: u64) -> Result<Option<u32>, VmError>;
-    fn host(&mut self) -> &mut host::HostState;
-    fn host_ref(&self) -> &host::HostState;
     fn memory(&self) -> &[u8];
 }
 
@@ -112,6 +114,7 @@ pub trait Interpreter {
 
 pub struct Vm {
     machine: Box<dyn Machine>,
+    host: host::HostState,
     settings: VmSettings,
     interpreter: &'static str,
     ticks: u64,
@@ -127,6 +130,7 @@ impl Vm {
     pub fn load_with<I: Interpreter>(wasm: &[u8], settings: VmSettings) -> Result<Vm, VmError> {
         Ok(Vm {
             machine: I::load(wasm, &settings)?,
+            host: host::HostState::new(settings),
             settings,
             interpreter: I::NAME,
             ticks: 0,
@@ -155,16 +159,16 @@ impl Vm {
         if let Some(e) = &self.stopped {
             return Err(e.clone());
         }
-        self.machine.host().begin(events, ends);
+        self.host.begin(events, ends);
         let fuel = if self.ticks == 0 {
             self.settings.fuel_first_step
         } else {
             self.settings.fuel_per_step
         };
         self.ticks += 1;
-        match self.machine.tick(fuel) {
+        match self.machine.tick(fuel, &mut self.host) {
             Ok(()) => {
-                std::mem::swap(&mut self.machine.host().commands, commands);
+                std::mem::swap(&mut self.host.commands, commands);
                 Ok(())
             }
             Err(e) => {
@@ -181,7 +185,7 @@ impl Vm {
     /// The registered regions, as slices of memory, in registration order.
     pub fn regions(&self) -> impl Iterator<Item = (Region, &[u8])> {
         let memory = self.machine.memory();
-        self.machine.host_ref().regions.iter().map(move |r| {
+        self.host.regions.iter().map(move |r| {
             let start = r.offset as usize;
             (*r, &memory[start..start + r.len as usize])
         })
@@ -189,7 +193,7 @@ impl Vm {
 
     /// Lines the last tick logged.
     pub fn log(&self) -> &[LogLine] {
-        &self.machine.host_ref().log
+        &self.host.log
     }
 
     pub fn memory(&self) -> &[u8] {
