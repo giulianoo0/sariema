@@ -57,6 +57,7 @@ game!(Hello);
 |---|---|
 | a new entity | `ctx.spawn(kind, asset)`; place it in the same tick with `set_transform` |
 | the player to walk it | `SetHero { entity, speed }`; the move axis drives it natively |
+| a place on the floor to report who stands in it | `ZoneCylinder { zone, center, radius, height }` (centre halfway up, feet within the radius and the height), then `Event::TriggerEnter`/`TriggerExit`; `Zone` is a sphere, which bulges at mid-height |
 | walk somewhere | `MoveTo { entity, target, speed }`, then `Event::Arrived` |
 | a hidden actor out of the way | `SetCollider { entity: actor, enabled: false }`: others walk through it and doors swing through it; it still walks with collision. Hiding (`SetVisible`) alone leaves its body in the way |
 | one actor to turn slower than the rest | `SetTurnRate { entity, rate }` in degrees per second, at most `motion.turn_rate` (set that to the fastest actor's rate); `rate: 0.0` goes back to the setting |

@@ -367,7 +367,14 @@ without `--headless` the pack plays in a window.
 - **Followers** keep an entity at another's position plus an offset,
   closing the gap with a half-life.
 - **Timers** fire after a whole number of steps, once or repeating.
-- **Zones**: spheres reporting actors entering and leaving.
+- **Zones**: spheres (`zone`) or upright cylinders (`zone_cylinder`)
+  reporting actors entering and leaving by where their feet are. A
+  cylinder takes the feet within its radius of its axis and between its
+  bottom and top, so a place drawn as a circle on the floor counts the
+  same at the floor and on a ramp or step within its height, where a
+  sphere would bulge out in the middle and miss the rim. Both kinds share
+  one set of ids: setting one replaces the other, and `remove_zone`
+  removes either.
 - **Camera rigs**: follow a subject (dead zone, spring, look-ahead, bounds),
   frame two subjects, or a fixed pose; `camera_use` blends from the pose on
   screen to the new rig over `blend` seconds with an easing. Reframing the
