@@ -3,7 +3,10 @@
 //! The collision stage of a step: the runtime's actors as the collision
 //! module's actors, its movement intents carried out with collision, and the
 //! poses and events that come back written into the world before the
-//! no-jump measurement judges them.
+//! no-jump measurement judges them. A hinged collider turns with its room's
+//! scene parameter `hinge.<node>`, to the value the parameter's tween is
+//! about to write, unless an actor stands in the way: then the tween waits
+//! a step and the game hears `hinge_blocked`.
 
 use std::f32::consts::PI;
 use std::sync::Arc;
@@ -11,15 +14,16 @@ use std::sync::Arc;
 use glam::{Quat, Vec2, Vec3};
 use sariema_core::STEP_SECONDS;
 use sariema_format::collision::{CollisionPack, Traversal};
-use sariema_format::script::{Anchor, Command, Controller, Entity, Event, Kind, name_id};
+use sariema_format::script::{Anchor, Command, Controller, Entity, Event, Kind, Property, name_id};
 use sariema_physics::{
     ActorCollider, ActorDesc, ActorId, ColliderId, EventKind, Intent, World, WorldBuild,
-    actor_collider, wrap_angle,
+    actor_collider, hinge_turned, wrap_angle,
 };
 use sariema_runtime::events::Happening;
 use sariema_runtime::motion::Goal;
 use sariema_runtime::outbox::PhysicsIntent;
 use sariema_runtime::state::State;
+use sariema_runtime::tween::Target;
 
 use crate::anim::Animation;
 use crate::settings::EngineSettings;
@@ -93,10 +97,24 @@ pub struct Physics {
     spare: Vec<Traversing>,
     intents: Vec<PhysicsIntent>,
     events: Vec<sariema_physics::Event>,
+    swings: Vec<Swing>,
     knockback_s: f32,
     contact_blend: f32,
     /// Degrees per step.
     max_turn: f32,
+}
+
+/// A hinged collider and the scene parameter that turns it.
+struct Swing {
+    collider: ColliderId,
+    /// Index into the pack's hinges.
+    hinge: usize,
+    /// `hinge.<node>`, the node named like the collider.
+    param: u32,
+    /// Degrees from closed it is turned now.
+    angle: f32,
+    /// The entity it stopped short of, while it stays stopped.
+    blocked: Option<Entity>,
 }
 
 /// A room's collision built a share at a time ([`Physics::start`]).
@@ -175,6 +193,18 @@ impl Physics {
             (Some(points), Some(contacts)) => vec![Traversing::with_capacity(points, contacts)],
             _ => Vec::new(),
         };
+        let swings = (pack.hinges.iter().enumerate())
+            .map(|(k, h)| Swing {
+                collider: ColliderId(h.collider),
+                hinge: k,
+                param: name_id(&format!(
+                    "hinge.{}",
+                    pack.colliders[h.collider as usize].name
+                )),
+                angle: h.angle_deg,
+                blocked: None,
+            })
+            .collect();
         Physics {
             world,
             bodies,
@@ -189,6 +219,7 @@ impl Physics {
             spare,
             intents: Vec::new(),
             events: Vec::new(),
+            swings,
             knockback_s: build.knockback_s,
             contact_blend: build.contact_blend,
             max_turn: turn_rate * STEP_SECONDS,
@@ -227,11 +258,56 @@ impl Physics {
         self.intents.clear();
         self.drive_hero(s);
         self.traverse(s, anim);
+        self.swing(s);
         self.events.clear();
         self.world.step(&mut self.events);
         self.write_back(s);
         self.report(s);
         self.finish_traversals(s);
+    }
+
+    /// Turns each hinged collider to the angle its parameter is about to
+    /// take, or holds the parameter where the collider stays.
+    fn swing(&mut self, s: &mut State) {
+        let rest = s.settings.spring_rest;
+        for k in 0..self.swings.len() {
+            let w = &self.swings[k];
+            let target = Target {
+                entity: Entity::NONE,
+                property: Property::Scene,
+                var: w.param,
+            };
+            let wanted = match s.tweens.peek(&target, rest) {
+                Some(next) => next,
+                None => match s.scenery.param(w.param) {
+                    Ok(now) => now,
+                    Err(_) => continue,
+                },
+            };
+            if wanted == w.angle {
+                continue;
+            }
+            let pose = hinge_turned(&self.pack.hinges[w.hinge], wanted);
+            match self.world.try_platform_pose(w.collider, pose) {
+                Ok(()) => {
+                    self.swings[k].angle = wanted;
+                    self.swings[k].blocked = None;
+                }
+                Err(actor) => {
+                    let (param, angle) = (w.param, w.angle);
+                    s.tweens.hold(&target);
+                    let _ = s.scenery.set_param(param, angle);
+                    let entity = self.owners[actor.0 as usize];
+                    if self.swings[k].blocked != Some(entity) {
+                        self.swings[k].blocked = Some(entity);
+                        s.events.push(Event::HingeBlocked {
+                            hinge: param,
+                            entity,
+                        });
+                    }
+                }
+            }
+        }
     }
 
     /// The teleports and stops the runtime gave after this step's collision

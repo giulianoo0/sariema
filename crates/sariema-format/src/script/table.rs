@@ -190,6 +190,11 @@ batch_table! {
         0x0013 Landed landed { entity: Entity }
         0x0014 TriggerEnter trigger_enter { trigger: u32, entity: Entity }
         0x0015 TriggerExit trigger_exit { trigger: u32, entity: Entity }
+        /// A hinged piece the game turns by tweening its scene parameter
+        /// `hinge` (`hinge.<node>`) stopped short of `entity`, which stands
+        /// in its swing; the tween waits there and goes on once the way is
+        /// clear. Once each time it stops for that entity.
+        0x0016 HingeBlocked hinge_blocked { hinge: u32, entity: Entity }
 
         0x0020 ClipFinished clip_finished { entity: Entity, clip: u32 }
         0x0021 ClipMarker clip_marker { entity: Entity, clip: u32, marker: u32 }
