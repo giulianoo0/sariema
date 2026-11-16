@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Cost of one fixed step for 1, 100 and 2,000 actors walking a room the size
-//! of the Origem tree house (39 m × 24 m, partitioned, cluttered, on a bumpy
-//! triangle-mesh floor), and of a 20 m path search. Times are this thread's
+//! Cost of one fixed step for 1, 100 and 2,000 actors walking a 39 m × 24 m
+//! room (partitioned, cluttered, on a bumpy triangle-mesh floor), and of a
+//! 20 m path search. Times are this thread's
 //! CPU time, on a performance core where the system allows. Also counts heap
 //! allocations during the measured steps, which should be none.
 //!
