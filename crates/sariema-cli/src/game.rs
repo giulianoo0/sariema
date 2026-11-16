@@ -303,6 +303,7 @@ fn compile_logic(crate_dir: &Path, toolchain: Option<&str>) -> Result<Vec<u8>, F
         ])
         .arg(&manifest)
         .stdin(Stdio::null());
+    remap_paths(&mut cargo);
     let out = cargo
         .output()
         .map_err(|e| build_error(format!("could not run cargo: {e}")))?;
@@ -340,6 +341,59 @@ fn compile_logic(crate_dir: &Path, toolchain: Option<&str>) -> Result<Vec<u8>, F
             ))
         })?;
     fs::read(&wasm).map_err(|e| Failure::io(&wasm, e))
+}
+
+/// Has rustc name the checkout this CLI was built from `/sariema` and
+/// cargo's registry sources `/cargo` in what it embeds, such as panic
+/// locations, so a game's .wasm is the same wherever it is built and names
+/// no local directory. Flags the user set in `CARGO_ENCODED_RUSTFLAGS`,
+/// `RUSTFLAGS` or cargo's config are kept.
+fn remap_paths(cargo: &mut Command) {
+    let checkout = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf);
+    let mut prefixes: Vec<(PathBuf, &str)> = Vec::new();
+    if let Some(checkout) = checkout {
+        if let Ok(real) = checkout.canonicalize()
+            && real != checkout
+        {
+            prefixes.push((real, "/sariema"));
+        }
+        prefixes.push((checkout, "/sariema"));
+    }
+    let cargo_home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::home_dir().map(|home| home.join(".cargo")));
+    if let Some(home) = cargo_home {
+        prefixes.push((home.join("registry").join("src"), "/cargo"));
+    }
+    let flags: Vec<String> = prefixes
+        .iter()
+        .map(|(from, to)| format!("--remap-path-prefix={}={to}", from.display()))
+        .collect();
+    if let Some(encoded) = std::env::var_os("CARGO_ENCODED_RUSTFLAGS") {
+        let encoded = encoded.to_string_lossy();
+        let all: Vec<&str> = (encoded.split('\x1f'))
+            .filter(|f| !f.is_empty())
+            .chain(flags.iter().map(String::as_str))
+            .collect();
+        cargo.env("CARGO_ENCODED_RUSTFLAGS", all.join("\x1f"));
+    } else if let Some(plain) = std::env::var_os("RUSTFLAGS") {
+        let plain = plain.to_string_lossy();
+        let all: Vec<&str> = (plain.split_whitespace())
+            .chain(flags.iter().map(String::as_str))
+            .collect();
+        cargo.env("CARGO_ENCODED_RUSTFLAGS", all.join("\x1f"));
+    } else {
+        let list: Vec<String> = flags
+            .iter()
+            .map(|f| Value::from(f.as_str()).to_string())
+            .collect();
+        cargo
+            .arg("--config")
+            .arg(format!("build.rustflags=[{}]", list.join(",")));
+    }
 }
 
 fn toolchain_rustc(toolchain: &str) -> Result<PathBuf, Failure> {

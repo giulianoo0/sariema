@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use assert_cmd::cargo::cargo_bin_cmd;
-use sariema_format::script::{COMMANDS, Command, Reader, WireError};
+use sariema_format::script::{COMMANDS, Command, Reader, WireError, decode_game};
 use sariema_runtime::cutscene::PLAY_CODES;
 use sariema_runtime::cutscene::check::CODES as CHECK_CODES;
 use sariema_runtime::fx::FxReject;
@@ -533,6 +533,33 @@ fn the_climb_example_replays_through_the_whole_engine_to_pinned_events_and_state
     for hash in ["engine_hash", "physics_hash", "audio_hash"] {
         assert_eq!(again[hash], played[hash], "{hash} differs between two runs");
     }
+}
+
+/// Panic locations in the logic name the checkout and cargo's registry by
+/// fixed prefixes, so the climb's hashes hold on any machine and its
+/// published pack names no local directory.
+#[test]
+fn the_climbs_logic_names_no_local_directory() {
+    let tmp = TempDir::new().unwrap();
+    let pack = tmp.path().join("climb.srmg");
+    ok(&[
+        "build",
+        arg(&repo().join("examples/climb")),
+        "-o",
+        arg(&pack),
+    ]);
+    let wasm = decode_game(&fs::read(&pack).unwrap()).unwrap().wasm;
+    let mut local = vec![repo().canonicalize().unwrap()];
+    local.extend(std::env::home_dir().filter(|home| home.parent().is_some()));
+    for dir in local {
+        let dir = dir.to_str().unwrap().as_bytes();
+        assert!(
+            !wasm.windows(dir.len()).any(|w| w == dir),
+            "the climb's .wasm names {}",
+            String::from_utf8_lossy(dir)
+        );
+    }
+    assert!(wasm.windows(9).any(|w| w == b"/sariema/"));
 }
 
 #[test]
