@@ -27,6 +27,7 @@ use sariema_format::script::{
 };
 
 use crate::apply::{Source, apply};
+use crate::ease::ease;
 use crate::events::Happening;
 use crate::motion::yaw_of;
 use crate::no_jump;
@@ -87,6 +88,11 @@ enum Running {
     },
     Fade {
         to: f32,
+    },
+    Hinge {
+        from: f32,
+        /// The role has played the clip.
+        seen: bool,
     },
 }
 
@@ -592,6 +598,31 @@ fn tick_block(current: &mut Option<Box<Running>>, block: &Block, ctx: &mut Ctx<'
             }
             ctx.s.screen.fade.done() && ctx.s.screen.fade.target() == *to
         }
+        (
+            Running::Hinge { from, seen },
+            Block::Hinge {
+                hinge,
+                role,
+                clip,
+                span,
+                to,
+                ease: curve,
+            },
+        ) => {
+            if skip {
+                let _ = ctx.s.scenery.set_param(*hinge, *to);
+                return true;
+            }
+            let playing = ctx.s.clips.time(ctx.role(*role));
+            let Some(t) = playing.and_then(|(c, t)| (c == *clip).then_some(t)) else {
+                return *seen;
+            };
+            *seen = true;
+            let f = ((t - span[0]) / (span[1] - span[0])).clamp(0.0, 1.0);
+            let curve = Ease::from_u8(*curve).unwrap_or(Ease::Linear);
+            let _ = (ctx.s.scenery).set_param(*hinge, *from + (*to - *from) * ease(curve, f));
+            t >= span[1]
+        }
         (running, block) => unreachable!("{running:?} does not run {block:?}"),
     }
 }
@@ -738,6 +769,10 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
             });
             None
         }
+        Block::Hinge { hinge, .. } => match ctx.s.scenery.param(*hinge) {
+            Ok(from) => Some(Running::Hinge { from, seen: false }),
+            Err(_) => None,
+        },
         Block::TimeScale { scale, blend } => {
             ctx.issue(Command::TimeScale {
                 scale: *scale,

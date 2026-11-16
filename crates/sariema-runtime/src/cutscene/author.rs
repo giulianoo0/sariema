@@ -71,6 +71,29 @@ pub enum Step {
     Call(String),
     TimeScale(TimeScale),
     CameraShake(CameraShake),
+    Hinge(HingeSource),
+}
+
+/// A hinged node turned with an actor's clip; see [`Block::Hinge`].
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HingeSource {
+    /// The node, as the room names it: `<room>.<piece>_<hinge>`.
+    pub node: String,
+    pub role: String,
+    pub clip: String,
+    /// Seconds of the clip the turn starts and ends at.
+    pub span: [f32; 2],
+    /// Degrees from closed.
+    pub to: f32,
+    #[serde(default = "HingeSource::ease")]
+    pub ease: String,
+}
+
+impl HingeSource {
+    fn ease() -> String {
+        "in_out_sine".into()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -629,6 +652,17 @@ impl Compiler<'_> {
                 frequency: c.frequency,
                 duration: c.duration,
             },
+            Step::Hinge(h) => {
+                let at = format!("{at}.hinge");
+                Block::Hinge {
+                    hinge: self.name(&format!("hinge.{}", h.node)),
+                    role: self.role(&h.role, &at)?,
+                    clip: self.name(&h.clip),
+                    span: h.span,
+                    to: h.to,
+                    ease: self.pick(&at, "ease", Ease::from_name, &h.ease)? as u8,
+                }
+            }
         })
     }
 

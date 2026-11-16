@@ -14,6 +14,7 @@ use sariema_format::collision::{Collider, CollisionPack, Hinge, Shape};
 use sariema_format::scenery::{NodeIndex, Param, RoomIndex, Target};
 use sariema_format::script::{Command, Ease, Entity, Event, Property, name_id};
 use sariema_physics::ColliderId;
+use sariema_runtime::cutscene::author::compile_json;
 use sariema_runtime::input::Actions;
 use sariema_runtime::sim::Simulation;
 
@@ -233,4 +234,78 @@ fn a_leaf_closing_while_the_hero_walks_through_waits_and_never_pushes_it() {
     assert!(last.z > 1.5, "the hero did not get through: {last}");
     assert!(run.done.is_some(), "the leaf did not finish closing");
     assert_eq!(run.steps.last().unwrap().0, 0.0);
+}
+
+const OPEN_ON_CUE: &str = r#"{
+  "name": "shut",
+  "skippable": false,
+  "roles": { "hero": { "start": { "position": [0.0, 0.0, 1.5], "yaw": 0.0 } } },
+  "steps": [
+    { "parallel": [
+      [ { "clip": { "role": "hero", "clip": "wave", "mode": "once", "blend": 0.0 } } ],
+      [ { "hinge": { "node": "doorway.door_leaf", "role": "hero", "clip": "wave",
+                     "span": [0.2, 0.7], "to": 0.0, "ease": "linear" } } ]
+    ] }
+  ]
+}"#;
+
+#[test]
+fn a_cutscene_turns_a_leaf_with_the_time_of_an_actors_clip() {
+    let cutscene = compile_json(OPEN_ON_CUE).unwrap().0;
+    let ended = Rc::new(RefCell::new(None));
+    let log = ended.clone();
+    let logic = native(move |n, events, out| {
+        for e in events {
+            if let Event::CutsceneEnded { .. } = e {
+                *log.borrow_mut() = Some(n);
+            }
+        }
+        if n == 0 {
+            spawn_hero(out, [0.0, 0.0, 1.5], 0.0);
+        }
+        if n == 2 {
+            send(
+                out,
+                Command::CutsceneBind {
+                    role: name_id("hero"),
+                    entity: entity(0),
+                },
+            );
+            send(
+                out,
+                Command::CutscenePlay {
+                    cutscene: name_id("shut"),
+                },
+            );
+        }
+    });
+    let mut assets = assets();
+    assets.rooms = vec![doorway()];
+    let sim = Simulation::new(wired(), vec![cutscene], logic, 1);
+    let mut engine = Engine::new(sim, assets, EngineSettings::default()).unwrap();
+    let actions = Actions::for_settings(&engine.state().settings.input);
+    let param = name_id(&format!("hinge.{LEAF}"));
+    let mut compared = 0;
+    for _ in 0..90 {
+        engine.step(&actions);
+        let drawn = engine.state().scenery.param(param).unwrap();
+        let pose = (engine.physics().unwrap().world)
+            .platform_pose(ColliderId(3))
+            .unwrap();
+        assert!((drawn - pose.yaw.to_degrees()).abs() < 1e-3);
+        let Some((clip, t)) = engine.state().clip_time(entity(0)) else {
+            assert_eq!(drawn, 90.0);
+            continue;
+        };
+        assert_eq!(clip, name_id("wave"));
+        let f = ((t - 0.2) / 0.5).clamp(0.0, 1.0);
+        let want = 90.0 * (1.0 - f);
+        assert!(
+            (drawn - want).abs() < 1e-3,
+            "clip at {t} s: leaf at {drawn}°, wanted {want}°"
+        );
+        compared += 1;
+    }
+    assert!(compared > 45, "{compared}");
+    assert!(ended.borrow().is_some(), "the cutscene ended with the span");
 }

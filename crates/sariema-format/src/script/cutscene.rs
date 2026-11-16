@@ -148,6 +148,19 @@ pub enum Block {
         frequency: f32,
         duration: f32,
     },
+    /// Turns a hinged node with the time of `role`'s clip `clip`: from the
+    /// angle its scene parameter `hinge` holds when the block starts, at
+    /// `span[0]` seconds of the clip, to `to` degrees at `span[1]`, eased.
+    /// Ends once the clip is past `span[1]`, or at once when the role plays
+    /// another clip or none.
+    Hinge {
+        hinge: u32,
+        role: u16,
+        clip: u32,
+        span: [f32; 2],
+        to: f32,
+        ease: u8,
+    },
 }
 
 /// The point of a role a shot aims at: its origin, or a bone or socket

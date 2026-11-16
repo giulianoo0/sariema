@@ -461,6 +461,22 @@ fn validate_block(block: &Block, roles: usize) -> Result<(), String> {
             finite("shake frequency", *frequency)?;
             seconds("shake duration", *duration)
         }
+        Block::Hinge {
+            role: r,
+            span,
+            to,
+            ease,
+            ..
+        } => {
+            role(*r)?;
+            seconds("hinge span start", span[0])?;
+            seconds("hinge span end", span[1])?;
+            if span[1] <= span[0] {
+                return Err(format!("hinge span {span:?} ends before it starts"));
+            }
+            finite("hinge angle", *to)?;
+            known("ease", Ease::from_u8(*ease).is_some())
+        }
     }
 }
 

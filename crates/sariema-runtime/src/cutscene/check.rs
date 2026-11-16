@@ -203,6 +203,11 @@ impl Checker<'_> {
                 elapse(k);
             }
             Block::Clip { role, .. } => self.uses(k, *role, &format!("{at}.clip")),
+            Block::Hinge { role, .. } => {
+                self.uses(k, *role, &format!("{at}.hinge"));
+                k.cut = false;
+                elapse(k);
+            }
             Block::LookAt { role, target } => {
                 self.uses(k, *role, &format!("{at}.look_at"));
                 if let Some(t) = target {
