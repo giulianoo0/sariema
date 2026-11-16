@@ -266,3 +266,19 @@ fn a_step_that_only_animates_the_hud_bars_and_fade_allocates_nothing() {
     assert_eq!(animating, [], "allocations on steps that only animate");
     assert_eq!(later, 0, "allocations on the cues: {cued:?}");
 }
+
+#[test]
+fn a_resized_screen_is_laid_out_before_the_next_step() {
+    let sim = Simulation::new(wired(), Vec::new(), Animator { step: 0 }, 1);
+    let mut engine = Engine::new(sim, assets(), EngineSettings::default()).unwrap();
+    let actions = Actions::for_settings(&engine.state().settings.input);
+    for _ in 0..5 {
+        engine.step(&actions);
+    }
+    engine.resize(1280.0, 720.0, sariema_ui::SafeArea::default());
+    let before = ALLOCATIONS.with(Cell::get);
+    ARMED.with(|a| a.set(true));
+    engine.step(&actions);
+    ARMED.with(|a| a.set(false));
+    assert_eq!(ALLOCATIONS.with(Cell::get) - before, 0);
+}

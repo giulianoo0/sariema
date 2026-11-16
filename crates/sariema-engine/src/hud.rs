@@ -142,8 +142,13 @@ impl Hud {
             .expect("the engine's own layer is valid")
     }
 
+    /// Lays the screen out at its new size at once, so the next step does
+    /// not.
     pub fn resize(&mut self, width: f32, height: f32, safe: SafeArea) {
         self.ui.set_screen(width, height, safe);
+        self.fit_bars();
+        let root = self.ui.root();
+        self.ui.snap(root).expect("the root lives");
     }
 
     pub fn pointer_down(&mut self, pointer: u64, x: f32, y: f32) {
@@ -248,7 +253,8 @@ impl Hud {
             .ok_or_else(|| UiError::Unknown(format!("node {name:#010x}")))
     }
 
-    /// Lays the bars out at their full height for the screen, when it changed.
+    /// Lays the bars out at their full height for the screen, when it
+    /// changed, and has the next step place them and the line again.
     fn fit_bars(&mut self) -> bool {
         let screen = self.ui.screen();
         let full = self.settings.bar_fraction * screen.height / screen.scale.max(f32::EPSILON);
@@ -261,6 +267,7 @@ impl Hud {
                 .expect("the engine's layer nodes live");
         }
         self.layer.full = full;
+        self.layer.bar = f32::NAN;
         true
     }
 
