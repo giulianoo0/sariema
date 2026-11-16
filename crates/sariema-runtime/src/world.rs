@@ -112,6 +112,9 @@ struct Slot {
     generation: u32,
     used: bool,
     alive: bool,
+    /// Visible when the step began.
+    shown: bool,
+    children: u32,
 }
 
 pub struct World {
@@ -200,6 +203,7 @@ impl World {
             generation: e.generation,
             used: true,
             alive: true,
+            ..Slot::default()
         };
         let mut node = std::mem::replace(&mut self.nodes[i], EMPTY_NODE);
         node.tags.clear();
@@ -218,6 +222,7 @@ impl World {
     pub fn despawn(&mut self, e: Entity) -> Result<(), Reject> {
         self.check(e)?;
         let i = e.index as usize;
+        self.unlink(e);
         for child in 0..self.nodes.len() {
             if self.slots[child].alive && self.nodes[child].parent == e {
                 let pose = self.poses[child];
@@ -258,8 +263,33 @@ impl World {
                 up = self.nodes[up.index as usize].parent;
             }
         }
+        self.unlink(e);
         self.nodes[e.index as usize].parent = parent;
+        if !parent.is_none() {
+            self.slots[parent.index as usize].children += 1;
+        }
         Ok(())
+    }
+
+    fn unlink(&mut self, e: Entity) {
+        let parent = self.nodes[e.index as usize].parent;
+        if !parent.is_none() {
+            self.slots[parent.index as usize].children -= 1;
+        }
+    }
+
+    /// The live entities whose parent is `e`.
+    pub fn children(&self, e: Entity) -> impl Iterator<Item = Entity> + '_ {
+        let any = self.is_alive(e) && self.slots[e.index as usize].children > 0;
+        self.entities()
+            .take(if any { usize::MAX } else { 0 })
+            .filter(move |(_, n)| n.parent == e)
+            .map(|(c, _)| c)
+    }
+
+    /// Whether `e` was visible when the step began.
+    pub fn was_visible(&self, e: Entity) -> bool {
+        self.is_alive(e) && self.slots[e.index as usize].shown
     }
 
     /// Placement changed discontinuously: rendering must not interpolate it.
@@ -343,6 +373,9 @@ impl World {
     pub fn begin_step(&mut self) {
         self.previous.copy_from_slice(&self.poses);
         self.snapped.clear();
+        for (slot, node) in self.slots.iter_mut().zip(&self.nodes) {
+            slot.shown = node.visible;
+        }
     }
 
     /// Computes every world placement from the local ones, parents first.

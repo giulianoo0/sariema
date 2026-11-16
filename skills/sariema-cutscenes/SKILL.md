@@ -55,7 +55,7 @@ The message names the file, cutscene and step: `cutscene meet, steps[4].teleport
 
 | Code | Fix |
 |---|---|
-| `E_CUTSCENE_TELEPORT` | `walk` the role; or `hide` it, `teleport`, `show`; or add `"cover"` |
+| `E_CUTSCENE_TELEPORT` | `walk` the role; or `hide` it, `wait`, `teleport`, `show`; or add `"cover"` |
 | `E_CUTSCENE_COVER` (fade) | put `{ "fade": { "to": 1, "duration": … } }` before the teleport on every path, and fade back after |
 | `E_CUTSCENE_COVER` (cut) | put a `shot` with `"blend": 0` right before the teleport, with no step that takes time between them |
 | `E_CUTSCENE_START` | give the role `"start": { "position": […], "yaw": … }`, or `spawn` it before its first use |

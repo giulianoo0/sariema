@@ -22,7 +22,32 @@ pub struct Followers {
     list: Vec<Follower>,
 }
 
+/// Fraction of the gap a follower with `lag` closes each step; 1 is rigid.
+pub fn gain(lag: f32) -> f32 {
+    if lag > 0.0 {
+        1.0 - 0.5f32.powf(STEP_SECONDS / lag)
+    } else {
+        1.0
+    }
+}
+
 impl Followers {
+    pub fn len(&self) -> usize {
+        self.list.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+
+    /// The followers that keep `target`'s position exactly.
+    pub fn rigid(&self, target: Entity) -> impl Iterator<Item = Entity> + '_ {
+        self.list
+            .iter()
+            .filter(move |f| f.target == target && f.gain >= 1.0)
+            .map(|f| f.entity)
+    }
+
     /// `lag` is the half-life of the gap in seconds; 0 or less is rigid.
     pub fn follow(
         &mut self,
@@ -37,17 +62,12 @@ impl Followers {
         if entity == target {
             return Err(Reject::Cycle);
         }
-        let gain = if lag > 0.0 {
-            1.0 - 0.5f32.powf(STEP_SECONDS / lag)
-        } else {
-            1.0
-        };
         self.unfollow(entity);
         self.list.push(Follower {
             entity,
             target,
             offset,
-            gain,
+            gain: gain(lag),
         });
         Ok(())
     }

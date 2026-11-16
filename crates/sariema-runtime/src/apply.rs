@@ -4,17 +4,19 @@
 //! from the cutscene sequencer both come through here.
 
 use glam::Vec3;
+use sariema_core::STEP_SECONDS;
 use sariema_format::script::{Bus, Command, Entity, Event, Kind, Property};
 
 use crate::camera::{CameraPose, CameraSettings, Framing};
 use crate::events::Happening;
+use crate::follow;
 use crate::motion::Goal;
 use crate::outbox::{
     ClipRequest, HostOut, LookAt, MusicRequest, PhysicsIntent, SoundRequest, UiOp,
 };
 use crate::state::{CutsceneRequest, State};
-use crate::tween::Target;
-use crate::world::Reject;
+use crate::tween::{self, Target, steps_of};
+use crate::world::{Pose, Reject};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
@@ -41,16 +43,63 @@ fn v3(v: [f32; 3]) -> Vec3 {
     Vec3::from_array(v)
 }
 
-/// Whether a placement of `e` now would be a visible jump the rules forbid.
-fn jump_forbidden(s: &State, e: Entity) -> bool {
+/// The one owner of the no-jump rule; every command that moves something at
+/// once asks it first. Refused when `e`, or an actor it carries (a child at
+/// any depth, a rigid follower), was visible when the step began and is not
+/// placed yet this step, on a screen neither fully faded nor cut.
+fn may_jump(s: &State, e: Entity) -> Result<(), Refusal> {
+    if s.screen.covered() || s.camera.cut() {
+        return Ok(());
+    }
+    let mut budget = s.world.len() as usize + s.followers.len();
+    if seen_moving(s, e, &mut budget) {
+        return Err(refuse(e)(Reject::TeleportVisible));
+    }
+    Ok(())
+}
+
+/// `budget` bounds the walk, which a cycle of rigid followers would not end.
+fn seen_moving(s: &State, e: Entity, budget: &mut usize) -> bool {
+    if *budget == 0 {
+        return false;
+    }
+    *budget -= 1;
     let Some(node) = s.world.node(e) else {
         return false;
     };
-    node.kind == Kind::Actor
-        && node.visible
-        && !s.screen.covered()
-        && !s.camera.cut()
-        && !s.world.snapped_this_step(e)
+    if node.kind == Kind::Actor && s.world.was_visible(e) && !s.world.snapped_this_step(e) {
+        return true;
+    }
+    s.world.children(e).any(|c| seen_moving(s, c, budget))
+        || s.followers.rigid(e).any(|f| seen_moving(s, f, budget))
+}
+
+/// Whether going from `a` to `b` in one step is more than walking or
+/// turning could do.
+fn sudden(s: &State, a: Pose, b: Pose) -> bool {
+    a.position.distance(b.position) > s.settings.motion.arrive_distance
+        || a.rotation.angle_between(b.rotation).to_degrees()
+            > s.settings.motion.turn_rate * STEP_SECONDS
+}
+
+/// Whether a tween of `t` to `to` that ends in one step moves it suddenly.
+fn sudden_tween(s: &State, t: &Target, to: f32, duration: f32) -> bool {
+    if steps_of(duration) > 1 {
+        return false;
+    }
+    let Ok(from) = tween::read(&s.world, &s.store, t) else {
+        return false;
+    };
+    let limit = match t.property {
+        Property::PositionX | Property::PositionY | Property::PositionZ => {
+            s.settings.motion.arrive_distance
+        }
+        Property::Yaw | Property::Pitch | Property::Roll => {
+            s.settings.motion.turn_rate * STEP_SECONDS
+        }
+        Property::Scale | Property::Var => return false,
+    };
+    (to - from).abs() > limit
 }
 
 fn place(s: &mut State, e: Entity, position: Vec3, yaw: f32) -> Result<(), Reject> {
@@ -101,13 +150,25 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             yaw,
         } => {
             s.world.check(entity).map_err(refuse(entity))?;
-            if jump_forbidden(s, entity) {
-                return Err(refuse(entity)(Reject::TeleportVisible));
-            }
+            may_jump(s, entity)?;
             place(s, entity, v3(position), yaw).map_err(refuse(entity))?;
         }
         C::SetParent { entity, parent } => {
-            s.world.set_parent(entity, parent).map_err(refuse(entity))?
+            let before = s.world.current_pose(entity);
+            let old = s.world.node(entity).map_or(Entity::NONE, |n| n.parent);
+            s.world.set_parent(entity, parent).map_err(refuse(entity))?;
+            let after = s.world.current_pose(entity);
+            if let (Some(a), Some(b)) = (before, after)
+                && sudden(s, a, b)
+            {
+                if let Err(r) = may_jump(s, entity) {
+                    s.world
+                        .set_parent(entity, old)
+                        .expect("the previous parent was valid");
+                    return Err(r);
+                }
+                s.world.snap(entity);
+            }
         }
         C::SetVisible { entity, visible } => {
             s.world.node_mut(entity).map_err(refuse(entity))?.visible = visible
@@ -171,8 +232,8 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             force,
         } => {
             s.world.check(entity).map_err(refuse(entity))?;
-            if !force && jump_forbidden(s, entity) {
-                return Err(refuse(entity)(Reject::TeleportVisible));
+            if !force {
+                may_jump(s, entity)?;
             }
             place(s, entity, v3(position), yaw).map_err(refuse(entity))?;
         }
@@ -304,9 +365,16 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
                 var,
             };
             tweenable(s, &target)?;
+            let sudden = sudden_tween(s, &target, to, duration);
+            if sudden {
+                may_jump(s, entity)?;
+            }
             s.tweens
                 .tween(&s.world, &s.store, tween, target, to, duration, ease)
                 .map_err(refuse(entity))?;
+            if sudden {
+                s.world.snap(entity);
+            }
         }
         C::Spring {
             tween,
@@ -336,10 +404,25 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             target,
             offset,
             lag,
-        } => s
-            .followers
-            .follow(&s.world, entity, target, v3(offset), lag)
-            .map_err(refuse(entity))?,
+        } => {
+            let sudden = follow::gain(lag) >= 1.0
+                && match (s.world.current_pose(entity), s.world.current_pose(target)) {
+                    (Some(me), Some(to)) => {
+                        me.position.distance(to.position + v3(offset))
+                            > s.settings.motion.arrive_distance
+                    }
+                    _ => false,
+                };
+            if sudden {
+                may_jump(s, entity)?;
+            }
+            s.followers
+                .follow(&s.world, entity, target, v3(offset), lag)
+                .map_err(refuse(entity))?;
+            if sudden {
+                s.world.snap(entity);
+            }
+        }
         C::Unfollow { entity } => s.followers.unfollow(entity),
         C::Timer {
             timer,

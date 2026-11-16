@@ -200,3 +200,87 @@ fn a_role_without_a_start_is_spawned_then_despawned_by_the_cutscene() {
         "{events:?}"
     );
 }
+
+const START_AWAY: &str = r#"{ "name": "away", "roles": { "hero": { "start": { "position": [3, 0, 0] } } },
+    "steps": [ { "show": "hero" }, { "call": "began" } ] }"#;
+
+fn bind_and_play(out: &mut Vec<u8>) {
+    send(
+        out,
+        Command::CutsceneBind {
+            role: name_id("hero"),
+            entity: entity(0),
+        },
+    );
+    send(out, play("away"));
+}
+
+#[test]
+fn an_actor_hidden_in_the_step_its_cutscene_starts_is_not_placed_at_once() {
+    let cutscenes = vec![compile_json(START_AWAY).unwrap().0];
+    let logic = native(|step, _, out| match step {
+        0 => send(
+            out,
+            Command::Spawn {
+                entity: entity(0),
+                kind: Kind::Actor,
+                asset: 0,
+            },
+        ),
+        1 => {
+            send(
+                out,
+                Command::SetVisible {
+                    entity: entity(0),
+                    visible: false,
+                },
+            );
+            bind_and_play(out);
+        }
+        _ => {}
+    });
+    let settings = Settings::default();
+    let actions = Actions::for_settings(&settings.input);
+    let mut sim = Simulation::new(settings, cutscenes, logic, 1);
+    sim.step(&actions);
+    sim.step(&actions);
+    let x = sim.state().world.node(entity(0)).unwrap().local.position.x;
+    assert!(x < 0.1, "it was on screen when the step began; x = {x}");
+}
+
+#[test]
+fn a_start_walk_ends_on_a_reported_arrival_when_the_runtime_does_not_move_actors() {
+    let cutscenes = vec![compile_json(START_AWAY).unwrap().0];
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let log = calls.clone();
+    let logic = native(move |step, events, out| {
+        log.borrow_mut()
+            .extend(events.iter().map(|e| (step, format!("{e:?}"))));
+        match step {
+            0 => send(
+                out,
+                Command::Spawn {
+                    entity: entity(0),
+                    kind: Kind::Actor,
+                    asset: 0,
+                },
+            ),
+            1 => bind_and_play(out),
+            _ => {}
+        }
+    });
+    let mut settings = Settings::default();
+    settings.motion.builtin = false;
+    let actions = Actions::for_settings(&settings.input);
+    let mut sim = Simulation::new(settings, cutscenes, logic, 1);
+    for step in 0..30 {
+        if step == 10 {
+            sim.report(sariema_format::script::Event::Arrived { entity: entity(0) });
+        }
+        sim.step(&actions);
+    }
+    drop(sim);
+    let began = at(&calls.take(), &call("began"));
+    assert_eq!(began.len(), 1, "the body started once placing ended");
+    assert!(began[0] > 10, "not before the arrival: {began:?}");
+}

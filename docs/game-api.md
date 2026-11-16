@@ -88,9 +88,19 @@ free list: `ctx.spawn` takes a slot, `ctx.despawn` and the engine's
 
 Kinds: `empty`, `room_node`, `actor`, `light`, `camera`, `sound_emitter`,
 `ui_node`. Actors are what moves, walks, turns and plays clips. A visible
-actor never jumps: `set_transform` and `teleport` of a visible actor are
-refused with `E_TELEPORT_VISIBLE` unless the screen is fully faded, the
-camera cut in the same step, or `teleport` says `force`.
+actor never jumps. Every command that would move something at once asks the
+same rule: `set_transform`, `teleport`, a `tween` of a position or rotation
+that ends in one step, a rigid `follow` (lag 0) that is not already in
+place, a `set_parent` that changes the world placement. It is refused with
+`E_TELEPORT_VISIBLE` when the entity, or an actor it carries (a child at any
+depth, a rigid follower), was visible when the step began and is not placed
+yet this step, unless the screen is fully faded, the camera cut in the same
+step, or `teleport` says `force`. "At once" means more than
+`motion.arrive_distance` of distance or one step of `motion.turn_rate` of
+turning. Hiding and showing in the same step hides nothing: an actor hidden
+for a whole step may then be placed anywhere. A prop the game moves through
+a transform region carries its children as written; keep that motion
+continuous.
 
 A refused command produces a `rejected` event with the opcode, the code and
 the entity; the game keeps running.
@@ -160,6 +170,8 @@ Every tick runs under limits from the `vm.*` settings:
 | `vm.max_call_depth` | 1000 | `E_GAME_TRAP` |
 | `vm.max_regions` | 16 | `register` returns −1 |
 | `vm.log_bytes_per_step` | 4096 | the rest of the step's log is dropped |
+| `vm.log_lines_per_step` | 64 | the step's further lines are dropped |
+| `vm.commands_bytes_per_step` | 4 MiB | `E_GAME_BUDGET` |
 
 Fuel is about one unit per WebAssembly instruction. Exceeding any limit, or
 any trap (`unreachable`, out-of-bounds access, a panic), stops the game for
@@ -322,9 +334,11 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `motion.camera_relative` | true | The hero's move axis turns with the camera's view direction. |
 | `motion.turn_rate` | 540 | Degrees per second an actor turns; nothing turns faster. |
 | `spring_rest` | 0.001 | A spring stops, exactly on its target, once its offset and velocity are both within this. |
+| `vm.commands_bytes_per_step` | 4194304 | Bytes of commands one tick may submit; more stops the game with E_GAME_BUDGET. |
 | `vm.fuel_first_step` | 200000000 | Budget of the first tick, which usually builds the world. |
 | `vm.fuel_per_step` | 20000000 | Execution budget of one tick, about one unit per instruction; exceeding it stops the game with E_GAME_BUDGET. |
 | `vm.log_bytes_per_step` | 4096 | Bytes of log text kept per tick. |
+| `vm.log_lines_per_step` | 64 | Log lines kept per tick. |
 | `vm.max_call_depth` | 1000 | Nested calls before the game traps. |
 | `vm.max_regions` | 16 | Bulk data regions a game may register. |
 | `vm.memory_bytes` | 67108864 | Ceiling of the game's memory; growing past it stops the game with E_GAME_MEMORY. |

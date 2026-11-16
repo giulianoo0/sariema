@@ -55,6 +55,27 @@ fn a_hidden_actor_may_be_placed_anywhere() {
 }
 
 #[test]
+fn hiding_covers_a_teleport_only_once_a_step_has_passed_hidden() {
+    let e = errors("teleport_hidden_same_instant.json");
+    assert_eq!(
+        e.iter()
+            .map(|e| (e.code, e.at.as_str()))
+            .collect::<Vec<_>>(),
+        [("E_CUTSCENE_TELEPORT", "steps[1].teleport")]
+    );
+    assert!(
+        e[0].to_string().contains("wait"),
+        "the message says how to fix it: {}",
+        e[0]
+    );
+    assert_eq!(
+        codes("teleport_hidden_in_branch.json"),
+        Vec::<&str>::new(),
+        "a parallel waits as long as its longest branch; teleporting again needs no new wait"
+    );
+}
+
+#[test]
 fn every_role_declares_its_start_unless_spawned() {
     let e = errors("no_start.json");
     assert_eq!(e.len(), 1);

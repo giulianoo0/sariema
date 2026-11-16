@@ -92,7 +92,7 @@ struct List {
 enum Placing {
     Done,
     Easing,
-    Walking,
+    Walking { since: u64 },
     Turning,
 }
 
@@ -161,10 +161,6 @@ impl Ctx<'_> {
             yaw,
             force: true,
         });
-    }
-
-    fn builtin(&self) -> bool {
-        self.s.settings.motion.builtin
     }
 }
 
@@ -348,7 +344,7 @@ fn begin_placing(s: &mut State, cutscene: &Cutscene, run: &mut Run) {
         let to = Vec3::from_array(position);
         let mut ctx = ctx!(s, cutscene, run, false);
         let at = ctx.position(e);
-        let visible = ctx.s.world.node(e).is_some_and(|n| n.visible);
+        let visible = ctx.s.world.node(e).is_some_and(|n| n.visible) || ctx.s.world.was_visible(e);
         let distance = at.distance(to);
         let placing = if !visible {
             ctx.place(e, to, yaw);
@@ -378,12 +374,13 @@ fn begin_placing(s: &mut State, cutscene: &Cutscene, run: &mut Run) {
             ctx.issue(Command::Face { entity: e, yaw });
             Placing::Easing
         } else {
+            let since = ctx.s.happenings;
             ctx.issue(Command::MoveTo {
                 entity: e,
                 target: position,
                 speed: settings.start_walk_speed,
             });
-            Placing::Walking
+            Placing::Walking { since }
         };
         run.placing[i] = placing;
     }
@@ -398,20 +395,35 @@ fn place_step(s: &mut State, cutscene: &Cutscene, run: &mut Run) -> bool {
         let easing = (0..3).any(|k| s.tweens.active(TWEENS + 3 * i as u32 + k));
         let next = match run.placing[i] {
             Placing::Easing if easing => Placing::Easing,
-            Placing::Walking if s.motion.walking(e) => Placing::Walking,
-            Placing::Easing | Placing::Walking => {
+            Placing::Walking { since } if !walked(s, e, since) => Placing::Walking { since },
+            Placing::Easing | Placing::Walking { .. } => {
                 ctx!(s, cutscene, run, false).issue(Command::Face { entity: e, yaw });
                 Placing::Turning
             }
-            Placing::Turning if s.motion.turning(e) && s.settings.motion.builtin => {
-                Placing::Turning
-            }
+            Placing::Turning if !turned(s, e) => Placing::Turning,
             Placing::Turning | Placing::Done => Placing::Done,
         };
         run.placing[i] = next;
         all &= next == Placing::Done;
     }
     all
+}
+
+/// Whether a walk of `e` that began at happening `since` ended: the runtime's
+/// mover stopped, or, when another module moves actors, it reported the
+/// arrival or the block.
+fn walked(s: &State, e: Entity, since: u64) -> bool {
+    if s.settings.motion.builtin {
+        !s.motion.walking(e)
+    } else {
+        s.saw(Happening::Arrived(e), since) || s.saw(Happening::Blocked(e), since)
+    }
+}
+
+/// Whether `e` faces where it was told; a module that moves actors turns
+/// them at once.
+fn turned(s: &State, e: Entity) -> bool {
+    !(s.settings.motion.builtin && s.motion.turning(e))
 }
 
 fn tick_list(list: &mut List, blocks: &[Block], ctx: &mut Ctx<'_>) -> bool {
@@ -494,13 +506,7 @@ fn tick_block(current: &mut Option<Box<Running>>, block: &Block, ctx: &mut Ctx<'
                 return true;
             }
             if !*turning {
-                let arrived = if ctx.builtin() {
-                    !ctx.s.motion.walking(e)
-                } else {
-                    ctx.s.saw(Happening::Arrived(e), *since)
-                        || ctx.s.saw(Happening::Blocked(e), *since)
-                };
-                if !arrived {
+                if !walked(ctx.s, e, *since) {
                     return false;
                 }
                 ctx.issue(Command::Face {
@@ -509,7 +515,7 @@ fn tick_block(current: &mut Option<Box<Running>>, block: &Block, ctx: &mut Ctx<'
                 });
                 *turning = true;
             }
-            !(ctx.builtin() && ctx.s.motion.turning(e))
+            turned(ctx.s, e)
         }
         (Running::Turn { yaw }, Block::Face { role, .. }) => {
             let e = ctx.role(*role);
@@ -518,7 +524,7 @@ fn tick_block(current: &mut Option<Box<Running>>, block: &Block, ctx: &mut Ctx<'
                 ctx.place(e, at, *yaw);
                 return true;
             }
-            !(ctx.builtin() && ctx.s.motion.turning(e))
+            turned(ctx.s, e)
         }
         (Running::Line { since }, Block::Line { advance, .. }) => {
             if skip {

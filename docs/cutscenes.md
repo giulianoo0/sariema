@@ -122,14 +122,17 @@ the jump, and the check proves the cover holds:
   instant, with nothing that takes time in between.
 
 Without a cover the check fails with `E_CUTSCENE_TELEPORT`; with a cover that
-does not hold, `E_CUTSCENE_COVER`. A hidden role (`hide` first) may teleport
-freely. At run time a `teleport` or `set_transform` of a visible actor that
-is not covered is refused with `E_TELEPORT_VISIBLE`.
+does not hold, `E_CUTSCENE_COVER`. A role hidden for at least one step (`hide`,
+then a block that surely takes a step: `wait` longer than 0, `wait_for` or
+`line`) may teleport freely; hiding and teleporting in the same instant hides
+nothing, since the viewer saw the role when that step began. At run time
+every command that would move a visible actor at once is refused with
+`E_TELEPORT_VISIBLE` (see [the game API](game-api.md#entities)).
 
-To move an actor across the scene: walk it; or hide it, teleport it, show it;
-or fade out, teleport it with `"cover": "fade"`, fade in; or cut away to
-another shot with `"blend": 0` and teleport it with `"cover": "cut"` in the
-same instant.
+To move an actor across the scene: walk it; or hide it, wait, teleport it,
+show it; or fade out, teleport it with `"cover": "fade"`, fade in; or cut
+away to another shot with `"blend": 0` and teleport it with `"cover": "cut"`
+in the same instant.
 
 ### Every role starts somewhere
 

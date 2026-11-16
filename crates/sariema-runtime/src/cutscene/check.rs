@@ -5,7 +5,8 @@
 //! presence, and of whether a camera cut happened in the current instant.
 //!
 //! - A visible actor never moves discontinuously: a `teleport` of a role
-//!   that may be visible must declare its cover, and the cover must hold:
+//!   that may be visible, or was hidden without a step passing since, must
+//!   declare its cover, and the cover must hold:
 //!   `cut` needs a shot with blend 0 earlier in the same instant (no block
 //!   that takes time in between), `fade` needs the screen known to be fully
 //!   faded. (`E_CUTSCENE_TELEPORT`, `E_CUTSCENE_COVER`)
@@ -50,6 +51,9 @@ pub const CODES: [&str; 6] = [
 enum Presence {
     /// Shown, or may be.
     Visible,
+    /// Hidden, but maybe shown when the current step began.
+    Hiding,
+    /// Hidden for at least one whole step.
     Hidden,
     /// Not spawned yet, never declared a start.
     Unborn,
@@ -126,16 +130,29 @@ impl Checker<'_> {
                 self.list(otherwise, &format!("{at}.branch.else"), &mut b);
                 k.fade = if a.fade == b.fade { a.fade } else { None };
                 for (r, (x, y)) in k.roles.iter_mut().zip(a.roles.iter().zip(&b.roles)) {
-                    *r = if x == y { *x } else { Presence::Visible };
+                    *r = match (*x, *y) {
+                        (x, y) if x == y => x,
+                        (
+                            Presence::Hidden | Presence::Hiding,
+                            Presence::Hidden | Presence::Hiding,
+                        ) => Presence::Hiding,
+                        _ => Presence::Visible,
+                    };
                 }
                 k.cut = false;
             }
-            Block::Wait(t) => k.cut &= *t <= 0.0,
+            Block::Wait(t) => {
+                k.cut &= *t <= 0.0;
+                if *t > 0.0 {
+                    elapse(k);
+                }
+            }
             Block::WaitFor { on, .. } => {
                 if let Await::Arrived(r) | Await::ClipFinished(r) = on {
                     self.uses(k, *r, &format!("{at}.wait_for"));
                 }
                 k.cut = false;
+                elapse(k);
             }
             Block::Shot { shot, blend, .. } => {
                 let at = format!("{at}.shot");
@@ -160,6 +177,7 @@ impl Checker<'_> {
             Block::Line { speaker, .. } => {
                 self.uses(k, *speaker, &format!("{at}.line"));
                 k.cut = false;
+                elapse(k);
             }
             Block::Clip { role, .. } => self.uses(k, *role, &format!("{at}.clip")),
             Block::LookAt { role, target } => {
@@ -180,10 +198,11 @@ impl Checker<'_> {
                     *role,
                     &format!("{at}.{}", if show { "show" } else { "hide" }),
                 );
-                k.roles[*role as usize] = if show {
-                    Presence::Visible
-                } else {
-                    Presence::Hidden
+                let r = &mut k.roles[*role as usize];
+                *r = match (show, *r) {
+                    (true, _) => Presence::Visible,
+                    (false, Presence::Hidden) => Presence::Hidden,
+                    (false, _) => Presence::Hiding,
                 };
             }
             Block::Despawn { role } => {
@@ -219,7 +238,7 @@ impl Checker<'_> {
 
     fn teleport(&mut self, role: u16, cover: Option<Cover>, at: &str, k: &Known) {
         self.uses(k, role, at);
-        if k.roles[role as usize] != Presence::Visible {
+        if !matches!(k.roles[role as usize], Presence::Visible | Presence::Hiding) {
             return;
         }
         let name = self.name(role).to_string();
@@ -228,7 +247,7 @@ impl Checker<'_> {
                 "E_CUTSCENE_TELEPORT",
                 at,
                 format!(
-                    "role {name} may be on screen and would jump; walk it instead, hide it first, or declare \"cover\": \"cut\" right after a shot with blend 0 or \"fade\" under a fade to 1"
+                    "role {name} may be on screen and would jump; walk it instead, hide it and wait before the teleport, or declare \"cover\": \"cut\" right after a shot with blend 0 or \"fade\" under a fade to 1"
                 ),
             ),
             Some(Cover::Cut) if !k.cut => self.fail(
@@ -279,6 +298,7 @@ impl Checker<'_> {
             }
         }
         let faders = writes.iter().filter(|w| w.fade).count();
+        let entry = k.clone();
         let mut exits = Vec::new();
         for (b, blocks) in branches.iter().enumerate() {
             let mut kb = k.clone();
@@ -293,17 +313,37 @@ impl Checker<'_> {
             1 => exits[writes.iter().position(|w| w.fade).expect("one fades")].fade,
             _ => None,
         };
+        // The parallel lasts as long as its longest branch: a role no branch
+        // touches is as hidden as the branch that hid it longest left it.
+        let mut waited = entry;
+        for exit in &exits {
+            for (w, e) in waited.roles.iter_mut().zip(&exit.roles) {
+                if *w == Presence::Hiding && *e == Presence::Hidden {
+                    *w = Presence::Hidden;
+                }
+            }
+        }
         for r in 0..k.roles.len() as u16 {
             let changed: Vec<usize> = (0..writes.len())
                 .filter(|&b| writes[b].shown.contains(&r) || writes[b].moved.contains(&r))
                 .collect();
             k.roles[r as usize] = match changed.as_slice() {
-                [] => k.roles[r as usize],
+                [] => waited.roles[r as usize],
                 [b] => exits[*b].roles[r as usize],
                 _ => Presence::Visible,
             };
         }
         k.cut = false;
+    }
+}
+
+/// A block that surely lasts at least one step ran: a role hidden in the
+/// instant it began has now been hidden for a whole step.
+fn elapse(k: &mut Known) {
+    for r in &mut k.roles {
+        if *r == Presence::Hiding {
+            *r = Presence::Hidden;
+        }
     }
 }
 
