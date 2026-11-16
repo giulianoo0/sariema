@@ -2352,6 +2352,7 @@ dependencies = [
  "sariema-anim",
  "sariema-audio",
  "sariema-core",
+ "sariema-engine",
  "sariema-format",
  "sariema-import",
  "sariema-physics",
@@ -2372,6 +2373,23 @@ version = "0.1.0"
 dependencies = [
  "glam",
  "sariema-format",
+]
+
+[[package]]
+name = "sariema-engine"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "libm",
+ "sariema-anim",
+ "sariema-audio",
+ "sariema-core",
+ "sariema-format",
+ "sariema-import",
+ "sariema-physics",
+ "sariema-runtime",
+ "sariema-ui",
+ "serde_json",
 ]
 
 [[package]]

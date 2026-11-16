@@ -1,0 +1,22 @@
+[package]
+name = "sariema-engine"
+description = "The Sariema engine as one: game runtime, collision, animation, audio and HUD stepped together, ready for any host to draw."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+glam.workspace = true
+libm.workspace = true
+sariema-anim = { path = "../sariema-anim" }
+sariema-audio = { path = "../sariema-audio" }
+sariema-core = { path = "../sariema-core" }
+sariema-format = { path = "../sariema-format" }
+sariema-physics = { path = "../sariema-physics" }
+sariema-runtime = { path = "../sariema-runtime" }
+sariema-ui = { path = "../sariema-ui" }
+serde_json.workspace = true
+
+[dev-dependencies]
+sariema-import = { path = "../sariema-import" }

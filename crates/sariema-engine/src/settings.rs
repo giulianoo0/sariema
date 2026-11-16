@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! Every number the glue between the modules uses, with its default. Each
+//! module's own settings stay in its crate.
+
+use sariema_anim::AnimSettings;
+use sariema_physics::Settings as PhysicsSettings;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct EngineSettings {
+    /// The collision module's settings. The engine sets its step to the
+    /// runtime's and caps its turn speed at `motion.turn_rate`.
+    pub physics: PhysicsSettings,
+    pub anim: AnimSettings,
+    /// Seconds a `knockback` impulse pushes for; its m/s times this is the
+    /// distance, given out fastest first.
+    pub knockback_s: f32,
+    /// How long a traversal's contact holds, as a fraction of the traversal
+    /// on each side of the moment the actor's feet are nearest to it: the
+    /// body eases onto the contact and off it over that fraction.
+    pub contact_blend: f32,
+    pub audio: SoundSettings,
+    pub hud: HudSettings,
+}
+
+impl Default for EngineSettings {
+    fn default() -> EngineSettings {
+        EngineSettings {
+            physics: PhysicsSettings::default(),
+            anim: AnimSettings::default(),
+            knockback_s: 0.25,
+            contact_blend: 0.25,
+            audio: SoundSettings::default(),
+            hud: HudSettings::default(),
+        }
+    }
+}
+
+/// How a sound tied to an entity is heard from the camera.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SoundSettings {
+    /// Metres within which a sound plays at its full gain.
+    pub reference_distance: f32,
+    /// How fast the gain falls beyond that: gain = reference /
+    /// (reference + rolloff × (distance − reference)), the inverse-distance
+    /// model of OpenAL and Web Audio.
+    pub rolloff: f32,
+    /// Sounds followed at once; the oldest is let go past this.
+    pub emitters: usize,
+    /// A followed sound's gain or pan changing by less than this is not sent.
+    pub min_change: f32,
+}
+
+impl Default for SoundSettings {
+    fn default() -> SoundSettings {
+        SoundSettings {
+            reference_distance: 2.0,
+            rolloff: 1.0,
+            emitters: 32,
+            min_change: 1e-3,
+        }
+    }
+}
+
+/// The layer the engine draws over the HUD: dialogue, cinema bars, fade.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HudSettings {
+    /// Height of each cinema bar at `letterbox` 1, as a fraction of the screen.
+    pub bar_fraction: f32,
+    /// Size of a dialogue line's text, in UI pixels.
+    pub line_size: f32,
+    /// Space between a dialogue line and the bottom of the screen, in UI pixels.
+    pub line_margin: f32,
+    /// Screen size until the host gives one.
+    pub width: f32,
+    pub height: f32,
+}
+
+impl Default for HudSettings {
+    fn default() -> HudSettings {
+        HudSettings {
+            bar_fraction: 0.12,
+            line_size: 22.0,
+            line_margin: 48.0,
+            width: 1280.0,
+            height: 720.0,
+        }
+    }
+}
