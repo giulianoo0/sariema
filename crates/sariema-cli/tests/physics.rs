@@ -271,7 +271,12 @@ fn physics_map_draws_colliders_spots_and_a_path() {
         ((4.5 - origin[0].as_f64().unwrap()) * ppm) as u64
     );
     let path = out["path"]["points"].as_array().unwrap();
-    assert!(path.len() >= 2, "{out}");
+    assert!(!path.is_empty(), "{out}");
+    let doorway = pixel(3.5, -3.0);
+    assert!(
+        doorway[0] > 200 && doorway[1] < 100 && doorway[2] > 200,
+        "the path crosses the doorway in magenta: {doorway:?}"
+    );
     assert_eq!(path.last().unwrap(), &json!([3.5, 0.0, -5.0]));
 
     let (code, message) = failure(&[
@@ -286,4 +291,13 @@ fn physics_map_draws_colliders_spots_and_a_path() {
     assert!(message.contains("nowhere"), "{message}");
     let (code, _) = failure(&["physics-map", arg(&pack), "-o", arg(&map)]);
     assert_eq!(code, "E_PACK_BAD_MAGIC");
+}
+
+#[test]
+fn a_spot_sunk_into_a_crate_top_says_where_it_stands_clear() {
+    let tmp = TempDir::new().unwrap();
+    let dir = project_with(&tmp, with_spot("desk", [2.5, 0.95, -3.0]));
+    let (code, message) = failure(&["check", arg(&dir), "--room", "hall"]);
+    assert_eq!(code, "E_SPOT_BLOCKED");
+    assert!(message.contains("stands clear at y 1.0"), "{message}");
 }

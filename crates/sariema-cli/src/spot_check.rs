@@ -7,7 +7,7 @@
 use glam::Vec3;
 use sariema_format::collision::CollisionPack;
 use sariema_physics::{
-    ActorId, LocalBounds, Settings, World, actor_collider, spot_actor, visual_bounds,
+    ActorCollider, ActorId, LocalBounds, Settings, World, actor_collider, spot_actor, visual_bounds,
 };
 
 use crate::check::Finding;
@@ -41,6 +41,7 @@ pub fn check_room(
 ) -> Result<(), Failure> {
     let physics = Settings::default();
     let max_slope_deg = physics.controller.max_slope_deg;
+    let lift = physics.controller.step_height;
     let cos_max_slope = max_slope_deg.to_radians().cos();
     let mut world = World::from_pack(physics, pack)
         .map_err(|e| Failure::new("E_SCHEMA", format!("room {room}: {e}")))?;
@@ -75,10 +76,12 @@ pub fn check_room(
         if let Some((c, separation)) = world.actor_overlap(&collider, feet, spot.yaw)
             && separation < -settings.penetration_tolerance
         {
+            let clear = resting_height(&world, &collider, feet, spot.yaw, lift, settings)
+                .map_or_else(String::new, |y| format!("; it stands clear at y {y:.3}"));
             findings.push(error(
                 "E_SPOT_BLOCKED",
                 format!(
-                    "{at}'s collider is {:.3} m inside {}",
+                    "{at}'s collider is {:.3} m inside {}{clear}",
                     -separation,
                     world.collider_name(c)
                 ),
@@ -134,6 +137,31 @@ pub fn check_room(
         }
     }
     Ok(())
+}
+
+/// The feet height, within `lift` above `feet`, where the collider dropped
+/// straight down comes to rest clear of the room, as an actor settles on a
+/// slope or a ledge; `None` when the overlap is not one a lift resolves.
+fn resting_height(
+    world: &World,
+    collider: &ActorCollider,
+    feet: Vec3,
+    yaw: f32,
+    lift: f32,
+    settings: &SpotCheckSettings,
+) -> Option<f32> {
+    let top = feet + Vec3::Y * lift;
+    let (a, b) = (
+        top + Vec3::Y * collider.radius,
+        top + Vec3::Y * (collider.height - collider.radius),
+    );
+    let drop = lift + settings.ground_depth;
+    let hit = world.shapecast(a, b, collider.radius, Vec3::NEG_Y * drop)?;
+    let rest = Vec3::new(feet.x, top.y - hit.fraction * drop, feet.z);
+    world
+        .actor_overlap(collider, rest, yaw)
+        .is_none_or(|(_, separation)| separation >= -settings.penetration_tolerance)
+        .then_some(rest.y)
 }
 
 /// How far `model` reaches past `collider`, and on which side.

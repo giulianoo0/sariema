@@ -39,6 +39,9 @@ pub struct MapArgs {
     /// Longest side in pixels; a larger room is drawn at fewer pixels per metre [default: 8192].
     #[arg(long)]
     max_side: Option<u32>,
+    /// Draw only what lies below this height, as a floor plan cut through a canopy or an upper floor [default: no cut].
+    #[arg(long)]
+    cut: Option<f32>,
 }
 
 pub fn run(args: &MapArgs) -> Result<Done, Failure> {
@@ -46,6 +49,7 @@ pub fn run(args: &MapArgs) -> Result<Done, Failure> {
     let settings = MapSettings {
         pixels_per_metre: args.pixels_per_metre.unwrap_or(defaults.pixels_per_metre),
         max_side: args.max_side.unwrap_or(defaults.max_side),
+        cut: args.cut.or(defaults.cut),
         ..defaults
     };
     if !(settings.pixels_per_metre > 0.0
@@ -73,6 +77,8 @@ pub struct MapSettings {
     pub margin: f32,
     /// Longest side in pixels; a larger room is drawn at fewer pixels per metre.
     pub max_side: u32,
+    /// Height below which colliders are drawn; `None` draws everything.
+    pub cut: Option<f32>,
 }
 
 impl Default for MapSettings {
@@ -81,6 +87,7 @@ impl Default for MapSettings {
             pixels_per_metre: 40.0,
             margin: 0.5,
             max_side: 8192,
+            cut: None,
         }
     }
 }
@@ -187,7 +194,12 @@ pub fn physics_map(
         ),
         _ => false,
     };
-    let cells: Vec<Vec3> = walker.map_or_else(Vec::new, |id| world.walkable_cells(id).collect());
+    let cells: Vec<Vec3> = walker.map_or_else(Vec::new, |id| {
+        world
+            .walkable_cells(id)
+            .filter(|c| settings.cut.is_none_or(|cut| c.y < cut))
+            .collect()
+    });
     let cell = world.settings().nav.cell_size;
     for i in 0..world.collider_count() {
         world.apply(Intent::SetColliderEnabled {
@@ -197,14 +209,10 @@ pub fn physics_map(
     }
 
     let mut image = RgbImage::from_pixel(frame.width, frame.height, Rgb(BACKGROUND));
-    draw_colliders(
-        &mut image,
-        &frame,
-        &world,
-        &pack,
-        bounds.min.y,
-        bounds.max.y,
-    );
+    let top = settings
+        .cut
+        .map_or(bounds.max.y + 1.0, |cut| cut.min(bounds.max.y + 1.0));
+    draw_colliders(&mut image, &frame, &world, &pack, bounds.min.y, top);
     draw_grid(&mut image, &frame);
     for c in &cells {
         let (x0, y0) = frame.pixel(c.x - cell * 0.5, c.z - cell * 0.5);
@@ -235,8 +243,12 @@ pub fn physics_map(
         line(&mut image, &frame, at, tip, FACING, 0);
         spots.push(json!({ "name": s.name, "actor": pack.actors[s.actor as usize].name, "pixel": [px, py] }));
     }
-    for pair in waypoints.windows(2) {
-        line(&mut image, &frame, pair[0], pair[1], PATH, 1);
+    if let Some((from, _)) = route.filter(|_| found) {
+        let mut at = Vec3::from(pack.spots[from].position);
+        for &next in &waypoints {
+            line(&mut image, &frame, at, next, PATH, 1);
+            at = next;
+        }
     }
     image.save(output).map_err(|e| Failure::io(output, e))?;
 
@@ -300,7 +312,7 @@ fn route(pack: &CollisionPack, path: &str) -> Result<(usize, usize), Failure> {
     Ok((index(from)?, index(to)?))
 }
 
-/// The top surface under every pixel, by a ray cast straight down.
+/// The first surface under every pixel, by a ray cast straight down from `top`.
 fn draw_colliders(
     image: &mut RgbImage,
     frame: &Frame,
@@ -314,8 +326,7 @@ fn draw_colliders(
     for py in 0..frame.height {
         for px in 0..frame.width {
             let c = frame.centre(px, py);
-            let Some(hit) = world.raycast(Vec3::new(c.x, top + 1.0, c.y), Vec3::NEG_Y, span + 2.0)
-            else {
+            let Some(hit) = world.raycast(Vec3::new(c.x, top, c.y), Vec3::NEG_Y, span + 1.0) else {
                 continue;
             };
             let height = ((hit.point.y - bottom) / span).clamp(0.0, 1.0);
