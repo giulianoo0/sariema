@@ -13,8 +13,11 @@ use crate::output::{Done, Failure, list};
 use crate::project;
 
 pub fn read(path: &Path) -> Result<ActorPack, Failure> {
-    let bytes = fs::read(path).map_err(|e| Failure::io(path, e))?;
-    decode(&bytes).map_err(|e| Failure::new(e.code(), format!("{}: {e}", path.display())))
+    decoded(path, &fs::read(path).map_err(|e| Failure::io(path, e))?)
+}
+
+fn decoded(path: &Path, bytes: &[u8]) -> Result<ActorPack, Failure> {
+    decode(bytes).map_err(|e| Failure::new(e.code(), format!("{}: {e}", path.display())))
 }
 
 /// `textures`, when given, replaces the actor description's choice.
@@ -56,8 +59,7 @@ pub fn build(
 }
 
 pub fn inspect(path: &Path, bytes: &[u8]) -> Result<Done, Failure> {
-    let pack =
-        decode(bytes).map_err(|e| Failure::new(e.code(), format!("{}: {e}", path.display())))?;
+    let pack = decoded(path, bytes)?;
     let summary = summary(&pack);
     let clips: Vec<String> = pack
         .clips

@@ -8,7 +8,8 @@ Status: early. A room can be imported and rendered headless on desktop with
 clustered forward lighting, shadows and the post-processing chain, driven by
 the `sariema` command-line tool.
 
-- `crates/sariema-format` — the room pack (`SRMA`): types, encoding, validation.
+- `crates/sariema-format` — the packs: room (`SRMA`), collision (`SRMC`),
+  actor (`SRMK`) and sound bank (`SRMS`); types, encoding, validation.
 - `crates/sariema-import` — packaging-time import: compressed glTF kits and room
   assembly from placement and lighting files (`schemas/room.schema.json`).
 - `crates/sariema-core` — the room camera.

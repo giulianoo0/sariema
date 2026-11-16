@@ -11,8 +11,11 @@ use serde_json::json;
 use crate::output::{Done, Failure, list};
 
 pub fn read(path: &Path) -> Result<RoomPack, Failure> {
-    let bytes = fs::read(path).map_err(|e| Failure::io(path, e))?;
-    decode(&bytes).map_err(|e| Failure::new(e.code(), format!("{}: {e}", path.display())))
+    decoded(path, &fs::read(path).map_err(|e| Failure::io(path, e))?)
+}
+
+fn decoded(path: &Path, bytes: &[u8]) -> Result<RoomPack, Failure> {
+    decode(bytes).map_err(|e| Failure::new(e.code(), format!("{}: {e}", path.display())))
 }
 
 pub fn inspect(path: &Path) -> Result<Done, Failure> {
@@ -23,8 +26,7 @@ pub fn inspect(path: &Path) -> Result<Done, Failure> {
     if bytes.starts_with(&sariema_format::actor::MAGIC) {
         return crate::actor::inspect(path, &bytes);
     }
-    let room =
-        decode(&bytes).map_err(|e| Failure::new(e.code(), format!("{}: {e}", path.display())))?;
+    let room = decoded(path, &bytes)?;
     let lights: Vec<&str> = room.lights.iter().map(|l| l.name.as_str()).collect();
     let materials: Vec<&str> = room.materials.iter().map(|m| m.name.as_str()).collect();
     // shortcut: the pack has no loose flag yet, so this relies on the importer naming

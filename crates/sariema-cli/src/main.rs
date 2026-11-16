@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! `sariema`: builds, inspects, runs and tests room packs.
+//! `sariema`: builds, inspects, checks, runs and tests Sariema packs.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -30,7 +30,7 @@ mod ui;
 #[command(
     name = "sariema",
     version,
-    about = "Builds, inspects, runs and tests Sariema room packs."
+    about = "Builds, inspects, checks, runs and tests Sariema packs."
 )]
 struct Cli {
     /// Print one JSON object on stdout, errors included.
