@@ -43,9 +43,13 @@ pub struct Quality {
     pub ao_samples: u32,
     /// The occlusion is computed at 1/`ao_divisor` of the target's size, 1 to 8.
     pub ao_divisor: u32,
-    /// Texels per direction of the occlusion's depth-aware blur, odd and at
-    /// most 9. 5 and 9 average away the 4×4 pattern that turns its samples.
+    /// Texels per direction of the occlusion's depth-aware blur, rounded to
+    /// 5 or 9: the counts that average away the 4×4 pattern that turns its
+    /// samples.
     pub ao_blur_taps: u32,
+    /// Most texels of the occlusion target the radius may span; a surface
+    /// near enough to the camera to need more gets a smaller radius.
+    pub ao_max_radius_texels: u32,
 }
 
 impl Quality {
@@ -69,6 +73,7 @@ impl Quality {
             ao_samples: 6,
             ao_divisor: 4,
             ao_blur_taps: 5,
+            ao_max_radius_texels: 24,
         }
     }
 
@@ -84,6 +89,7 @@ impl Quality {
             shadow_min_slot_px: 128,
             shadow_pcf_taps: 4,
             ao_samples: 8,
+            ao_max_radius_texels: 32,
             ..Quality::low()
         }
     }
@@ -100,7 +106,6 @@ impl Quality {
             shadow_min_slot_px: 256,
             shadow_pcf_taps: 16,
             ao_samples: 12,
-            ao_divisor: 2,
             ao_blur_taps: 9,
             ..Quality::medium()
         }
@@ -136,7 +141,6 @@ impl Quality {
         let min_slots_per_side = (shadow_atlas_size / shadow_min_slot_px) as u64;
         let min_slots = (min_slots_per_side * min_slots_per_side).min(u32::MAX as u64) as u32;
         let blur_taps = self.blur_taps.clamp(1, MAX_BLUR_TAPS);
-        let ao_blur_taps = self.ao_blur_taps.clamp(1, ao::MAX_BLUR_TAPS);
         Quality {
             max_visible_lights: self.max_visible_lights.min(entries(GPU_LIGHT_SIZE)),
             max_lights_per_cluster,
@@ -154,7 +158,8 @@ impl Quality {
             blur_taps: odd(blur_taps),
             ao_samples: self.ao_samples.min(ao::MAX_SAMPLES),
             ao_divisor: self.ao_divisor.clamp(1, ao::MAX_DIVISOR),
-            ao_blur_taps: odd(ao_blur_taps),
+            ao_max_radius_texels: self.ao_max_radius_texels.max(1),
+            ao_blur_taps: if self.ao_blur_taps < 7 { 5 } else { 9 },
             ..self.clone()
         }
     }
@@ -247,27 +252,30 @@ mod tests {
     #[test]
     fn occlusion_settings_are_held_to_usable_values() {
         let limits = wgpu::Limits::default();
-        let greedy = Quality {
-            ao_samples: u32::MAX,
-            ao_divisor: u32::MAX,
-            ao_blur_taps: u32::MAX,
-            ..Quality::high()
-        }
-        .clamped_to(&limits);
+        let held = |samples, divisor, blur_taps, radius| {
+            let q = Quality {
+                ao_samples: samples,
+                ao_divisor: divisor,
+                ao_blur_taps: blur_taps,
+                ao_max_radius_texels: radius,
+                ..Quality::high()
+            }
+            .clamped_to(&limits);
+            (
+                q.ao_samples,
+                q.ao_divisor,
+                q.ao_blur_taps,
+                q.ao_max_radius_texels,
+            )
+        };
         assert_eq!(
-            (greedy.ao_samples, greedy.ao_divisor, greedy.ao_blur_taps),
-            (ao::MAX_SAMPLES, ao::MAX_DIVISOR, ao::MAX_BLUR_TAPS)
+            held(u32::MAX, u32::MAX, u32::MAX, u32::MAX),
+            (ao::MAX_SAMPLES, ao::MAX_DIVISOR, 9, u32::MAX)
         );
-        let meagre = Quality {
-            ao_samples: 0,
-            ao_divisor: 0,
-            ao_blur_taps: 4,
-            ..Quality::high()
+        assert_eq!(held(0, 0, 0, 0), (0, 1, 5, 1));
+        // Only 5 and 9 taps cancel the pattern that turns the samples.
+        for (asked, kept) in [(1, 5), (3, 5), (6, 5), (7, 9), (8, 9), (11, 9)] {
+            assert_eq!(held(8, 4, asked, 32).2, kept, "{asked} taps");
         }
-        .clamped_to(&limits);
-        assert_eq!(
-            (meagre.ao_samples, meagre.ao_divisor, meagre.ao_blur_taps),
-            (0, 1, 3)
-        );
     }
 }

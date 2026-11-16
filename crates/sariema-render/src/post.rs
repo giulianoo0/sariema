@@ -149,8 +149,12 @@ impl Post {
     pub fn set_look(&mut self, gpu: &Gpu, look: &Look) {
         self.tilt = look.tilt > 0.0;
         self.bloom = look.bloom_strength > 0.0;
-        self.ao = self.stages.occlusion.is_some() && look.ao_strength > 0.0;
-        self.ao_radius_m = look.ao_radius_m;
+        let radius = look.ao_radius_m;
+        self.ao = self.stages.occlusion.is_some()
+            && look.ao_strength > 0.0
+            && radius.is_finite()
+            && radius > 0.0;
+        self.ao_radius_m = radius;
         let bright = BrightUniform {
             tint: look.tint,
             threshold: look.bloom_threshold,

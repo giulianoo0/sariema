@@ -12,7 +12,8 @@ override TAPS: u32 = 5u;
 fn fs(@builtin(position) frag: vec4<f32>) -> @location(0) vec2<f32> {
     let t = vec2<i32>(frag.xy);
     let last = vec2<i32>(textureDimensions(occlusion)) - 1;
-    let depth = textureLoad(occlusion, t, 0).g;
+    let centre = textureLoad(occlusion, t, 0).rg;
+    let depth = centre.y;
     let axis = select(vec2(1, 0), vec2(0, 1), VERTICAL);
     let reach = i32(TAPS / 2u);
     var sum = 0.0;
@@ -23,5 +24,5 @@ fn fs(@builtin(position) frag: vec4<f32>) -> @location(0) vec2<f32> {
         sum += w * tap.x;
         total += w;
     }
-    return vec2(sum / total, depth);
+    return vec2(select(centre.x, sum / total, total > 0.0), depth);
 }

@@ -18,7 +18,6 @@ use crate::{Gpu, Quality};
 
 pub(crate) const MAX_SAMPLES: u32 = 32;
 pub(crate) const MAX_DIVISOR: u32 = 8;
-pub(crate) const MAX_BLUR_TAPS: u32 = 9;
 /// The fraction of ambient light left, 1 where nothing occludes, and the
 /// view depth it is for, which the blur and the composite compare.
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
@@ -82,6 +81,7 @@ impl Occlusion {
         let constants = [
             ("AO_DIVISOR", quality.ao_divisor as f64),
             ("SAMPLES", quality.ao_samples as f64),
+            ("MAX_RADIUS_TEXELS", quality.ao_max_radius_texels as f64),
         ];
         Some(Occlusion {
             estimate: pipeline(gpu, &estimate_layout, &estimate, "fs", &constants, FORMAT),

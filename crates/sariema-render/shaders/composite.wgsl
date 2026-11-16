@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// The frame's last pass: miniature blur, ambient occlusion, bloom, the
+// The frame's last pass: ambient occlusion, miniature blur, bloom, the
 // Hejl-Burgess-Dawson curve, the "real world" grade outside the drawn mask,
 // and dither. Appended with ao_surface.wgsl.
 
@@ -39,6 +39,11 @@ fn fs(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
     let p = vec2<i32>(pixel.xy);
     let uv = pixel.xy / vec2<f32>(textureDimensions(scene));
     var c = textureLoad(scene, p, 0);
+    // Before the miniature blur, whose blurred levels have none, so that
+    // the occlusion blurs out with the scene.
+    if params.ao_strength > 0.0 {
+        c = vec4(c.rgb * mix(1.0, ambient_left(p), params.ao_strength), c.a);
+    }
     if params.tilt > 0.0 {
         // The bottom 28% of the screen blurs over a ramp of 0.2 of its
         // height, and the scene past `focus` over 4 m.
@@ -48,9 +53,6 @@ fn fs(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
         // Alpha, the drawn mask, blurs along with the colour.
         c = mix(c, textureSampleLevel(half_size, bilinear, uv, 0.0), sqrt(blur));
         c = mix(c, textureSampleLevel(quarter_size, bilinear, uv, 0.0), blur * blur);
-    }
-    if params.ao_strength > 0.0 {
-        c = vec4(c.rgb * mix(1.0, ambient_left(p), params.ao_strength), c.a);
     }
     var glow = vec3(0.0);
     for (var i = 0u; i < textureNumLevels(bloom); i++) {
