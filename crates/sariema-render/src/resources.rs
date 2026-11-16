@@ -205,8 +205,8 @@ pub(crate) fn upload(gpu: &Gpu, layouts: &Layouts, room: &RoomPack) -> Result<Ro
             DrawItem {
                 name: d.name.clone(),
                 visible: d.visible,
-                // Glows add light and block none.
-                casts_shadow: d.casts_shadow && kind != Kind::Additive,
+                // A depth map holds no opacity: blended and additive surfaces block no light.
+                casts_shadow: d.casts_shadow && kind.is_opaque(),
                 kind,
                 material: d.material,
                 min: d.bounds.min.into(),

@@ -5,7 +5,7 @@ use image::RgbaImage;
 use sariema_core::{Camera, room_camera};
 use sariema_format::demo::demo_room;
 use sariema_format::{
-    Aabb, Ambient, Light, LightKind, Mobility, RoomCamera, RoomPack, Sun, hemisphere_sh9,
+    Aabb, AlphaMode, Ambient, Light, LightKind, Mobility, RoomCamera, RoomPack, Sun, hemisphere_sh9,
 };
 use sariema_render::{
     GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, compare_images, render_to_image,
@@ -134,6 +134,15 @@ fn box_casts_shadow_on_floor() {
     let room = box_room();
     let ratio = shadow_ratio(&render(Quality::high(), &room), &room, &room.lights[0]);
     assert!(ratio <= 0.6, "shadowed / lit luma = {ratio}");
+}
+
+#[test]
+fn blended_box_casts_no_shadow() {
+    // A depth map holds no opacity, so a dust sheet or a web would block light as a wall.
+    let mut room = box_room();
+    room.materials[1].alpha = AlphaMode::Blend;
+    let ratio = shadow_ratio(&render(Quality::high(), &room), &room, &room.lights[0]);
+    assert!(ratio > 0.95, "shadowed / lit luma = {ratio}");
 }
 
 #[test]
