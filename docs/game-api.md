@@ -427,8 +427,10 @@ save store, and prints the store at the end.
 A save that brings an actor back where it stood asks the engine, which
 alone knows where collision left it: `locate` names the entity, and at the
 next step `located` gives its feet in the world and its yaw as the step it
-was asked in left them, after collision and the no-jump rule. The answer
-comes from the step's state, so a replay, the native build and the web
+was asked in left them, after collision and the no-jump rule. The yaw is
+in degrees, in (-180, 180], whether something carries the actor or not.
+An entity despawned before that step ends gets `rejected` with
+`E_ENTITY_STALE` and the opcode of `locate` instead. The answer comes from the step's state, so a replay, the native build and the web
 build give the same numbers. Saving it and teleporting there on load puts
 the actor back where the player last saw it.
 

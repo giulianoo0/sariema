@@ -23,12 +23,13 @@ use crate::cutscene::Sequencer;
 use crate::events::{EventQueue, Happening};
 use crate::hash::StateHasher;
 use crate::input::{Actions, RawInput};
-use crate::motion::Goal;
+use crate::motion::{Goal, angle_between};
 use crate::no_jump;
 use crate::outbox::{HostIn, HostOut};
 use crate::settings::Settings;
 use crate::state::State;
 use crate::tween::Values;
+use crate::world::Reject;
 
 /// Why a game stopped for good.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -379,6 +380,11 @@ fn answer_locates(s: &mut State) {
     for k in 0..s.locates.len() {
         let entity = s.locates[k];
         let (Some(node), Some(pose)) = (s.world.node(entity), s.world.pose(entity)) else {
+            s.events.push(Event::Rejected {
+                opcode: Command::Locate { entity }.opcode(),
+                code: Reject::Stale.code(),
+                entity,
+            });
             continue;
         };
         let yaw = if node.parent.is_none() {
@@ -390,7 +396,7 @@ fn answer_locates(s: &mut State) {
         s.events.push(Event::Located {
             entity,
             position: pose.position.to_array(),
-            yaw,
+            yaw: angle_between(0.0, yaw),
         });
     }
     s.locates.clear();

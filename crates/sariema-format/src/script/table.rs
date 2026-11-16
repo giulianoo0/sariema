@@ -192,7 +192,8 @@ batch_table! {
         /// Asks where `entity` stands: `located` answers at the next step
         /// with its place and yaw in the world as this step left them, after
         /// collision and the no-jump rule, the same in a replay and on every
-        /// host.
+        /// host. An entity gone by the end of the step gets `rejected`
+        /// (`E_ENTITY_STALE`) instead.
         0x00D2 Locate locate { entity: Entity }
     }
     events {
@@ -247,8 +248,8 @@ batch_table! {
         0x0060 Rejected rejected { opcode: u16, code: Str, entity: Entity }
 
         /// Where `entity` stood at the end of the step `locate` asked in:
-        /// its origin (an actor's feet) in the world and its yaw about +Y,
-        /// the one it was given when nothing carries it.
+        /// its origin (an actor's feet) in the world and its yaw about +Y in
+        /// degrees, in (-180, 180], with a parent or without.
         0x00D0 Located located { entity: Entity, position: Vec3, yaw: f32 }
     }
 }

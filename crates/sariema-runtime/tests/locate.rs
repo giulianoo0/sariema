@@ -164,3 +164,105 @@ fn locate_answers_at_the_next_step_with_the_world_place_and_yaw() {
     assert!((answers[1].yaw - 120.0).abs() < 1e-3, "{}", answers[1].yaw);
     assert_eq!(run().0, answers);
 }
+
+/// What one step of commands gets back at the next: the `located` yaws and
+/// the rejections, as (code, opcode, entity index).
+fn answers_to(commands: impl Fn(&mut Vec<u8>) + 'static) -> (Vec<f32>, Vec<(String, u16, u32)>) {
+    let seen = Rc::new(RefCell::new((Vec::new(), Vec::new())));
+    let log = seen.clone();
+    let logic = native(move |n, events, out| {
+        for e in events {
+            match *e {
+                Event::Located { yaw, .. } => log.borrow_mut().0.push(yaw),
+                Event::Rejected {
+                    code,
+                    opcode,
+                    entity,
+                } => log
+                    .borrow_mut()
+                    .1
+                    .push((code.to_string(), opcode, entity.index)),
+                _ => {}
+            }
+        }
+        if n == 0 {
+            commands(out);
+        }
+    });
+    let mut sim = Simulation::new(Settings::default(), Vec::new(), logic, 0);
+    let actions = Actions::for_settings(&sim.state().settings.input);
+    for _ in 0..3 {
+        sim.step(&actions);
+    }
+    drop(sim);
+    seen.take()
+}
+
+fn spawn(out: &mut Vec<u8>, index: u32, kind: Kind) {
+    send(
+        out,
+        Command::Spawn {
+            entity: entity(index),
+            kind,
+            asset: 0,
+        },
+    );
+}
+
+fn turn(out: &mut Vec<u8>, index: u32, yaw: f32) {
+    send(
+        out,
+        Command::SetTransform {
+            entity: entity(index),
+            position: [0.0, 0.0, 0.0],
+            yaw,
+        },
+    );
+}
+
+#[test]
+fn located_yaw_is_in_one_range_with_and_without_a_parent() {
+    let (yaws, rejected) = answers_to(|out| {
+        spawn(out, 0, Kind::Actor);
+        turn(out, 0, 270.0);
+        spawn(out, 1, Kind::Actor);
+        turn(out, 1, -180.0);
+        spawn(out, 2, Kind::Empty);
+        turn(out, 2, 200.0);
+        spawn(out, 3, Kind::Actor);
+        send(
+            out,
+            Command::SetParent {
+                entity: entity(3),
+                parent: entity(2),
+            },
+        );
+        turn(out, 3, 70.0);
+        for index in [0, 1, 3] {
+            send(
+                out,
+                Command::Locate {
+                    entity: entity(index),
+                },
+            );
+        }
+    });
+    assert!(rejected.is_empty(), "{rejected:?}");
+    let expected = [-90.0, 180.0, -90.0];
+    assert_eq!(yaws.len(), expected.len());
+    for (yaw, want) in yaws.iter().zip(expected) {
+        assert!((yaw - want).abs() < 1e-3, "{yaws:?}");
+    }
+}
+
+#[test]
+fn locate_of_an_entity_gone_before_the_step_ends_is_rejected() {
+    let (yaws, rejected) = answers_to(|out| {
+        spawn(out, 0, Kind::Actor);
+        send(out, Command::Locate { entity: entity(0) });
+        send(out, Command::Despawn { entity: entity(0) });
+    });
+    assert!(yaws.is_empty(), "{yaws:?}");
+    let opcode = Command::Locate { entity: entity(0) }.opcode();
+    assert_eq!(rejected, [("E_ENTITY_STALE".to_string(), opcode, 0)]);
+}
