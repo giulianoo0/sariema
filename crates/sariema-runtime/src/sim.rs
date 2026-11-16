@@ -396,10 +396,20 @@ fn answer_locates(s: &mut State) {
         s.events.push(Event::Located {
             entity,
             position: pose.position.to_array(),
-            yaw: angle_between(0.0, yaw),
+            yaw: half_turn(yaw),
         });
     }
     s.locates.clear();
+}
+
+/// `yaw` in (-180, 180], unchanged when it already is: wrapping adds a
+/// whole turn and would round away its last bits.
+fn half_turn(yaw: f32) -> f32 {
+    if yaw > -180.0 && yaw <= 180.0 {
+        yaw
+    } else {
+        angle_between(0.0, yaw)
+    }
 }
 
 fn drive_hero(s: &mut State) {
