@@ -472,6 +472,60 @@ impl World {
         self.scene.set_pose(collider.0, pose);
     }
 
+    /// Moves a platform to `pose`, through the poses between (the yaw
+    /// turned the way it differs, not the shorter way), unless that would
+    /// bring it within the collision skin of an actor: then it stays where
+    /// it was and the first actor in the way is given. A posed or inactive
+    /// actor is in no one's way. Unlike [`World::set_platform_pose`], it
+    /// never pushes an actor.
+    pub fn try_platform_pose(&mut self, collider: ColliderId, pose: Pose) -> Result<(), ActorId> {
+        let Some((from, moved_from)) = self.scene.kinematic(collider.0) else {
+            return Ok(());
+        };
+        let thinnest = (self.actors.iter())
+            .filter(|a| a.active && !a.posed)
+            .map(|a| a.desc.collider.radius)
+            .fold(f32::INFINITY, f32::min);
+        let turn = pose.yaw - from.yaw;
+        let travel = self.scene.platform_reach(collider.0) * turn.abs()
+            + (pose.translation - from.translation).length();
+        let samples = if thinnest.is_finite() {
+            (travel / thinnest).ceil().max(1.0) as u32
+        } else {
+            1
+        };
+        let only = Filter {
+            only: Some(collider.0),
+            ..Filter::ALL
+        };
+        let skin = self.settings.collision.skin;
+        for k in 1..=samples {
+            let t = k as f32 / samples as f32;
+            let at = if k == samples {
+                pose
+            } else {
+                Pose {
+                    translation: from.translation.lerp(pose.translation, t),
+                    yaw: from.yaw + turn * t,
+                }
+            };
+            self.scene.set_pose(collider.0, at);
+            for (i, a) in self.actors.iter().enumerate() {
+                if a.posed || !a.active {
+                    continue;
+                }
+                let probe = a.desc.collider.probe(a.position, a.yaw, 0.0);
+                let mut near = false;
+                self.scene.contacts(&probe, skin, only, |_, _| near = true);
+                if near {
+                    self.scene.put_back(collider.0, from, moved_from);
+                    return Err(ActorId(i as u32));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn platform_pose(&self, collider: ColliderId) -> Option<Pose> {
         self.scene.colliders[collider.0 as usize]
             .kinematic

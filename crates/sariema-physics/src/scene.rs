@@ -250,6 +250,34 @@ impl Scene {
         c.bounds = transformed(k.local_bounds, k.rotation, pose.translation);
     }
 
+    /// A platform's pose and the pose this step moved it from, if it moved.
+    pub fn kinematic(&self, collider: u32) -> Option<(Pose, Option<Pose>)> {
+        let k = self.colliders.get(collider as usize)?.kinematic.as_ref()?;
+        Some((k.pose, k.moved_from))
+    }
+
+    /// Puts a platform back as [`Scene::kinematic`] gave it.
+    pub fn put_back(&mut self, collider: u32, pose: Pose, moved_from: Option<Pose>) {
+        self.set_pose(collider, pose);
+        if let Some(k) = &mut self.colliders[collider as usize].kinematic {
+            k.moved_from = moved_from;
+        }
+    }
+
+    /// How far from its origin a platform's parts reach.
+    pub fn platform_reach(&self, collider: u32) -> f32 {
+        let Some(k) = &self.colliders[collider as usize].kinematic else {
+            return 0.0;
+        };
+        let (lo, hi) = (k.local_bounds.min, k.local_bounds.max);
+        let far = Vec3::new(
+            lo.x.abs().max(hi.x.abs()),
+            lo.y.abs().max(hi.y.abs()),
+            lo.z.abs().max(hi.z.abs()),
+        );
+        far.length()
+    }
+
     /// Forgets where the platforms moved from, once their riders were carried.
     pub fn settle_platforms(&mut self) {
         for &p in &self.platforms {
