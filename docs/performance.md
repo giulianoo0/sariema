@@ -191,20 +191,23 @@ cost at most 0.2 ms of CPU or GPU each.
 ### The whole engine
 
 Apple M5, Metal, `medium`, release builds, medians of three repetitions,
-load average 6.6–9.2 (shared machine). Offscreen frames, since the window
-needs an unlocked screen; the window draws through the same `GameView`.
+load average 7.7–14.5 (shared machine; the one-s11 row 6.6–9.2).
+Offscreen frames, since the window needs an unlocked screen; the window
+draws through the same `GameView`.
 
 | What | Buffer | CPU ms | GPU ms | Wall ms |
 |---|---|---|---|---|
-| `examples/climb`, one step and its frame (`bench`) | 1920×1080 | 0.83 (step 0.050, HUD 0.051) | 1.14 | 1.25 |
-| `examples/climb`, one step and its frame (`bench`) | 1280×720 | 0.67 | 0.63 | 0.87 |
+| `examples/climb`, one step and its frame (`bench`) | 1920×1080 | 0.88 (step 0.006, audio feed 0.045, HUD 0.065) | 1.21 | 1.68 |
+| `examples/climb`, one step and its frame (`bench`) | 1280×720 | 0.69 | 0.66 | 0.98 |
 | one-s11 with two actors looping a clip (`run --headless`, 300 frames) | 1920×1080 | 1.30 | | 2.10 |
 
 The climb frame is 15 passes and 21 draws; its HUD pass is one pass, one
-draw and 7 KB of quads. A step alone, median: `examples/climb` 0.041 ms
-over its 900-step replay (wasm VM, collision, animation, sound mixed in the
-step, HUD); 100 actors walking under collision, each looping a clip,
-0.042 ms; 2,000 of them, 1.34 ms (`examples/crowd`).
+draw and 7 KB of quads. A step alone over the climb's 900-step replay (wasm
+VM, collision, animation, HUD): median 0.0006 ms, mean 0.005 ms, the
+cutscene's steps the dearest; its audio feed, which decodes the music and
+mixes the step, a mean 0.035 ms a step. 100 actors walking under collision,
+each looping a clip, 0.042 ms a step; 2,000 of them, 1.36 ms
+(`examples/crowd`).
 
 ## Phones and the web
 
