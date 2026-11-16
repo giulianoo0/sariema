@@ -1,0 +1,24 @@
+{
+  "name": "climb",
+  "assets_root": "../collision",
+  "rooms": { "sill": "../collision/rooms/sill.json" },
+  "actors": { "hero": "actors/hero.json" },
+  "audio": "../audio/audio.json",
+  "game": {
+    "logic": "game",
+    "cutscenes": "cutscenes",
+    "toolchain": "1.100.0",
+    "room": "sill",
+    "hud": "hud.json",
+    "settings": {
+      "input": {
+        "buttons": [
+          { "name": "confirm", "keys": ["space", "enter"], "pad": ["south"] },
+          { "name": "back", "keys": ["backspace"], "pad": ["east"] },
+          { "name": "skip", "keys": ["escape"], "pad": ["start"] },
+          { "name": "action", "keys": ["e"], "pad": ["west"] }
+        ]
+      }
+    }
+  }
+}

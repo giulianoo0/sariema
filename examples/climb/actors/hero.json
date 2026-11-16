@@ -1,0 +1,7 @@
+{
+  "name": "hero",
+  "model": "../demo/actors/arm.glb",
+  "markers": { "wave": { "tap": 0.25 } },
+  "sockets": { "grip": { "joint": "elbow", "translation": [0.0, 0.1, 0.0] } },
+  "materials": { "mat_arm": { "rim": 0.3 } }
+}

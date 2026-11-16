@@ -1,0 +1,75 @@
+{
+  "fonts": {
+    "label": { "file": "../../crates/sariema-ui/fonts/Nunito.ttf", "weight": 750 },
+    "phrase": { "file": "../../crates/sariema-ui/fonts/Nunito.ttf", "weight": 800 }
+  },
+  "nodes": [
+    { "name": "hud", "safe": true, "children": [
+      { "name": "objective", "absolute": true, "left": 16, "top": 12, "align": "center", "gap": 10,
+        "padding": [8, 16, 8, 8], "max_width": 360, "opacity": 0,
+        "fill": "#FFF8EC", "border": { "width": 2.5, "color": "#33261C" },
+        "radius": { "x": [15, 19, 16, 18], "y": [18, 15, 19, 16] },
+        "shadow": { "y": 3, "color": "#33261C61" },
+        "children": [
+          { "name": "disc", "width": 42, "height": 42, "radius": 21, "fill": "#F1DFC0", "children": [
+            { "name": "icon", "absolute": true, "left": 9, "top": 9, "width": 24, "height": 24,
+              "ring": { "width": 3.5 }, "fill": "#33261C" },
+            { "name": "check", "absolute": true, "left": 0, "top": 0, "width": 42, "height": 42,
+              "stroke": { "points": [[13, 22], [19, 28], [30, 15]], "width": 4.5 },
+              "fill": "#FFFFFF", "progress": 0 }
+          ]},
+          { "direction": "column", "shrink": 1, "children": [
+            { "children": [
+              { "name": "label", "text": "Objective", "font": "label", "size": 13, "fill": "#7A4A12" },
+              { "name": "label_done", "absolute": true, "left": 0, "top": 0, "text": "Done!",
+                "font": "label", "size": 13, "fill": "#1F6E2C", "opacity": 0 }
+            ]},
+            { "children": [
+              { "name": "phrase", "text": "Climb through the window", "font": "phrase", "size": 17,
+                "line_height": 1.18, "fill": "#33261C", "max_lines": 2 },
+              { "name": "strike", "absolute": true, "left": -3, "right": -3, "top": "42%", "height": 5,
+                "stroke": { "points": [[0, 3], [40, 1.8], [100, 2.6]], "viewbox": [100, 5], "width": 2.6 },
+                "fill": "#33261C", "progress": 0 }
+            ]}
+          ]}
+        ]},
+      { "name": "zone", "absolute": true, "left": 0, "top": 0, "bottom": 0, "width": "50%",
+        "widget": { "joystick": { "base": "base", "pin": "pin" } },
+        "children": [
+          { "name": "base", "absolute": true, "left": 16, "bottom": 16, "width": 128, "height": 128,
+            "radius": 64, "fill": "#FFFFFF38", "border": { "width": 3, "color": "#FFFFFFB3" }, "opacity": 0.45,
+            "children": [
+              { "name": "pin", "absolute": true, "left": 36, "top": 36, "width": 56, "height": 56, "radius": 28,
+                "fill": "#FFFFFF", "shadow": { "y": 2, "blur": 6, "color": "#0000004D" } }
+            ]}
+        ]},
+      { "name": "action", "absolute": true, "right": 16, "bottom": 16, "width": 80, "height": 80,
+        "widget": { "button": { "face": "face", "ring": "ring" } },
+        "children": [
+          { "name": "ring", "absolute": true, "left": 0, "top": 0, "width": 80, "height": 80,
+            "ring": { "width": 5, "track": "#FFFFFF47" }, "fill": "#FFC93D", "progress": 0 },
+          { "name": "face", "absolute": true, "left": 8, "top": 8, "width": 64, "height": 64, "radius": 32,
+            "fill": "#E0650F", "shadow": { "y": 3, "color": "#33261C61" } },
+          { "name": "action_label", "absolute": true, "right": 0, "bottom": 90, "padding": [2, 10],
+            "fill": "#FFF8EC", "border": { "width": 2.5, "color": "#33261C" }, "radius": 10,
+            "children": [ { "text": "Wave", "font": "label", "size": 15, "fill": "#33261C" } ] }
+        ]}
+    ]}
+  ],
+  "animations": {
+    "enter": [
+      { "node": "objective", "prop": "y", "from": -14, "to": 0, "duration": 0.26 },
+      { "node": "objective", "prop": "opacity", "from": 0, "to": 1, "duration": 0.18 }
+    ],
+    "done": [
+      { "node": "disc", "prop": "fill", "to": "#2F9E41", "duration": 0.18 },
+      { "node": "disc", "prop": "scale", "from": 0.9, "to": 1, "duration": 0.22 },
+      { "node": "icon", "prop": "opacity", "to": 0, "duration": 0.12 },
+      { "node": "check", "prop": "progress", "to": 1, "duration": 0.28, "delay": 0.06 },
+      { "node": "label", "prop": "opacity", "to": 0, "duration": 0.18 },
+      { "node": "label_done", "prop": "opacity", "to": 1, "duration": 0.18 },
+      { "node": "strike", "prop": "progress", "to": 1, "duration": 0.34, "ease": "in_out", "delay": 0.14 },
+      { "node": "phrase", "prop": "opacity", "to": 0.62, "duration": 0.34, "delay": 0.14 }
+    ]
+  }
+}

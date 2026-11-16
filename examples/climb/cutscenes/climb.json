@@ -1,0 +1,22 @@
+{
+  "name": "climb",
+  "roles": {
+    "hero": { "start": { "position": [4.5, 0, -1], "yaw": 0 } }
+  },
+  "steps": [
+    { "letterbox": { "to": 1, "duration": 0.4 } },
+    { "shot": { "follow": "hero", "distance": 4, "pitch": 25, "yaw": 30, "height": 1, "blend": 0.6 } },
+    { "walk": { "role": "hero", "to": [4.5, 0, -1.6], "speed": 1.2, "face": 30 } },
+    { "clip": { "role": "hero", "clip": "wave", "mode": "once", "blend": 0.2, "speed": 1 } },
+    { "call": "climb" },
+    { "wait_for": { "arrived": "hero", "timeout": 4 } },
+    { "sound": { "sound": "chime", "bus": "effects", "at": "hero", "volume": 1 } },
+    { "shot": { "follow": "hero", "socket": "grip", "distance": 1.4, "pitch": 10, "yaw": 160, "blend": 0 } },
+    { "line": { "speaker": "hero", "text": "Made it through.", "voice": "hello", "advance": "auto", "duration": 1.6 } },
+    { "shot": { "follow": "hero", "distance": 4, "pitch": 25, "yaw": 180, "height": 1, "blend": 0 } },
+    { "fade": { "to": 1, "duration": 0.4 } },
+    { "teleport": { "role": "hero", "position": [2.5, 0, -1.25], "yaw": 180, "cover": "fade" } },
+    { "fade": { "to": 0, "duration": 0.4 } },
+    { "letterbox": { "to": 0, "duration": 0.4 } }
+  ]
+}
