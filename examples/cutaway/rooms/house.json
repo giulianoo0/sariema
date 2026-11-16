@@ -1,8 +1,8 @@
 {
   "name": "house",
   "kit": "../../crates/sariema-import/tests/fixtures/kit_min.opt.glb",
-  "montagem": "montagem.json",
-  "luz": "luz.json",
+  "montagem": "placement.json",
+  "luz": "lighting.json",
   "show": ["a"],
   "loose": [],
   "drawn_materials": [],
