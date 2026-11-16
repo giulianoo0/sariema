@@ -7,7 +7,8 @@
 //! last step plus this step's input and writes its commands; the commands
 //! and bulk regions are applied; the cutscene sequencer runs; then the
 //! hero's control, movement, followers, tweens, timers, the screen, the
-//! dialogue, the camera, world placement and trigger zones.
+//! dialogue, world placement, the measurement that puts back a visible actor
+//! carried too far, the camera and trigger zones.
 
 use std::time::Duration;
 
@@ -15,7 +16,7 @@ use glam::Vec3;
 use sariema_format::script::cutscene::Cutscene;
 use sariema_format::script::{Command, Controller, Entity, Event, Kind, records};
 
-use crate::apply::{Source, apply, may_jump, step_move};
+use crate::apply::{Source, apply, hold_jumps};
 use crate::clock::{FixedClock, Tick};
 use crate::cutscene::Sequencer;
 use crate::events::{EventQueue, Happening};
@@ -173,6 +174,7 @@ impl<L: Logic> Simulation<L> {
         let s = &mut self.state;
         s.world.begin_step();
         s.camera.begin_step();
+        s.screen.begin_step();
         s.clips.step();
         s.outbox.begin_step();
         std::mem::swap(&mut s.seen, &mut s.happened);
@@ -235,6 +237,9 @@ impl<L: Logic> Simulation<L> {
             s.end_line(line);
         }
         s.world.resolve();
+        if hold_jumps(s) {
+            s.world.resolve();
+        }
         s.camera.step(&s.world);
         let events = &mut s.events;
         s.zones.step(&s.world, |e| events.push(e));
@@ -366,28 +371,11 @@ fn apply_transforms(s: &mut State, bytes: &[u8]) {
         if !(position.is_finite() && yaw.is_finite()) {
             continue;
         }
-        let Some(node) = s.world.node(e).filter(|n| n.kind != Kind::Actor) else {
-            continue;
-        };
-        let was = node.local;
-        let carries = s.world.has_children(e) || s.followers.of(e).next().is_some();
-        let before = s.world.current_pose(e);
-        let local = &mut s.world.node_mut(e).expect("alive").local;
-        local.position = position;
-        local.yaw = yaw;
-        if !carries {
-            continue;
-        }
-        let (Some(a), Some(b)) = (before, s.world.current_pose(e)) else {
-            continue;
-        };
-        if let Err(r) = may_jump(s, e, step_move(s, a, b)) {
-            s.world.node_mut(e).expect("alive").local = was;
-            s.events.push(Event::Rejected {
-                opcode: 0,
-                code: r.code,
-                entity: r.entity,
-            });
+        if let Ok(node) = s.world.node_mut(e)
+            && node.kind != Kind::Actor
+        {
+            node.local.position = position;
+            node.local.yaw = yaw;
         }
     }
 }

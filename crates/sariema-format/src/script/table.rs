@@ -187,8 +187,8 @@ batch_table! {
         /// The host asks the game to wind down (back button, app leaving).
         0x0054 ExitRequested exit_requested {}
 
-        /// The engine refused a command, or a record of a transform region
-        /// (`opcode` 0); `code` says why.
+        /// The engine refused a command, or stopped a move that carried a
+        /// visible actor too far in a step (`opcode` 0); `code` says why.
         0x0060 Rejected rejected { opcode: u16, code: Str, entity: Entity }
     }
 }

@@ -75,6 +75,7 @@ pub struct Screen {
     /// Linear RGB.
     pub fade_color: Vec3,
     pub letterbox: Fader,
+    covered_before: bool,
 }
 
 impl Default for Screen {
@@ -83,6 +84,7 @@ impl Default for Screen {
             fade: Fader::ZERO,
             fade_color: Vec3::ZERO,
             letterbox: Fader::ZERO,
+            covered_before: false,
         }
     }
 }
@@ -90,6 +92,15 @@ impl Default for Screen {
 impl Screen {
     pub fn covered(&self) -> bool {
         self.fade.value() >= 1.0
+    }
+
+    /// Whether the screen was fully covered when the step began.
+    pub fn covered_before(&self) -> bool {
+        self.covered_before
+    }
+
+    pub fn begin_step(&mut self) {
+        self.covered_before = self.covered();
     }
 
     pub fn step(&mut self) {

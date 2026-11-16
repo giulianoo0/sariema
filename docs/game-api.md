@@ -88,25 +88,39 @@ free list: `ctx.spawn` takes a slot, `ctx.despawn` and the engine's
 
 Kinds: `empty`, `room_node`, `actor`, `light`, `camera`, `sound_emitter`,
 `ui_node`. Actors are what moves, walks, turns and plays clips. A visible
-actor never jumps: it never goes faster than `motion.max_visible_speed`
-(20 m/s) nor turns faster than `motion.turn_rate`. Everything that moves
-something asks the same rule first, with how far its next step goes:
-`set_transform` and `teleport` (always too far for an actor), `tween` (its
-fastest step), `spring` (a bound on its speed), `follow` (its first step),
-`move_to`, `move_intent`, `set_hero` and `set_speed_scale` (the speed),
-`set_parent` (the change of world placement), and each record of a transform
-region for an entity that carries others. It is refused with
+actor never jumps: from one step to the next it never goes faster than
+`motion.max_visible_speed` (20 m/s) nor turns faster than
+`motion.turn_rate`. The guarantee is a measurement taken after every system
+has run in a step: each actor's world placement is compared with the
+previous step's. An actor visible when the step began and still visible, not
+placed this step (spawned, a forced `teleport`, or carried by something that
+was), that went too far or turned too fast is put back where it was, and
+what moved it stops: the tweens, springs, follow and walk of the actor and
+of everything that carries it. Whatever moved it is caught: a fast tween or
+walk begun under a fade or a cut that has lifted since, or while the actor
+was hidden; a carrier that turns or grows and sweeps a child round; a
+transform region; several moves in one step that each pass but add up. A
+step is not measured when the screen is fully faded when it begins or when
+it ends, or when the camera cuts in it.
+
+Before that, each command that moves something is judged when it is given,
+with how far its next step goes, so a move that surely jumps changes
+nothing: `set_transform` and `teleport` (always too far for an actor),
+`tween` (its fastest step), `follow` (its first step), `move_to`,
+`move_intent`, `set_hero` and `set_speed_scale` (the speed), and
+`set_parent` (the change of world placement). It is refused with
 `E_TELEPORT_VISIBLE` when that would carry an actor too far in a step: the
 entity itself, a child at any depth (going as far) or a follower (going its
 lag's share), that was visible when the step began and is not placed yet
-this step. It is allowed when the screen is fully faded, the camera cut in
-the same step, or `teleport` says `force`. Hiding and showing in the same
-step hides nothing: an actor hidden for a whole step may then be placed
-anywhere.
+this step. It is allowed when the screen is fully faded, the camera cuts in
+the same step, or `teleport` says `force`; once the cover lifts, the move is
+measured like any other. A forced `teleport` carries the entity's children
+with it, drawn where they land. Hiding and showing in the same step hides
+nothing: an actor hidden for a whole step may then be placed anywhere.
 
 A refused command produces a `rejected` event with the opcode, the code and
-the entity; a refused region record keeps the entity where it was and reports
-opcode 0. The game keeps running.
+the entity; a move the step's measurement stopped reports opcode 0. The game
+keeps running.
 
 ## The Rust SDK
 

@@ -3,8 +3,6 @@
 //! Carries out one command against the state. Commands from the game and
 //! from the cutscene sequencer both come through here.
 
-use std::f32::consts::TAU;
-
 use glam::Vec3;
 use sariema_core::STEP_SECONDS;
 use sariema_format::script::{Bus, Command, Ease, Entity, Event, Kind, Property};
@@ -46,12 +44,13 @@ fn v3(v: [f32; 3]) -> Vec3 {
     Vec3::from_array(v)
 }
 
-/// The one owner of the no-jump rule; everything that moves something asks
-/// it first. `moved` is how far `e` goes in one step, infinite for a
-/// placement. Refused, on a screen neither fully faded nor cut, when an actor
-/// that was visible when the step began and is not placed yet this step
-/// would go farther than `motion.max_visible_speed` allows: `e`, a child of
-/// it at any depth (going as far), or a follower (going its gain of it).
+/// The early refusal of the no-jump rule, asked by every command that moves
+/// something; [`hold_jumps`] is the guarantee. `moved` is how far `e` goes
+/// in one step, infinite for a placement. Refused, on a screen neither fully
+/// faded nor cut, when an actor that was visible when the step began and is
+/// not placed yet this step would go farther than `motion.max_visible_speed`
+/// allows: `e`, a child of it at any depth (going as far), or a follower
+/// (going its gain of it).
 pub(crate) fn may_jump(s: &State, e: Entity, moved: f32) -> Result<(), Refusal> {
     if moved <= step_limit(s) || s.screen.covered() || s.camera.cut() {
         return Ok(());
@@ -66,6 +65,53 @@ pub(crate) fn may_jump(s: &State, e: Entity, moved: f32) -> Result<(), Refusal> 
 /// The farthest a visible actor may go in one step.
 fn step_limit(s: &State) -> f32 {
     s.settings.motion.max_visible_speed * STEP_SECONDS
+}
+
+/// Room for the rounding of composed placements when measuring a step.
+const SLACK: f32 = 1.0 + 1e-4;
+
+/// The no-jump rule measured once every system has moved things this step.
+/// A visible actor that went farther than `motion.max_visible_speed` or
+/// turned faster than `motion.turn_rate` since the previous step, with the
+/// screen fully faded at neither end of the step and no camera cut, is put
+/// back where it was and refused; what moved it stops: the tweens, springs,
+/// follow and walk of the actor and of everything that carries it. Returns
+/// whether anything was put back.
+pub(crate) fn hold_jumps(s: &mut State) -> bool {
+    if s.screen.covered() || s.screen.covered_before() || s.camera.cut() {
+        return false;
+    }
+    let jumped = s.world.jumps(step_limit(s) * SLACK, turn_limit(s) * SLACK);
+    for &e in &jumped {
+        let mut at = e;
+        while let Some(node) = s.world.node(at) {
+            let parent = node.parent;
+            stop(s, at);
+            at = parent;
+        }
+        s.world.hold(e);
+        let local = s.world.node(e).expect("a jumped actor is alive").local;
+        s.outbox.physics.push(PhysicsIntent::Teleport {
+            entity: e,
+            position: local.position,
+            yaw: local.yaw,
+        });
+        s.events.push(Event::Rejected {
+            opcode: 0,
+            code: Reject::TeleportVisible.code(),
+            entity: e,
+        });
+    }
+    !jumped.is_empty()
+}
+
+fn stop(s: &mut State, e: Entity) {
+    s.tweens.forget(e);
+    s.followers.unfollow(e);
+    if s.motion.get(e).is_some_and(|m| m.goal != Goal::Idle) {
+        s.motion.mover_mut(e).goal = Goal::Idle;
+        s.outbox.physics.push(PhysicsIntent::Stop { entity: e });
+    }
 }
 
 /// `budget` bounds the walk, which a cycle of followers would not end.
@@ -90,7 +136,7 @@ fn seen_moving(s: &State, e: Entity, moved: f32, budget: &mut usize) -> bool {
 
 /// How far going from `a` to `b` in one step moves: infinite when it turns
 /// faster than `motion.turn_rate`.
-pub(crate) fn step_move(s: &State, a: Pose, b: Pose) -> f32 {
+fn step_move(s: &State, a: Pose, b: Pose) -> f32 {
     if a.rotation.angle_between(b.rotation).to_degrees() > turn_limit(s) {
         f32::INFINITY
     } else {
@@ -128,23 +174,6 @@ fn tween_move(s: &State, t: &Target, to: f32, duration: f32, curve: Ease) -> f32
         last = now;
     }
     property_move(s, t.property, most * (to - from).abs())
-}
-
-/// A bound on the farthest one step of a spring of `t` to `to` moves it: a
-/// damped spring never gains energy, so its speed stays within
-/// `sqrt(v² + ω²x²)` of the speed and offset it starts with.
-fn spring_move(s: &State, id: u32, t: &Target, to: f32, frequency: f32) -> f32 {
-    let Ok(now) = tween::read(&s.world, &s.store, t) else {
-        return 0.0;
-    };
-    let v = s.tweens.velocity(id, t, now);
-    let omega = TAU * frequency.max(0.0);
-    let x = to - now;
-    property_move(
-        s,
-        t.property,
-        (v * v + omega * omega * x * x).sqrt() * STEP_SECONDS,
-    )
 }
 
 /// How far placing `e` at local `position` and `yaw` moves it; infinite for
@@ -495,7 +524,6 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
                 var,
             };
             tweenable(s, &target)?;
-            may_jump(s, entity, spring_move(s, tween, &target, to, frequency))?;
             s.tweens
                 .spring(&s.world, &s.store, tween, target, to, frequency, damping)
                 .map_err(refuse(entity))?;

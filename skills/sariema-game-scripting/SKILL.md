@@ -74,7 +74,7 @@ with `sariema run --headless … --json`.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `rejected` with `E_TELEPORT_VISIBLE` (opcode 0: a region record) | something would move a visible actor faster than `motion.max_visible_speed`: `set_transform`, `teleport`, a fast `tween`, `spring` or walk, a rigid `follow`, `set_parent`, or moving what carries it | walk or ease it slower; hide it a step before; or fade to 1 first |
+| `rejected` with `E_TELEPORT_VISIBLE` | something would move a visible actor faster than `motion.max_visible_speed`: `set_transform`, `teleport`, a fast `tween` or walk, a rigid `follow`, `set_parent`, or moving what carries it. Opcode 0: the step's measurement put the actor back and stopped what moved it (a fast move begun under a fade or cut that lifted, or while hidden; a spring; a carrier turning or growing; moves that add up) | walk or ease it slower; hide it a step before; or keep the fade or cut over the whole move |
 | `rejected` with `E_ENTITY_STALE` | a handle kept after `despawn` or a `despawned` event | drop handles when they die |
 | `E_GAME_TRAP` at step 0 with "time not implemented" | `std::time` | count steps (`ctx.step()`) |
 | `E_GAME_BUDGET` | heavy work in one tick | spread it over steps; bulk regions for many placements |

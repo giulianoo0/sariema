@@ -18,7 +18,8 @@ pub enum Reject {
     Limit,
     /// `set_parent` would make an entity its own ancestor.
     Cycle,
-    /// A visible actor was told to jump without a cut, a full fade or `force`.
+    /// A visible actor would move or turn faster than it may be seen to,
+    /// without a cut, a full fade or `force`.
     TeleportVisible,
     /// The command needs an actor and the entity is another kind.
     NotActor,
@@ -52,7 +53,7 @@ impl Reject {
             Reject::Limit => "the slot index is at or past the max_entities setting",
             Reject::Cycle => "set_parent would make the entity its own ancestor",
             Reject::TeleportVisible => {
-                "a visible actor may only teleport under a full fade, in the step of a camera cut, or with force"
+                "a visible actor may not move faster than motion.max_visible_speed nor turn faster than motion.turn_rate, except under a full fade, in the step of a camera cut, or by a forced teleport"
             }
             Reject::NotActor => "the command needs an actor",
         }
@@ -114,6 +115,8 @@ struct Slot {
     alive: bool,
     /// Visible when the step began.
     shown: bool,
+    /// Placed discontinuously this step, itself or through a parent.
+    snapped: bool,
     children: u32,
 }
 
@@ -123,7 +126,6 @@ pub struct World {
     nodes: Vec<Node>,
     poses: Vec<Pose>,
     previous: Vec<Pose>,
-    snapped: Vec<u32>,
     resolve_stamp: Vec<u64>,
     stamp: u64,
     chain: Vec<u32>,
@@ -153,7 +155,6 @@ impl World {
             nodes: Vec::new(),
             poses: Vec::new(),
             previous: Vec::new(),
-            snapped: Vec::new(),
             resolve_stamp: Vec::new(),
             stamp: 0,
             chain: Vec::new(),
@@ -203,6 +204,7 @@ impl World {
             generation: e.generation,
             used: true,
             alive: true,
+            snapped: true,
             ..Slot::default()
         };
         let mut node = std::mem::replace(&mut self.nodes[i], EMPTY_NODE);
@@ -214,7 +216,6 @@ impl World {
             ..EMPTY_NODE
         };
         self.alive += 1;
-        self.snapped.push(e.index);
         Ok(())
     }
 
@@ -298,13 +299,76 @@ impl World {
 
     /// Placement changed discontinuously: rendering must not interpolate it.
     pub fn snap(&mut self, e: Entity) {
-        self.snapped.push(e.index);
+        if self.is_alive(e) {
+            self.slots[e.index as usize].snapped = true;
+        }
     }
 
-    /// Whether `e` was spawned or snapped this step: placing it again in the
-    /// same step adds no visible jump.
+    /// Whether `e` or a parent of it was spawned or snapped this step:
+    /// placing it again in the same step adds no visible jump.
     pub fn snapped_this_step(&self, e: Entity) -> bool {
-        self.is_alive(e) && self.snapped.contains(&e.index)
+        let mut at = e;
+        while self.is_alive(at) {
+            if self.slots[at.index as usize].snapped {
+                return true;
+            }
+            at = self.nodes[at.index as usize].parent;
+        }
+        false
+    }
+
+    /// The actors visible when the step began and still visible, not
+    /// snapped, whose resolved placement went farther than `distance` or
+    /// turned more than `degrees` since the previous step; parents first.
+    pub fn jumps(&self, distance: f32, degrees: f32) -> Vec<Entity> {
+        let mut out: Vec<Entity> = self
+            .entities()
+            .filter(|(e, n)| {
+                let (i, slot) = (e.index as usize, &self.slots[e.index as usize]);
+                let (a, b) = (self.previous[i], self.poses[i]);
+                n.kind == Kind::Actor
+                    && n.visible
+                    && slot.shown
+                    && !slot.snapped
+                    && (a.position.distance(b.position) > distance
+                        || a.rotation.angle_between(b.rotation).to_degrees() > degrees)
+            })
+            .map(|(e, _)| e)
+            .collect();
+        out.sort_by_key(|&e| self.depth(e));
+        out
+    }
+
+    fn depth(&self, e: Entity) -> u32 {
+        let (mut depth, mut at) = (0, self.nodes[e.index as usize].parent);
+        while self.is_alive(at) {
+            depth += 1;
+            at = self.nodes[at.index as usize].parent;
+        }
+        depth
+    }
+
+    /// Puts `e` back where the previous step left it, whatever its parent
+    /// is now.
+    pub fn hold(&mut self, e: Entity) {
+        if !self.is_alive(e) {
+            return;
+        }
+        let i = e.index as usize;
+        let was = self.previous[i];
+        let parent = self
+            .current_pose(self.nodes[i].parent)
+            .filter(|p| p.scale != 0.0)
+            .unwrap_or(IDENTITY_POSE);
+        let inverse = parent.rotation.inverse();
+        let (yaw, pitch, roll) = (inverse * was.rotation).to_euler(EulerRot::YXZ);
+        self.nodes[i].local = Transform {
+            position: inverse * (was.position - parent.position) / parent.scale,
+            yaw: yaw.to_degrees(),
+            pitch: pitch.to_degrees(),
+            roll: roll.to_degrees(),
+            scale: was.scale / parent.scale,
+        };
     }
 
     /// The live entities in slot order.
@@ -376,13 +440,14 @@ impl World {
     /// Start of a step: the resolved placement becomes the previous one.
     pub fn begin_step(&mut self) {
         self.previous.copy_from_slice(&self.poses);
-        self.snapped.clear();
         for (slot, node) in self.slots.iter_mut().zip(&self.nodes) {
             slot.shown = node.visible;
+            slot.snapped = false;
         }
     }
 
     /// Computes every world placement from the local ones, parents first.
+    /// What a snapped parent carries is snapped with it.
     pub fn resolve(&mut self) {
         self.stamp += 1;
         for i in 0..self.slots.len() {
@@ -409,7 +474,11 @@ impl World {
                 let pose = if node.parent.is_none() {
                     local
                 } else {
-                    let p = self.poses[node.parent.index as usize];
+                    let parent = node.parent.index as usize;
+                    if self.slots[parent].snapped {
+                        self.slots[j as usize].snapped = true;
+                    }
+                    let p = self.poses[parent];
                     Pose {
                         position: p.position + p.rotation * (local.position * p.scale),
                         rotation: p.rotation * local.rotation,
@@ -420,8 +489,10 @@ impl World {
                 self.resolve_stamp[j as usize] = self.stamp;
             }
         }
-        for &i in &self.snapped {
-            self.previous[i as usize] = self.poses[i as usize];
+        for ((slot, pose), previous) in self.slots.iter().zip(&self.poses).zip(&mut self.previous) {
+            if slot.alive && slot.snapped {
+                *previous = *pose;
+            }
         }
     }
 }

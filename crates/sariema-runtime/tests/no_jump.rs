@@ -5,6 +5,7 @@
 mod common;
 
 use glam::Vec3;
+use sariema_core::STEP_SECONDS;
 use sariema_format::script::{Command, Ease, Entity, Event, Kind, Property, records};
 use sariema_runtime::input::Actions;
 use sariema_runtime::settings::Settings;
@@ -61,6 +62,10 @@ struct Run {
     at: Vec<Vec3>,
     /// `(step, code)` of every refusal.
     refused: Vec<(u64, String)>,
+    /// Whether the screen was fully covered after each step.
+    covered: Vec<bool>,
+    /// The actor drawn halfway between the previous step and each step.
+    drawn: Vec<Vec3>,
 }
 
 /// A game that runs `script[step]` each step and, after the tick, writes
@@ -133,15 +138,20 @@ fn run_with(
     let settings = Settings::default();
     let idle = Actions::for_settings(&settings.input);
     let mut sim = Simulation::new(settings, vec![], logic, 0);
-    let mut at = Vec::new();
+    let (mut at, mut covered, mut drawn) = (Vec::new(), Vec::new(), Vec::new());
     for _ in 0..steps {
         sim.step(&idle);
-        at.push(sim.state().world.current_pose(ACTOR).unwrap().position);
+        let world = &sim.state().world;
+        at.push(world.current_pose(ACTOR).unwrap().position);
+        drawn.push(world.interpolated(ACTOR, 0.5).unwrap().position);
+        covered.push(sim.state().screen.covered());
     }
     sim.step(&idle);
     Run {
         at,
         refused: sim.logic().refused.clone(),
+        covered,
+        drawn,
     }
 }
 
@@ -382,4 +392,191 @@ fn a_region_cannot_carry_a_visible_actor_away_at_once() {
     });
     assert!(r.refused.is_empty(), "a platform at 6 m/s: {:?}", r.refused);
     assert!(r.at[4].x > 0.0);
+}
+
+/// The farthest a visible actor may go between two frames.
+const LIMIT: f32 = 20.0 * STEP_SECONDS * 1.001;
+
+fn moved(r: &Run, k: usize) -> f32 {
+    r.at[k].distance(r.at[k - 1])
+}
+
+fn tween_to(entity: Entity, property: Property, to: f32, steps: u32) -> Command<'static> {
+    Command::Tween {
+        tween: entity.index * 8 + property as u32,
+        entity,
+        property,
+        var: 0,
+        to,
+        duration: steps as f32 * STEP_SECONDS,
+        ease: Ease::Linear,
+    }
+}
+
+#[test]
+fn a_fast_tween_begun_under_a_fade_stops_once_the_fade_lifts() {
+    let fade_in = Command::Fade {
+        to: 0.0,
+        duration: 0.5,
+        color: [0.0; 3],
+    };
+    let tween = tween_to(ACTOR, Property::PositionX, 100.0, 60);
+    let mut script = vec![vec![], vec![BLACK], vec![tween], vec![fade_in]];
+    script.resize(12, vec![]);
+    let r = run(script);
+    assert_eq!(r.refused, refused_at(4), "judged once a frame shows it");
+    for k in 1..r.at.len() {
+        if !(r.covered[k] || r.covered[k - 1]) {
+            assert!(moved(&r, k) <= LIMIT, "step {k}: {} m", moved(&r, k));
+        }
+    }
+}
+
+#[test]
+fn a_fast_tween_begun_on_a_cut_stops_on_the_next_step() {
+    let script = vec![
+        vec![],
+        vec![
+            Command::RigFixed {
+                rig: 1,
+                position: [0.0, 5.0, 5.0],
+                look_at: [0.0; 3],
+                fov: 40.0,
+            },
+            Command::CameraUse {
+                rig: 1,
+                blend: 0.0,
+                ease: Ease::Linear,
+            },
+            tween_to(ACTOR, Property::PositionX, 100.0, 30),
+        ],
+        vec![],
+        vec![],
+    ];
+    let r = run(script);
+    assert_eq!(r.refused, refused_at(2));
+    assert!(r.at[1].x > 3.0, "the cut hides the first step");
+    assert_eq!(r.at[2], r.at[1]);
+    assert_eq!(r.at[3], r.at[1]);
+}
+
+#[test]
+fn a_fast_walk_begun_while_hidden_stops_once_it_is_seen_moving() {
+    let walk = Command::MoveTo {
+        entity: ACTOR,
+        target: [100.0, 0.0, 0.0],
+        speed: 200.0,
+    };
+    let r = run(vec![
+        vec![],
+        vec![visible(ACTOR, false)],
+        vec![walk],
+        vec![],
+        vec![visible(ACTOR, true)],
+        vec![],
+        vec![],
+    ]);
+    assert_eq!(r.refused, refused_at(5), "it appeared at 4, moved at 5");
+    assert!(r.at[4].x > 5.0);
+    assert_eq!(r.at[5], r.at[4]);
+    assert_eq!(r.at[6], r.at[4]);
+}
+
+#[test]
+fn a_carrier_that_turns_or_grows_cannot_sweep_a_visible_child_away() {
+    let parent = Command::SetParent {
+        entity: ACTOR,
+        parent: PROP,
+    };
+    let setup = vec![
+        vec![],
+        vec![visible(ACTOR, false)],
+        vec![set_transform(ACTOR, 50.0), parent, visible(ACTOR, true)],
+    ];
+    for motion in [
+        tween_to(PROP, Property::Yaw, 320.0, 40),
+        tween_to(PROP, Property::Scale, 3.0, 30),
+    ] {
+        let mut script = setup.clone();
+        script.push(vec![motion]);
+        script.resize(8, vec![]);
+        let r = run(script);
+        assert_eq!(r.refused, refused_at(3), "{motion:?}");
+        for k in 3..r.at.len() {
+            assert!(
+                r.at[k].distance(r.at[2]) < 1e-3,
+                "{motion:?} step {k}: {:?}",
+                r.at[k]
+            );
+        }
+    }
+}
+
+#[test]
+fn moves_that_each_pass_but_sum_past_the_limit_are_a_jump() {
+    let r = run(vec![
+        vec![],
+        vec![
+            tween_to(ACTOR, Property::PositionX, 18.0, 60),
+            tween_to(ACTOR, Property::PositionZ, 18.0, 60),
+        ],
+        vec![],
+    ]);
+    assert_eq!(
+        r.refused,
+        refused_at(1),
+        "0.3 m and 0.3 m are 0.42 m a step"
+    );
+    assert_eq!(r.at[1], Vec3::ZERO);
+    assert_eq!(r.at[2], Vec3::ZERO);
+
+    let parent = Command::SetParent {
+        entity: ACTOR,
+        parent: PROP,
+    };
+    let r = run_with(vec![vec![], vec![parent], vec![], vec![]], |step| {
+        if step == 2 {
+            vec![(PROP, 0.2), (PROP, 0.4)]
+        } else {
+            Vec::new()
+        }
+    });
+    assert_eq!(r.refused, refused_at(2), "two records, 0.4 m in one step");
+    assert!(r.at.iter().all(|p| p.x == 0.0), "{:?}", r.at);
+}
+
+#[test]
+fn an_ordinary_spring_is_not_refused() {
+    let spring = Command::Spring {
+        tween: 1,
+        entity: ACTOR,
+        property: Property::PositionX,
+        var: 0,
+        to: 5.0,
+        frequency: 1.0,
+        damping: 1.0,
+    };
+    let mut script = vec![vec![], vec![spring]];
+    script.resize(120, vec![]);
+    let r = run(script);
+    assert!(r.refused.is_empty(), "{:?}", r.refused);
+    assert!((r.at[119].x - 5.0).abs() < 0.05, "{}", r.at[119].x);
+}
+
+#[test]
+fn a_forced_teleport_carries_a_visible_child_without_sliding_it() {
+    let parent = Command::SetParent {
+        entity: ACTOR,
+        parent: PROP,
+    };
+    let force = Command::Teleport {
+        entity: PROP,
+        position: [50.0, 0.0, 0.0],
+        yaw: 0.0,
+        force: true,
+    };
+    let r = run(vec![vec![], vec![parent], vec![force]]);
+    assert!(r.refused.is_empty(), "{:?}", r.refused);
+    assert_eq!(r.at[2].x, 50.0);
+    assert_eq!(r.drawn[2].x, 50.0, "drawn where it lands, not halfway");
 }
