@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+{
+  "name": "sariema-site",
+  "compatibility_date": "2026-11-16",
+  "assets": {
+    "directory": "./out",
+    "not_found_handling": "404-page"
+  },
+  "routes": [{ "pattern": "sariema.minel.li", "custom_domain": true }]
+}
