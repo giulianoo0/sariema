@@ -357,6 +357,28 @@ impl Mover<'_> {
         at
     }
 
+    /// Where the actor at `at`, just turned to this mover's yaw, can stand: `at`
+    /// when the turned collider is clear, otherwise pushed level out of what it
+    /// now overlaps, by a sweep so the body never passes through anything;
+    /// `None` when that does not clear it within the depenetration distance.
+    pub fn turned(&self, at: Vec3) -> Option<Vec3> {
+        let Some((_, deepest)) = self.scene.deepest(&self.probe(at), self.filter) else {
+            return Some(at);
+        };
+        let c = &self.settings.collision;
+        let level = flat(deepest.normal);
+        let reach = level.length();
+        let distance = (c.skin - deepest.separation) / reach;
+        if distance > c.max_depenetration {
+            return None;
+        }
+        let out = self.push(at, level / reach * distance);
+        self.scene
+            .deepest(&self.probe(out), self.filter)
+            .is_none()
+            .then_some(out)
+    }
+
     /// Pushes the actor at `at` out of everything it overlaps; `None` when
     /// that takes more passes or distance than the settings allow.
     pub fn depenetrate(&self, at: Vec3) -> Option<Vec3> {

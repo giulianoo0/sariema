@@ -6,7 +6,9 @@ mod common;
 
 use common::{Owned, Room, actor, actor_with, hold, settle};
 use glam::{Mat3, Vec2, Vec3};
-use sariema_physics::{ActorCollider, EventKind, Head, Intent, Settings, Shape, TriggerId};
+use sariema_physics::{
+    ActorCollider, ActorDesc, EventKind, Head, Intent, Settings, Shape, TriggerId, World,
+};
 
 fn big_head() -> ActorCollider {
     ActorCollider {
@@ -15,9 +17,56 @@ fn big_head() -> ActorCollider {
         head: Some(Head {
             radius: 0.38,
             height: 1.15,
-            forward: 0.0,
+            forward: 0.1,
         }),
     }
+}
+
+/// A head 0.3 m ahead of the body's axis, as `ActorCollider::fit` gives a
+/// character whose head juts forward.
+fn forward_head() -> ActorCollider {
+    ActorCollider {
+        radius: 0.3,
+        height: 1.0,
+        head: Some(Head {
+            radius: 0.3,
+            height: 1.1,
+            forward: 0.3,
+        }),
+    }
+}
+
+/// A wall whose south face is 0.32 m north of an actor at the origin facing
+/// east, its head clear of the wall.
+fn facing_east_by_a_wall() -> (World, sariema_physics::ActorId) {
+    let mut room = Room::default();
+    room.floor(20.0)
+        .wall("wall", Vec2::new(0.0, -0.42), Vec3::new(6.0, 2.0, 0.2), 0.0);
+    let mut world = room.world(Settings::default());
+    let id = world
+        .add_actor(ActorDesc {
+            position: Vec3::ZERO,
+            yaw: std::f32::consts::FRAC_PI_2,
+            collider: forward_head(),
+            ..ActorDesc::default()
+        })
+        .unwrap();
+    (world, id)
+}
+
+/// The deepest the actor's collider is inside the room over `steps` steps.
+fn deepest_over(world: &mut World, id: sariema_physics::ActorId, steps: usize) -> f32 {
+    let collider = world.actor_collider(id);
+    let mut events = Vec::new();
+    let mut deepest = 0.0f32;
+    for _ in 0..steps {
+        world.step(&mut events);
+        let a = world.actor(id);
+        if let Some((_, separation)) = world.actor_overlap(&collider, a.position, a.yaw) {
+            deepest = deepest.min(separation);
+        }
+    }
+    deepest
 }
 
 #[test]
@@ -39,18 +88,22 @@ fn a_wall_leaning_towards_the_hero_stops_the_head_not_the_feet() {
     let id = actor_with(&mut world, Vec3::new(0.0, 0.0, 2.5), collider, 2.1);
     settle(&mut world, id);
     let mut events = Vec::new();
-    let positions = hold(&mut world, id, Vec2::new(0.0, -1.0), 120, &mut events);
-    let end = *positions.last().unwrap();
-    for p in &positions {
+    world.apply(Intent::Move {
+        actor: id,
+        stick: Vec2::new(0.0, -1.0),
+    });
+    for _ in 0..120 {
+        world.step(&mut events);
+        let a = world.actor(id);
         assert!(
-            world
-                .actor_overlap(&collider, *p, std::f32::consts::PI)
-                .is_none(),
-            "inside at {p}"
+            world.actor_overlap(&collider, a.position, a.yaw).is_none(),
+            "inside at {a:?}"
         );
     }
+    let a = world.actor(id);
+    let end = a.position;
     let mut touching = Vec::new();
-    let head = end + Vec3::Y * 1.15;
+    let head = end + Vec3::Y * 1.15 + sariema_physics::forward(a.yaw) * 0.1;
     world.overlap(head, head, 0.38 + 0.02, &mut touching);
     assert!(
         touching
@@ -324,5 +377,36 @@ fn a_posed_actor_goes_through_a_sill_untouched_then_walks_with_collision() {
             EventKind::Landed { .. } | EventKind::TeleportRejected
         )),
         "{events:?}"
+    );
+}
+
+#[test]
+fn turning_towards_a_wall_never_swings_the_head_into_it() {
+    for stick in [
+        Vec2::new(0.0, -1.0),
+        Vec2::new(1.0, -1.0).normalize(),
+        Vec2::new(15f32.to_radians().cos(), -15f32.to_radians().sin()),
+    ] {
+        let (mut world, id) = facing_east_by_a_wall();
+        world.apply(Intent::Move { actor: id, stick });
+        let deepest = deepest_over(&mut world, id, 120);
+        assert!(deepest > -1e-3, "stick {stick}: head {deepest} m inside");
+    }
+}
+
+#[test]
+fn turning_to_face_the_wall_on_arrival_keeps_the_head_out() {
+    let (mut world, id) = facing_east_by_a_wall();
+    world.apply(Intent::MoveTo {
+        actor: id,
+        target: Vec3::new(0.3, 0.0, 0.0),
+        face: Some(std::f32::consts::PI),
+    });
+    let deepest = deepest_over(&mut world, id, 120);
+    assert!(deepest > -1e-3, "head {deepest} m inside");
+    let a = world.actor(id);
+    assert!(
+        (a.yaw.abs() - std::f32::consts::PI).abs() < 0.05,
+        "never turned to the wall: {a:?}"
     );
 }

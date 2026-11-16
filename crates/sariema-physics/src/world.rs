@@ -686,7 +686,24 @@ impl World {
                 a.target_yaw = want;
             }
         }
-        a.yaw = wrap_angle(a.yaw + wrap_angle(a.target_yaw - a.yaw) * blend);
+        let yaw = wrap_angle(a.yaw + wrap_angle(a.target_yaw - a.yaw) * blend);
+        let swings = a.desc.collider.head.is_some_and(|h| h.forward != 0.0);
+        if !swings || yaw == a.yaw {
+            a.yaw = yaw;
+            return;
+        }
+        let a = &self.actors[i];
+        let turned = Mover {
+            yaw,
+            ..self.mover(a, Filter::ALL)
+        }
+        .turned(a.position);
+        let a = &mut self.actors[i];
+        if let Some(at) = turned {
+            a.awake |= at != a.position;
+            a.position = at;
+            a.yaw = yaw;
+        }
     }
 
     fn start_route(&mut self, i: usize, target: Vec3, face: Option<f32>, events: &mut Vec<Event>) {
