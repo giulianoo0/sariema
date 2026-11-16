@@ -144,9 +144,13 @@ impl Settings {
         let (c, k, n, m) = (&self.collision, &self.controller, &self.nav, &self.move_to);
         let length = |x: f32| x.is_finite() && x >= 0.0;
         let positive = |x: f32| x.is_finite() && x > 0.0;
+        let fraction = |x: f32| (0.0..=1.0).contains(&x);
         let checks = [
-            ("step_seconds", positive(self.step_seconds)),
             ("collision.skin", length(c.skin)),
+            ("collision.contact_tolerance", length(c.contact_tolerance)),
+            ("collision.sweep_tolerance", length(c.sweep_tolerance)),
+            ("collision.sweep_iterations", c.sweep_iterations > 0),
+            ("collision.tangent_tolerance", length(c.tangent_tolerance)),
             ("collision.max_depenetration", length(c.max_depenetration)),
             ("controller.gravity", length(k.gravity)),
             ("controller.max_fall_speed", length(k.max_fall_speed)),
@@ -162,16 +166,25 @@ impl Settings {
                 length(k.corner_assist_distance),
             ),
             (
+                "controller.wall_slide_preservation",
+                fraction(k.wall_slide_preservation),
+            ),
+            ("controller.stick_dead_zone", length(k.stick_dead_zone)),
+            (
                 "controller.stick_full",
                 k.stick_full > k.stick_dead_zone && k.stick_full <= 1.0,
             ),
             ("controller.stick_exponent", positive(k.stick_exponent)),
             ("controller.yaw_rate", length(k.yaw_rate)),
+            ("controller.yaw_filter", length(k.yaw_filter)),
             ("nav.cell_size", positive(n.cell_size)),
             ("nav.max_layers", n.max_layers > 0),
             ("nav.snap_radius", length(n.snap_radius)),
             ("move_to.arrive_distance", length(m.arrive_distance)),
             ("move_to.waypoint_distance", length(m.waypoint_distance)),
+            ("move_to.face_tolerance", length(m.face_tolerance)),
+            ("move_to.stuck_steps", m.stuck_steps > 0),
+            ("move_to.stuck_progress", fraction(m.stuck_progress)),
         ];
         match checks.iter().find(|(_, ok)| !ok) {
             Some((name, _)) => Err(format!("physics.{name} is out of range")),

@@ -26,7 +26,9 @@ actors, sound bank, HUD; [game-api.md](game-api.md) has the pack). With a
 collision pack the runtime's built-in mover is switched off
 (`motion.builtin = false`) and the collision module moves every actor;
 `Engine::new`, given a simulation, refuses collision with the mover still
-on (`E_SETTINGS`), since every actor would move twice.
+on (`E_SETTINGS`), since every actor would move twice, and physics
+settings out of range (`E_SETTINGS`, naming the key), however the host
+built them.
 
 ## The order of a step
 

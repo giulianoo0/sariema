@@ -377,8 +377,11 @@ Every number that bounds or tunes the simulation is a field of
 `controller.max_yaw_speed` belong to the engine, which sets them to the
 runtime's step and `motion.turn_rate`, so a game's settings cannot name
 them. A size or count that cannot run (a `nav.cell_size` of 0, no
-`slide_iterations`, a slope of 90° or more) fails loading with
-`E_SETTINGS`. Defaults come from the game this engine replaces:
+`slide_iterations` or `sweep_iterations`, a slope of 90° or more), a
+negative length or tolerance, or a fraction outside 0 to 1
+(`wall_slide_preservation`, `stuck_progress`) fails loading with
+`E_SETTINGS`, from a game's settings and from a host's built in Rust
+alike (`Engine::new` checks them). Defaults come from the game this engine replaces:
 its measured hero speed, collider, stick curve and turning rate, and, for what
 a 2D game does not have (steps, slopes, snapping), values chosen to match how
 it feels.

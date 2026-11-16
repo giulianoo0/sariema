@@ -159,6 +159,10 @@ impl<L: Logic> Engine<L> {
             });
         }
         let failed = |code: &'static str| move |message: String| LoadError { code, message };
+        s.settings
+            .physics
+            .validate()
+            .map_err(failed("E_SETTINGS"))?;
         let models = assets
             .actors
             .iter()

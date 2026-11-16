@@ -219,7 +219,9 @@ Every number is a field of `Settings` (`docs/physics.md` lists all, with
 defaults). A game sets them in its project's `game.settings`, under
 `physics`, and its pack carries them to the collision module; a key left
 out keeps its default, an unknown one fails the build with `E_SCHEMA`, and
-a size that cannot run (`nav.cell_size` 0) with `E_SETTINGS`:
+a size that cannot run (`nav.cell_size` 0), a negative tolerance or a
+fraction outside 0 to 1 with `E_SETTINGS`, also when a host builds the
+settings in Rust (`Engine::new` checks them):
 
 ```json
 "game": { "settings": { "physics": { "controller": { "step_height": 0.26, "accel_steps": 6 } } } }

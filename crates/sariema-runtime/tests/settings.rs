@@ -104,3 +104,28 @@ fn physics_settings_are_the_games_and_the_engine_keeps_the_step_and_the_turn_cap
     assert_eq!(e.code, "E_SETTINGS");
     assert!(e.message.contains("physics.nav.cell_size"), "{}", e.message);
 }
+
+#[test]
+fn every_physics_size_count_and_fraction_out_of_range_is_named() {
+    use sariema_runtime::game::parse_settings;
+    for (part, key, value) in [
+        ("collision", "sweep_iterations", "0"),
+        ("collision", "contact_tolerance", "-0.001"),
+        ("collision", "sweep_tolerance", "-1e-5"),
+        ("collision", "tangent_tolerance", "-1e-4"),
+        ("controller", "stick_dead_zone", "-0.1"),
+        ("controller", "wall_slide_preservation", "1.5"),
+        ("controller", "wall_slide_preservation", "-0.5"),
+        ("controller", "yaw_filter", "-0.1"),
+        ("move_to", "face_tolerance", "-0.05"),
+        ("move_to", "stuck_steps", "0"),
+        ("move_to", "stuck_progress", "-0.2"),
+        ("move_to", "stuck_progress", "1.5"),
+    ] {
+        let text = format!(r#"{{ "physics": {{ "{part}": {{ "{key}": {value} }} }} }}"#);
+        let e = parse_settings(&text).expect_err(&text);
+        assert_eq!(e.code, "E_SETTINGS", "{text}");
+        let name = format!("physics.{part}.{key} ");
+        assert!(e.message.contains(&name), "{text}: {}", e.message);
+    }
+}
