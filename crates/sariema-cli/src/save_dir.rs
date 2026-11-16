@@ -33,8 +33,9 @@ impl SaveDir {
             Some(dir) => dir.to_path_buf(),
             None => pack.parent().unwrap_or(Path::new(".")).join(DEFAULT_DIR),
         };
-        let name = pack.file_stem().unwrap_or(pack.as_os_str());
-        let file = dir.join(name).with_extension("json");
+        let mut name = pack.file_stem().unwrap_or(pack.as_os_str()).to_os_string();
+        name.push(".json");
+        let file = dir.join(name);
         let saves = if file.exists() {
             read_saves(&file)?
         } else {
@@ -84,7 +85,9 @@ impl SaveDir {
             fs::create_dir_all(dir).map_err(|e| Failure::io(dir, e))?;
         }
         let json = serde_json::to_vec(&self.saves).expect("byte arrays by key are JSON");
-        let next = self.file.with_extension("json.part");
+        let mut next = self.file.clone().into_os_string();
+        next.push(".part");
+        let next = PathBuf::from(next);
         fs::write(&next, json).map_err(|e| Failure::io(&next, e))?;
         fs::rename(&next, &self.file).map_err(|e| Failure::io(&self.file, e))
     }
@@ -193,5 +196,14 @@ mod tests {
         let dir = tmp.path().join("elsewhere");
         let saves = SaveDir::open(&tmp.path().join("climb.srmg"), Some(&dir)).unwrap();
         assert_eq!(saves.file(), dir.join("climb.json"));
+    }
+
+    #[test]
+    fn packs_that_differ_after_a_dot_keep_their_own_saves() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let v1 = SaveDir::open(&tmp.path().join("climb.v1.srmg"), None).unwrap();
+        let v2 = SaveDir::open(&tmp.path().join("climb.v2.srmg"), None).unwrap();
+        assert_eq!(v1.file(), tmp.path().join("saves/climb.v1.json"));
+        assert_eq!(v2.file(), tmp.path().join("saves/climb.v2.json"));
     }
 }
