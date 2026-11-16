@@ -24,10 +24,14 @@ ways to show the switch.
 - **Nodes.** Every loose piece is a node pivoted at its placement; a node
   can be moved, hidden or bound to an entity. A kit node marked `giro`
   (`<piece>_<hinge>`) is split out of its piece as a hinged node, stored
-  turned by its montage angle, with its axis and pivot in the pack.
+  turned by its montage angle, with its axis and pivot in the pack. When
+  the room is baked with collision and the hinge's axis is vertical, the
+  node also collides: its collider turns with it and stops at actors
+  ([physics](physics.md), "Hinged leaves").
 - **Scene parameters.** Each light's colour, intensity and range, the sun,
-  the ambient light, the background and the look are named parameters of
-  the room, read and tweened by name.
+  the ambient light, the background, the look and each hinged node's angle
+  from closed (`hinge.<node>`, in degrees) are named parameters of the
+  room, read and tweened by name.
 
 What the game changed is kept for the whole run, per room: a room left and
 entered again is as the game left it. The state hash covers only the
