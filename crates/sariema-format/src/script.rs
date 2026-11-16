@@ -30,7 +30,7 @@ pub use wire::{
 use cutscene::{Await, Block, Cutscene, Place, Point, Shot, Toward};
 
 pub const GAME_MAGIC: [u8; 4] = *b"SRMG";
-pub const GAME_VERSION: u32 = 1;
+pub const GAME_VERSION: u32 = 2;
 
 const HEADER_LEN: usize = GAME_MAGIC.len() + size_of::<u32>();
 
@@ -46,6 +46,33 @@ pub struct GamePack {
     pub names: Vec<String>,
     /// The project's runtime settings, a JSON object the runtime checks at load.
     pub settings: String,
+    pub assets: GameAssets,
+}
+
+/// What a game draws, hears and collides with, carried in its pack so one
+/// file runs it on every host.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GameAssets {
+    /// The room it plays in, an encoded room pack (`SRMA`).
+    pub room: Option<Vec<u8>>,
+    /// That room's collision pack (`SRMC`); with it the engine moves actors
+    /// with collision instead of the runtime's built-in mover.
+    pub collision: Option<Vec<u8>>,
+    /// Encoded actor packs (`SRMK`) by name; an entity spawned with the
+    /// name's id as its `asset` is drawn and animated with it.
+    pub actors: Vec<(String, Vec<u8>)>,
+    /// The sound bank (`SRMS`).
+    pub sounds: Option<Vec<u8>>,
+    pub hud: Option<Hud>,
+}
+
+/// The HUD: a UI description and the files it names.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Hud {
+    /// JSON, `schemas/ui.schema.json`.
+    pub description: String,
+    /// Fonts and images by the path the description names them by.
+    pub files: Vec<(String, Vec<u8>)>,
 }
 
 impl Sink for Vec<u8> {

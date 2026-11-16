@@ -157,6 +157,17 @@ fn load_project(dir: &Path) -> Result<(AudioProject, PathBuf), Failure> {
     Ok((parsed, base))
 }
 
+/// The project's sound bank, encoded, when it names a sound description.
+pub fn bank_bytes(dir: &Path) -> Result<Option<Vec<u8>>, Failure> {
+    let file = dir.join("sariema.json");
+    let project: ProjectAudio = validated(&file, PROJECT_SCHEMA)?;
+    if project.audio.is_none() {
+        return Ok(None);
+    }
+    let (project, base) = load_project(dir)?;
+    Ok(Some(sound::encode(&sariema_audio::build(&project, &base)?)))
+}
+
 fn warnings_json(warnings: &[Warning]) -> Value {
     serde_json::to_value(warnings).expect("warnings serialize")
 }

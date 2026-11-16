@@ -130,6 +130,23 @@ fn build_hello(dir: &Path) -> PathBuf {
     let pack = dir.join("hello.srmg");
     let built = ok(&["build", arg(&hello()), "-o", arg(&pack)]);
     assert_eq!(built["cutscenes"], json!(["meet"]));
+    assert_eq!(
+        (
+            &built["room"],
+            &built["collision"],
+            &built["actors"],
+            &built["sounds"],
+            &built["hud"]
+        ),
+        (
+            &json!(true),
+            &json!(false),
+            &json!([]),
+            &json!(false),
+            &json!(false)
+        ),
+        "the meadow room travels in the pack; the project has no collision, actors, sounds or HUD"
+    );
     pack
 }
 

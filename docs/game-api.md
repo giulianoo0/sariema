@@ -210,7 +210,12 @@ game!(Hello);
 
 The logic crate is a `cdylib` with its own `[workspace]`, built with
 `cargo build --release --target wasm32-unknown-unknown`. `sariema build`
-does that, with the project's `game.toolchain` when it names one.
+does that, with the project's `game.toolchain` when it names one. The pack
+also carries what the game plays with, so one file runs it on every host:
+the room `game.room` names (the project's first without it) and its
+collision, every actor in `actors`, the sound bank of `audio`, and the HUD
+`game.hud` describes with its fonts and images. An entity spawned with an
+actor's name id as its `asset` is drawn and animated with that actor.
 
 ## Budgets and the sandbox
 

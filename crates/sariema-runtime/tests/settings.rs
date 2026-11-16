@@ -60,6 +60,7 @@ fn time_scale_bounds_must_be_positive_and_in_order() {
         cutscenes: Vec::new(),
         names: Vec::new(),
         settings: settings.into(),
+        assets: Default::default(),
     };
     for bad in [
         r#"{ "min_time_scale": 2, "max_time_scale": 1 }"#,

@@ -13,6 +13,7 @@ mod actor;
 mod api;
 mod audio;
 mod bench;
+mod bundle;
 mod check;
 mod collision;
 mod filmstrip;

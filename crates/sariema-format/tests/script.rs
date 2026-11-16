@@ -4,8 +4,9 @@ use std::collections::{BTreeSet, HashMap};
 
 use sariema_format::script::cutscene::{Block, Cutscene, Place, Role};
 use sariema_format::script::{
-    BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Entity, Event, GAME_VERSION, GameFormatError,
-    GamePack, Message, MessageSpec, Sink, WireError, decode_game, encode_game, name_id, records,
+    BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Entity, Event, GAME_VERSION, GameAssets,
+    GameFormatError, GamePack, Hud, Message, MessageSpec, Sink, WireError, decode_game,
+    encode_game, name_id, records,
 };
 
 fn batch<M>(messages: impl IntoIterator<Item = M>, write: impl Fn(&M, &mut Vec<u8>)) -> Vec<u8> {
@@ -249,6 +250,16 @@ fn game() -> GamePack {
         }],
         names: vec!["meet".into(), "hero".into()],
         settings: "{}".into(),
+        assets: GameAssets {
+            room: Some(b"SRMA room".to_vec()),
+            collision: None,
+            actors: vec![("hero".into(), b"SRMK hero".to_vec())],
+            sounds: None,
+            hud: Some(Hud {
+                description: "{}".into(),
+                files: vec![("font.ttf".into(), vec![0, 1, 2, 255])],
+            }),
+        },
     }
 }
 

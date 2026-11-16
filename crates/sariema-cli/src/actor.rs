@@ -20,13 +20,8 @@ fn decoded(path: &Path, bytes: &[u8]) -> Result<ActorPack, Failure> {
     decode(bytes).map_err(|e| Failure::new(e.code(), format!("{}: {e}", path.display())))
 }
 
-/// `textures`, when given, replaces the actor description's choice.
-pub fn build(
-    dir: &Path,
-    actor: &str,
-    output: &Path,
-    textures: Option<TextureMode>,
-) -> Result<Done, Failure> {
+/// Actor `actor` of the project in `dir`, imported.
+pub fn pack(dir: &Path, actor: &str, textures: Option<TextureMode>) -> Result<ActorPack, Failure> {
     let project: project::Project = project::load(dir)?;
     let (description, text) = project::description(dir, "actor", &project.actors, actor)?;
     let at = |e: sariema_import::ImportError| {
@@ -34,7 +29,17 @@ pub fn build(
     };
     let mut source = ActorSource::from_json(&text).map_err(at)?;
     source.textures = textures.or(source.textures);
-    let pack = build_actor(&source, &dir.join(&project.assets_root)).map_err(at)?;
+    build_actor(&source, &dir.join(&project.assets_root)).map_err(at)
+}
+
+/// `textures`, when given, replaces the actor description's choice.
+pub fn build(
+    dir: &Path,
+    actor: &str,
+    output: &Path,
+    textures: Option<TextureMode>,
+) -> Result<Done, Failure> {
+    let pack = pack(dir, actor, textures)?;
     let bytes = encode(&pack);
     fs::write(output, &bytes).map_err(|e| Failure::io(output, e))?;
     let summary = summary(&pack);

@@ -40,6 +40,12 @@ struct GameSection {
     settings: Option<Value>,
     #[serde(default)]
     toolchain: Option<String>,
+    /// The room the game plays in; the project's first without it.
+    #[serde(default)]
+    room: Option<String>,
+    /// The HUD's UI description.
+    #[serde(default)]
+    hud: Option<PathBuf>,
 }
 
 impl GameSection {
@@ -185,6 +191,7 @@ pub fn build(dir: &Path, output: &Path) -> Result<Done, Failure> {
         cutscenes: compiled.cutscenes,
         names: compiled.names,
         settings: text,
+        assets: crate::bundle::assets(dir, game.room.as_deref(), game.hud.as_deref())?,
     };
     pack.wasm = compile_logic(&dir.join(&game.logic), game.toolchain.as_deref())?;
     start(pack.clone(), 0).map_err(|e| Failure::new(e.code, format!("{}: {e}", dir.display())))?;
@@ -199,6 +206,11 @@ pub fn build(dir: &Path, output: &Path) -> Result<Done, Failure> {
             "wasm_bytes": pack.wasm.len(),
             "batch_version": pack.batch_version,
             "cutscenes": cutscenes,
+            "room": pack.assets.room.is_some(),
+            "collision": pack.assets.collision.is_some(),
+            "actors": pack.assets.actors.iter().map(|(n, _)| n).collect::<Vec<_>>(),
+            "sounds": pack.assets.sounds.is_some(),
+            "hud": pack.assets.hud.is_some(),
         }),
         text: format!(
             "built {} into {}: {} bytes, {} of logic, {} cutscenes",

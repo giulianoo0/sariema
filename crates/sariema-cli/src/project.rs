@@ -79,6 +79,17 @@ pub fn build(
     })
 }
 
+/// Room `room` of the project in `dir` and its collision pack, encoded.
+pub(crate) fn room_packs(dir: &Path, room: &str) -> Result<(Vec<u8>, Option<Vec<u8>>), Failure> {
+    let (source, assets_root) = room_source(dir, room)?;
+    let pack = build_room(&source, &assets_root)?;
+    let collision = sariema_import::build_collision(&source, &assets_root)?;
+    Ok((
+        encode(&pack),
+        collision.as_ref().map(sariema_format::collision::encode),
+    ))
+}
+
 /// The project's room ids, in order.
 pub(crate) fn room_ids(dir: &Path) -> Result<Vec<String>, Failure> {
     Ok(load::<Project>(dir)?.rooms.into_keys().collect())
