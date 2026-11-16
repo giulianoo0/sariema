@@ -114,6 +114,8 @@ struct Actor {
     active: bool,
     /// Radians per second, in place of `controller.max_yaw_speed`.
     max_yaw_speed: Option<f32>,
+    /// Off: in no other actor's way ([`Intent::SetSolid`]).
+    solid: bool,
 }
 
 /// A walkable grid being built a share at a time, by
@@ -145,6 +147,11 @@ pub struct World {
 }
 
 impl Actor {
+    /// Whether it stands in other actors' way and in hinged platforms'.
+    fn in_the_way(&self) -> bool {
+        self.active && self.solid && !self.posed
+    }
+
     /// Ends a pose: the collider is on again from the next step.
     fn release(&mut self) {
         if self.posed {
@@ -291,6 +298,7 @@ impl World {
             triggers: Vec::new(),
             active: true,
             max_yaw_speed: None,
+            solid: true,
         };
         actor.ground = self.standing_on(&actor, desc.position, desc.yaw);
         self.actors.push(actor);
@@ -479,14 +487,14 @@ impl World {
     /// turned the way it differs, not the shorter way), unless that would
     /// bring it within the collision skin of an actor: then it stays where
     /// it was and the first actor in the way is given. A posed or inactive
-    /// actor is in no one's way. Unlike [`World::set_platform_pose`], it
+    /// actor, or one whose body is off, is in no one's way. Unlike [`World::set_platform_pose`], it
     /// never pushes an actor.
     pub fn try_platform_pose(&mut self, collider: ColliderId, pose: Pose) -> Result<(), ActorId> {
         let Some((from, moved_from)) = self.scene.kinematic(collider.0) else {
             return Ok(());
         };
         let thinnest = (self.actors.iter())
-            .filter(|a| a.active && !a.posed)
+            .filter(|a| a.in_the_way())
             .map(|a| a.desc.collider.radius)
             .fold(f32::INFINITY, f32::min);
         let turn = pose.yaw - from.yaw;
@@ -514,7 +522,7 @@ impl World {
             };
             self.scene.set_pose(collider.0, at);
             for (i, a) in self.actors.iter().enumerate() {
-                if a.posed || !a.active {
+                if !a.in_the_way() {
                     continue;
                 }
                 let probe = a.desc.collider.probe(a.position, a.yaw, 0.0);
@@ -605,6 +613,7 @@ impl World {
             Intent::SetMaxYawSpeed { actor, speed } => {
                 self.actors[actor.0 as usize].max_yaw_speed = speed;
             }
+            Intent::SetSolid { actor, solid } => self.actors[actor.0 as usize].solid = solid,
         }
     }
 
@@ -1095,7 +1104,7 @@ impl World {
         for k in 0..self.order.len() {
             let ia = self.order[k] as usize;
             let a = &actors[ia];
-            if a.posed || !a.active {
+            if !a.in_the_way() {
                 continue;
             }
             let ra = a.desc.collider.radius;
@@ -1105,7 +1114,7 @@ impl World {
                 if b.position.x - rb > a.position.x + ra {
                     break;
                 }
-                if b.posed || !b.active {
+                if !b.in_the_way() {
                     continue;
                 }
                 let top_a = a.position.y + a.desc.collider.height;

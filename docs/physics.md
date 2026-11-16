@@ -54,6 +54,7 @@ step, in id order, and appends events to a buffer the caller owns.
 | `SetColliderEnabled` | Enable or disable a collider. Actors inside a collider being enabled are pushed out of it at the next step, or it stays disabled. |
 | `SetSpeedScale` | Multiply the walk speed. |
 | `Face { yaw }` | Turn in place towards `yaw`; walking turns towards where the actor goes instead. |
+| `SetSolid { solid }` | Off, the actor is in no other actor's way: they neither push it nor are pushed by it, and hinged platforms turn through it; it still walks on floors, stops at walls and enters triggers. The engine sends it for `set_collider` on an actor. |
 | `SetMaxYawSpeed { speed }` | Radians per second this actor turns at most, in place of `controller.max_yaw_speed`; `None` gives it the setting back. The engine sends it for `set_turn_rate`. |
 
 `World::set_actor_active(id, false)` leaves an actor out of every step (it
@@ -510,7 +511,8 @@ room with 135 colliders in 0.2 s.
   clip time to hinge angle in the runtime.
 - `physics-map` does not draw traversals or contact points.
 - Actors push each other apart as vertical circles (radius of the body
-  capsule, overlapping heights); head spheres do not push.
+  capsule, overlapping heights); head spheres do not push. An actor whose
+  body is off (`SetSolid`) takes no part in it.
 - The pinned replay hash was produced on aarch64 macOS and reproduced on
   x86_64-apple-darwin and on wasm32 under node, in debug and release builds.
   Other targets are untested.

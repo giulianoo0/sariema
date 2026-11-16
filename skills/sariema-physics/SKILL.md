@@ -257,6 +257,10 @@ passes routes up 0.25 m risers that fail at the default 0.2.
 - **Hidden test scenery, ropes, hanging props baked as walls.** Add their
   piece names to `exclude`; `physics-map` shows them as grey (or striped,
   when hidden) where nothing should block.
+- **A hidden actor blocking the way.** Hiding an actor leaves its body:
+  other actors bump into nothing visible and a door stops at it. Switch its
+  body off with `set_collider` on the actor (`Intent::SetSolid` in the
+  module) while it is hidden.
 - **Expecting props to be pushed.** Actors are kinematic: they slide along
   props and push each other, nothing tumbles.
 - **`Teleport` or `MoveTo` for a climb.** `Teleport` pushes the body out of
