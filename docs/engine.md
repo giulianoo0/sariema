@@ -23,7 +23,9 @@ The host then draws `engine.camera(alpha)`, `engine.actors(alpha)` and
 `Engine::load` takes a game pack and the assets it carries (room, collision,
 actors, sound bank, HUD; [game-api.md](game-api.md) has the pack). With a
 collision pack the runtime's built-in mover is switched off
-(`motion.builtin = false`) and the collision module moves every actor.
+(`motion.builtin = false`) and the collision module moves every actor;
+`Engine::new`, given a simulation, refuses collision with the mover still
+on (`E_SETTINGS`), since every actor would move twice.
 
 ## The order of a step
 

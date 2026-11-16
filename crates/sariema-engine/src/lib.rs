@@ -95,12 +95,21 @@ impl Engine<WasmLogic> {
 }
 
 impl<L: Logic> Engine<L> {
+    /// An engine over `sim`; with a room's collision among `assets`, the
+    /// runtime's own mover must be off (`motion.builtin`), or `E_SETTINGS`.
     pub fn new(
         sim: Simulation<L>,
         assets: Assets,
         settings: EngineSettings,
     ) -> Result<Self, LoadError> {
         let s = sim.state();
+        if assets.collision.is_some() && s.settings.motion.builtin {
+            return Err(LoadError {
+                code: "E_SETTINGS",
+                message: "a room's collision moves the actors, so motion.builtin must be off"
+                    .into(),
+            });
+        }
         let failed = |code: &'static str| move |message: String| LoadError { code, message };
         let models = assets
             .actors
