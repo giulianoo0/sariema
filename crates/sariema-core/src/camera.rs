@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use glam::camera::rh::proj::directx;
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Quat, Vec3};
 use sariema_format::RoomCamera;
 
 const NEAR: f32 = 0.05;
@@ -29,5 +29,50 @@ pub fn room_camera(cam: &RoomCamera, aspect: f32) -> Camera {
         proj: directx::perspective(cam.fov_y_deg.to_radians(), aspect, NEAR, FAR),
         position,
         focus: cam.focus.into(),
+    }
+}
+
+/// A camera at `position` turned by `rotation` from looking down −Z, with a
+/// vertical field of view of `fov_y_deg`; its focus is `focus_distance`
+/// metres ahead.
+pub fn pose_camera(
+    position: Vec3,
+    rotation: Quat,
+    fov_y_deg: f32,
+    aspect: f32,
+    focus_distance: f32,
+) -> Camera {
+    Camera {
+        view: Mat4::from_rotation_translation(rotation, position).inverse(),
+        proj: directx::perspective(fov_y_deg.to_radians(), aspect, NEAR, FAR),
+        position,
+        focus: position + rotation * Vec3::NEG_Z * focus_distance,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_posed_camera_sees_what_the_room_camera_sees_from_its_place() {
+        let room = RoomCamera {
+            fov_y_deg: 40.0,
+            pitch_deg: 50.0,
+            distance: 7.0,
+            focus: [1.5, 0.5, -2.0],
+        };
+        let fixed = room_camera(&room, 16.0 / 9.0);
+        let tilt = Quat::from_rotation_x(-room.pitch_deg.to_radians());
+        let posed = pose_camera(
+            fixed.position,
+            tilt,
+            room.fov_y_deg,
+            16.0 / 9.0,
+            room.distance,
+        );
+        assert!(posed.view.abs_diff_eq(fixed.view, 1e-5), "{posed:?}");
+        assert_eq!(posed.proj, fixed.proj);
+        assert!(posed.focus.abs_diff_eq(fixed.focus, 1e-5), "{posed:?}");
     }
 }

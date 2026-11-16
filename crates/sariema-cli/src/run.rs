@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use crate::RunArgs;
 use crate::output::{Done, Failure};
 use crate::stage::{self, Stage};
-use crate::{filmstrip, pack, player, simulate};
+use crate::{filmstrip, game_player, pack, player, simulate};
 
 /// What `run` was asked for, with what each way of drawing needs.
 enum Mode<'a> {
@@ -47,7 +47,14 @@ impl RunArgs {
 
 pub fn run(args: &RunArgs) -> Result<Done, Failure> {
     if let Some(game) = &args.game.game {
-        return simulate::run(game, &args.game);
+        return match (args.headless, args.game.steps, args.frames) {
+            (true, Some(_), None) => simulate::run(game, args),
+            (true, ..) => Err(Failure::new(
+                "E_USAGE",
+                "--headless --game needs --steps, and counts steps, not --frames",
+            )),
+            (false, ..) => game_player::play(game, args, args.frames),
+        };
     }
     // clap requires the pack without --game.
     let path = args.pack.as_deref().expect("a room pack");

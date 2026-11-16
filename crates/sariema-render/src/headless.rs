@@ -64,6 +64,12 @@ impl Headless {
         self.renderer.render(camera, time_s, &self.view);
     }
 
+    /// Runs `paint` with the renderer and the target it draws into, for a
+    /// frame drawn in more than one call.
+    pub fn paint<R>(&mut self, paint: impl FnOnce(&mut Renderer, &wgpu::TextureView) -> R) -> R {
+        paint(&mut self.renderer, &self.view)
+    }
+
     /// Draws the HUD's quads over the last frame drawn.
     pub fn draw_ui(&mut self, instances: &[UiInstance], batches: &[UiBatch]) {
         self.renderer.render_ui(&self.view, instances, batches);

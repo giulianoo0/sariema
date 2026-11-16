@@ -4,6 +4,7 @@
 //! module's own settings stay in its crate.
 
 use sariema_anim::AnimSettings;
+use sariema_audio::MixerSettings;
 use sariema_physics::Settings as PhysicsSettings;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -20,6 +21,9 @@ pub struct EngineSettings {
     /// body eases onto the contact and off it over that fraction.
     pub contact_blend: f32,
     pub audio: SoundSettings,
+    /// The mixer's settings under the game's sound bank, which brings its
+    /// own buses; a host playing to a device sets its sample rate.
+    pub mixer: MixerSettings,
     pub hud: HudSettings,
 }
 
@@ -31,6 +35,7 @@ impl Default for EngineSettings {
             knockback_s: 0.25,
             contact_blend: 0.25,
             audio: SoundSettings::default(),
+            mixer: MixerSettings::default(),
             hud: HudSettings::default(),
         }
     }

@@ -39,3 +39,33 @@ fn window_runs_frames_and_exits_zero() {
         "{value}"
     );
 }
+
+#[test]
+#[ignore = "opens a window and the default sound device"]
+fn a_game_window_steps_and_draws_its_frames() {
+    let tmp = TempDir::new().unwrap();
+    let pack = tmp.path().join("climb.srmg");
+    let climb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/climb");
+    cargo_bin_cmd!("sariema")
+        .arg("build")
+        .arg(&climb)
+        .arg("-o")
+        .arg(&pack)
+        .assert()
+        .success();
+    let out = cargo_bin_cmd!("sariema")
+        .args(["run", "--game"])
+        .arg(&pack)
+        .args([
+            "--frames", "60", "--width", "320", "--height", "180", "--json",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(out.status.code(), Some(0), "{stdout}");
+    let value: Value = serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("{e}: {stdout:?}"));
+    assert_eq!(value["frames"], 60, "{value}");
+    assert!(value["steps"].as_u64().unwrap() > 0, "{value}");
+    assert_eq!(value["frame_stats"]["actors_drawn"], 1, "{value}");
+    assert!(value["sound"].is_object(), "{value}");
+}

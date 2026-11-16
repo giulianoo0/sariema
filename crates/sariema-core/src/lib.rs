@@ -4,7 +4,7 @@
 
 mod camera;
 
-pub use camera::{Camera, room_camera};
+pub use camera::{Camera, pose_camera, room_camera};
 
 /// Simulation steps per second. A simulation advances by exactly
 /// [`STEP_SECONDS`] per step at any display rate.

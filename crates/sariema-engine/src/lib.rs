@@ -116,14 +116,11 @@ impl<L: Logic> Engine<L> {
         };
         let sound = match assets.sounds {
             Some(bank) => Some(
-                Sound::new(
-                    bank,
-                    sariema_audio::MixerSettings::default(),
-                    settings.audio,
-                )
-                .map_err(|e| LoadError {
-                    code: e.code(),
-                    message: e.to_string(),
+                Sound::new(bank, settings.mixer.clone(), settings.audio).map_err(|e| {
+                    LoadError {
+                        code: e.code(),
+                        message: e.to_string(),
+                    }
                 })?,
             ),
             None => None,
@@ -248,6 +245,11 @@ impl<L: Logic> Engine<L> {
 
     pub fn hud(&self) -> &Hud {
         &self.hud
+    }
+
+    /// The HUD's screen, for a host uploading its glyph atlas and images.
+    pub fn hud_mut(&mut self) -> &mut Hud {
+        &mut self.hud
     }
 
     /// The mixer, for an audio device to pull from; sound is then live and

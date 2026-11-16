@@ -23,7 +23,7 @@ image.workspace = true
 jsonschema.workspace = true
 pollster.workspace = true
 sariema-anim = { path = "../sariema-anim" }
-sariema-audio = { path = "../sariema-audio" }
+sariema-audio = { path = "../sariema-audio", features = ["device"] }
 sariema-core = { path = "../sariema-core" }
 sariema-engine = { path = "../sariema-engine" }
 sariema-format = { path = "../sariema-format" }

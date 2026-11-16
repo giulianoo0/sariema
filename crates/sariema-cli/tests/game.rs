@@ -451,3 +451,45 @@ fn the_climb_example_replays_through_the_whole_engine_to_pinned_events_and_state
         assert_eq!(again[hash], played[hash], "{hash} differs between two runs");
     }
 }
+
+#[test]
+fn a_headless_game_run_draws_the_frames_asked_for_without_changing_what_happens() {
+    let tmp = TempDir::new().unwrap();
+    let climb = repo().join("examples/climb");
+    let pack = tmp.path().join("climb.srmg");
+    ok(&["build", arg(&climb), "-o", arg(&pack)]);
+    let log = climb.join("input/play.json");
+    let strip = tmp.path().join("strip.png");
+    let mut args = vec![
+        "run",
+        "--headless",
+        "--game",
+        arg(&pack),
+        "--input",
+        arg(&log),
+        "--steps",
+        "300",
+    ];
+    let unseen = ok(&args);
+    args.extend([
+        "--screenshot",
+        arg(&strip),
+        "--filmstrip",
+        "3",
+        "--width",
+        "320",
+        "--height",
+        "180",
+    ]);
+    let seen = ok(&args);
+    assert_eq!(seen["engine_hash"], unseen["engine_hash"]);
+    assert_eq!(seen["frames"]["steps"], json!([99, 199, 299]));
+    assert_eq!(seen["frames"]["frame_stats"]["actors_drawn"], 1);
+    let image = image::open(&strip).unwrap().to_rgba8();
+    assert_eq!(image.dimensions(), (960, 180));
+    let first = image.get_pixel(0, 0);
+    assert!(
+        image.pixels().any(|p| p != first),
+        "the frames show the room, the hero and the HUD"
+    );
+}

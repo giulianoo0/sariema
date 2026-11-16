@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! `run --headless --game`: a game pack in the whole engine without drawing,
-//! fed a recorded input log, reporting what happened and the state it ended
-//! in. Sound is mixed with the steps and hashed.
+//! `run --headless --game`: a game pack in the whole engine, fed a recorded
+//! input log, reporting what happened and the state it ended in. Sound is
+//! mixed with the steps and hashed; frames are drawn only for a screenshot.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -16,20 +16,23 @@ use sariema_runtime::input::{InputLog, Replay};
 use sariema_runtime::outbox::{HostIn, HostOut};
 use serde_json::{Map, Value, json};
 
+use crate::RunArgs;
+use crate::game_frames::Frames;
 use crate::output::{Done, Failure};
 
 const INPUT_LOG_SCHEMA: &str = include_str!("../../../schemas/input-log.schema.json");
 
 #[derive(Args)]
 pub struct GameRun {
-    /// Game pack (.srmg) to simulate without drawing; needs --headless and --steps.
-    #[arg(long, requires_all = ["headless", "steps"], conflicts_with_all = ["pack", "frames", "screenshot", "max_background"])]
+    /// Game pack (.srmg) to play in a window, or with --headless and --steps
+    /// to run without drawing.
+    #[arg(long, conflicts_with_all = ["pack", "max_background"])]
     pub game: Option<PathBuf>,
     /// Recorded input log to replay (schemas/input-log.schema.json).
-    #[arg(long, requires = "game")]
+    #[arg(long, requires_all = ["game", "headless"])]
     pub input: Option<PathBuf>,
     /// Steps to simulate, 60 per second of game time.
-    #[arg(long, requires = "game", value_parser = value_parser!(u64).range(1..))]
+    #[arg(long, requires_all = ["game", "headless"], value_parser = value_parser!(u64).range(1..))]
     pub steps: Option<u64>,
     /// Seed of the simulation's random numbers.
     #[arg(long, requires = "game")]
@@ -45,7 +48,7 @@ fn read_json(path: &Path) -> Result<Value, Failure> {
         .map_err(|e| Failure::new("E_SCHEMA", format!("{}: {e}", path.display())))
 }
 
-fn read_log(path: &Path) -> Result<InputLog, Failure> {
+pub fn read_log(path: &Path) -> Result<InputLog, Failure> {
     let value = read_json(path)?;
     let schema: Value =
         serde_json::from_str(INPUT_LOG_SCHEMA).expect("input-log.schema.json is JSON");
@@ -117,8 +120,11 @@ fn hex(hash: u64) -> String {
     format!("{hash:016x}")
 }
 
-pub fn run(path: &Path, args: &GameRun) -> Result<Done, Failure> {
-    let steps = args.steps.expect("clap requires --steps with --game");
+pub fn run(path: &Path, run: &RunArgs) -> Result<Done, Failure> {
+    let args = &run.game;
+    let steps = args
+        .steps
+        .expect("run checks --steps before a headless game");
     let bytes = fs::read(path).map_err(|e| Failure::io(path, e))?;
     let pack = decode_game(&bytes)
         .map_err(|e| Failure::new(e.code(), format!("{}: {e}", path.display())))?;
@@ -128,6 +134,7 @@ pub fn run(path: &Path, args: &GameRun) -> Result<Done, Failure> {
         .map(|n| (name_id(n).to_string(), n))
         .collect();
     let names = json!(names);
+    let assets = run.screenshot.is_some().then(|| pack.assets.clone());
     let mut engine = Engine::load(pack, args.seed.unwrap_or(0), EngineSettings::default())
         .map_err(|e| Failure::new(e.code, format!("{}: {e}", path.display())))?;
     let log = match &args.input {
@@ -144,6 +151,7 @@ pub fn run(path: &Path, args: &GameRun) -> Result<Done, Failure> {
         Some(saves) => read_saves(saves)?,
         None => BTreeMap::new(),
     };
+    let mut frames = Frames::new(run, assets.as_ref(), &mut engine, steps)?;
 
     let (mut events, mut host, mut logs) = (Vec::new(), Vec::new(), Vec::new());
     let (mut total, mut slowest) = (Duration::ZERO, Duration::ZERO);
@@ -151,9 +159,12 @@ pub fn run(path: &Path, args: &GameRun) -> Result<Done, Failure> {
         let started = Instant::now();
         engine.step(replay.actions(step));
         let took = started.elapsed();
-        let sim = engine.simulation_mut();
         total += took;
         slowest = slowest.max(took);
+        if let Some(frames) = &mut frames {
+            frames.after_step(step, &mut engine)?;
+        }
+        let sim = engine.simulation_mut();
         for event in records::<Event>(sim.delivered().bytes()).flatten() {
             events.push(event_json(step, &event));
         }
@@ -190,6 +201,7 @@ pub fn run(path: &Path, args: &GameRun) -> Result<Done, Failure> {
             ));
         }
     }
+    let frames = frames.map(Frames::finish).transpose()?;
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
     let engine_hash = hex(engine.state_hash());
     let physics_hash = engine.physics().map(|p| hex(p.world.state_hash()));
@@ -215,6 +227,7 @@ pub fn run(path: &Path, args: &GameRun) -> Result<Done, Failure> {
             "names": names,
             "memory_bytes": memory,
             "interpreter": sim.logic().vm().interpreter(),
+            "frames": frames,
             "timing": {
                 "total_ms": ms(total),
                 "mean_step_ms": ms(total) / steps as f64,

@@ -1,0 +1,234 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! A game in the engine drawn by the renderer: the room of its pack, a drawn
+//! actor for every animated entity, the camera the runtime gives at the
+//! frame's `alpha`, and the HUD over it all.
+
+use glam::Mat4;
+use sariema_core::{Camera, pose_camera, room_camera};
+use sariema_engine::Engine;
+use sariema_format::script::{Entity, GameAssets};
+use sariema_format::{RoomCamera, RoomPack};
+use sariema_render::ui::{UiBatch, UiInstance, UiTextureFormat};
+use sariema_render::{ActorId, ActorModel, ActorState, Renderer};
+use sariema_runtime::sim::Logic;
+
+use crate::output::Failure;
+
+pub struct GameView {
+    /// By the engine's model index, with a palette of as many joints.
+    models: Vec<ActorModel>,
+    rest: Vec<Vec<Mat4>>,
+    /// By entity slot: the entity, its model and the actor drawing it.
+    drawn: Vec<Option<(Entity, usize, ActorId)>>,
+    /// Hidden actors of entities gone, by model, for the next ones.
+    free: Vec<(usize, ActorId)>,
+    batches: Vec<UiBatch>,
+    images: usize,
+    room: RoomCamera,
+}
+
+/// The room a game pack carries.
+pub fn room(assets: &GameAssets) -> Result<RoomPack, Failure> {
+    let bytes = assets.room.as_ref().ok_or_else(|| {
+        Failure::new(
+            "E_SCHEMA",
+            "game pack: it has no room to draw; give the project a room",
+        )
+    })?;
+    sariema_format::decode(bytes).map_err(|e| Failure::new(e.code(), format!("game pack: {e}")))
+}
+
+impl GameView {
+    /// Loads the pack's room and the actor packs of the engine's models.
+    pub fn load<L: Logic>(
+        renderer: &mut Renderer,
+        assets: &GameAssets,
+        engine: &Engine<L>,
+    ) -> Result<GameView, Failure> {
+        GameView::load_room(renderer, &room(assets)?, assets, engine)
+    }
+
+    /// Loads `room`, the pack's own or one changed from it, and the actor
+    /// packs of the engine's models.
+    pub fn load_room<L: Logic>(
+        renderer: &mut Renderer,
+        room: &RoomPack,
+        assets: &GameAssets,
+        engine: &Engine<L>,
+    ) -> Result<GameView, Failure> {
+        let failed = |code: &'static str, e: &dyn std::fmt::Display| {
+            Failure::new(code, format!("game pack: {e}"))
+        };
+        renderer.load_room(room)?;
+        let (mut models, mut rest) = (Vec::new(), Vec::new());
+        for model in engine.models() {
+            let bytes = assets
+                .actors
+                .iter()
+                .find(|(name, _)| *name == model.name)
+                .map(|(_, bytes)| bytes)
+                .ok_or_else(|| {
+                    Failure::new("E_SCHEMA", format!("game pack: no actor {}", model.name))
+                })?;
+            let pack = sariema_format::actor::decode(bytes).map_err(|e| failed(e.code(), &e))?;
+            models.push(renderer.load_actor(&pack)?);
+            rest.push(vec![Mat4::IDENTITY; pack.joints.len()]);
+        }
+        Ok(GameView {
+            models,
+            rest,
+            drawn: Vec::new(),
+            free: Vec::new(),
+            batches: Vec::new(),
+            images: 0,
+            room: room.camera.clone(),
+        })
+    }
+
+    /// The runtime's camera at `alpha`; the room's own before the game
+    /// chose one.
+    pub fn camera<L: Logic>(&self, engine: &Engine<L>, alpha: f32, aspect: f32) -> Camera {
+        match engine.camera(alpha) {
+            Some(pose) => pose_camera(
+                pose.position,
+                pose.rotation,
+                pose.fov,
+                aspect,
+                self.room.distance,
+            ),
+            None => room_camera(&self.room, aspect),
+        }
+    }
+
+    /// Draws the frame `alpha` of the way to the next step into `target`,
+    /// the renderer's size, then the HUD over it.
+    pub fn draw<L: Logic>(
+        &mut self,
+        renderer: &mut Renderer,
+        engine: &mut Engine<L>,
+        alpha: f32,
+        aspect: f32,
+        target: &wgpu::TextureView,
+    ) -> Result<(), Failure> {
+        self.world(renderer, engine, alpha, aspect, target)?;
+        self.hud(renderer, engine, alpha, target);
+        Ok(())
+    }
+
+    /// The room and the actors, seen by the camera at `alpha`.
+    pub fn world<L: Logic>(
+        &mut self,
+        renderer: &mut Renderer,
+        engine: &mut Engine<L>,
+        alpha: f32,
+        aspect: f32,
+        target: &wgpu::TextureView,
+    ) -> Result<(), Failure> {
+        self.pose(renderer, engine, alpha)?;
+        let camera = self.camera(engine, alpha, aspect);
+        let time_s = engine.steps() as f32 * sariema_core::STEP_SECONDS;
+        renderer.render(&camera, time_s, target);
+        Ok(())
+    }
+
+    /// The HUD over what `target` holds, its glyphs and images uploaded
+    /// when they changed.
+    pub fn hud<L: Logic>(
+        &mut self,
+        renderer: &mut Renderer,
+        engine: &mut Engine<L>,
+        alpha: f32,
+        target: &wgpu::TextureView,
+    ) {
+        let ui = &mut engine.hud_mut().ui;
+        if ui.take_atlas_changed() {
+            let (side, texels) = ui.atlas();
+            renderer.set_ui_texture(
+                sariema_ui::ATLAS_TEXTURE,
+                side,
+                side,
+                UiTextureFormat::R8,
+                texels,
+            );
+        }
+        for (i, image) in ui.images().iter().enumerate().skip(self.images) {
+            renderer.set_ui_texture(
+                1 + i as u32,
+                image.width,
+                image.height,
+                UiTextureFormat::Rgba8,
+                &image.rgba,
+            );
+        }
+        self.images = ui.images().len();
+        let list = engine.draw_hud(alpha);
+        self.batches.clear();
+        self.batches.extend(list.batches.iter().map(|b| UiBatch {
+            texture: b.texture,
+            scissor: b.scissor,
+            start: b.start,
+            count: b.count,
+        }));
+        let instances: &[UiInstance] = bytemuck::cast_slice(&list.quads);
+        renderer.render_ui(target, instances, &self.batches);
+    }
+
+    /// One drawn actor per animated entity, posed at `alpha`; an entity gone
+    /// hides its actor for the next of its model.
+    fn pose<L: Logic>(
+        &mut self,
+        renderer: &mut Renderer,
+        engine: &mut Engine<L>,
+        alpha: f32,
+    ) -> Result<(), Failure> {
+        for slot in &mut self.drawn {
+            if let Some((entity, model, id)) = *slot
+                && !engine.state().world.is_alive(entity)
+            {
+                hide(renderer, id, &self.rest[model])?;
+                self.free.push((model, id));
+                *slot = None;
+            }
+        }
+        for actor in engine.actors(alpha) {
+            let i = actor.entity.index as usize;
+            if self.drawn.len() <= i {
+                self.drawn.resize(i + 1, None);
+            }
+            let id = match self.drawn[i] {
+                Some((entity, model, id)) if entity == actor.entity && model == actor.model => id,
+                old => {
+                    if let Some((_, model, id)) = old {
+                        hide(renderer, id, &self.rest[model])?;
+                        self.free.push((model, id));
+                    }
+                    let id = match self.free.iter().position(|&(m, _)| m == actor.model) {
+                        Some(k) => self.free.swap_remove(k).1,
+                        None => renderer.spawn_actor(self.models[actor.model])?,
+                    };
+                    self.drawn[i] = Some((actor.entity, actor.model, id));
+                    id
+                }
+            };
+            let state = ActorState {
+                model: actor.transform,
+                palette: actor.palette,
+                faces: actor.faces,
+                visible: actor.visible,
+            };
+            renderer.set_actor(id, &state)?;
+        }
+        Ok(())
+    }
+}
+
+fn hide(renderer: &mut Renderer, id: ActorId, rest: &[Mat4]) -> Result<(), Failure> {
+    let state = ActorState {
+        model: Mat4::IDENTITY,
+        palette: rest,
+        faces: &[],
+        visible: false,
+    };
+    renderer.set_actor(id, &state).map_err(Failure::from)
+}
