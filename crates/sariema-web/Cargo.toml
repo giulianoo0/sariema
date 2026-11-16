@@ -1,0 +1,39 @@
+[package]
+name = "sariema-web"
+description = "The Sariema engine in a browser or an app WebView: WebGPU or WebGL2 canvas, frame loop, input, packs and audio."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bytemuck.workspace = true
+glam.workspace = true
+log.workspace = true
+sariema-anim = { path = "../sariema-anim" }
+sariema-audio = { path = "../sariema-audio" }
+sariema-core = { path = "../sariema-core" }
+sariema-format = { path = "../sariema-format" }
+sariema-render = { path = "../sariema-render" }
+sariema-ui = { path = "../sariema-ui" }
+serde.workspace = true
+serde_json.workspace = true
+wgpu.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+web-sys = { workspace = true, features = ["HtmlCanvasElement", "console"] }
+# WebGL2 where the browser has no WebGPU; WebGPU comes with the default features.
+# The page runs single-threaded (no atomics), so wgpu's handles may be Send and
+# Sync there, as the renderer's Arc<Device> needs; Bevy does the same.
+wgpu = { workspace = true, features = ["webgl", "fragile-send-sync-non-atomic-wasm"] }
+
+[dev-dependencies]
+image.workspace = true
+pollster.workspace = true
+sariema-format = { path = "../sariema-format", features = ["demo"] }

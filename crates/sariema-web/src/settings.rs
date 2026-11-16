@@ -1,0 +1,140 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! The page's options for the engine, as the JSON object it passes.
+
+use sariema_render::{Quality, RenderPath};
+use serde::Deserialize;
+
+use crate::clock::StepSettings;
+use crate::feed::FeedSettings;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Backend {
+    /// WebGPU where the browser has it, else WebGL2.
+    #[default]
+    Auto,
+    WebGpu,
+    WebGl2,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Tier {
+    Low,
+    #[default]
+    Medium,
+    High,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PathChoice {
+    #[default]
+    Auto,
+    Full,
+    Downlevel,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WebSettings {
+    pub backend: Backend,
+    /// The renderer's quality tier. Default medium.
+    pub quality: Tier,
+    /// Default auto: WebGPU takes the full path and WebGL2 the downlevel one.
+    pub path: PathChoice,
+    /// Samples per pixel instead of the tier's; the device may hold fewer.
+    pub msaa: Option<u32>,
+    /// Physical pixels per CSS pixel at most; a phone's 3 is cut to this.
+    /// Default 1.5, what the three.js game draws at.
+    pub max_pixel_ratio: f32,
+    pub step: StepSettings,
+    pub audio: FeedSettings,
+    /// Quads the UI holds before its buffer grows. Default 1024.
+    pub ui_quads: u32,
+}
+
+impl Default for WebSettings {
+    fn default() -> WebSettings {
+        WebSettings {
+            backend: Backend::Auto,
+            quality: Tier::Medium,
+            path: PathChoice::Auto,
+            msaa: None,
+            max_pixel_ratio: 1.5,
+            step: StepSettings::default(),
+            audio: FeedSettings::default(),
+            ui_quads: 1024,
+        }
+    }
+}
+
+impl WebSettings {
+    pub fn from_json(json: &str) -> Result<WebSettings, String> {
+        if json.trim().is_empty() {
+            return Ok(WebSettings::default());
+        }
+        serde_json::from_str(json).map_err(|e| e.to_string())
+    }
+
+    pub fn render_quality(&self) -> Quality {
+        let tier = match self.quality {
+            Tier::Low => Quality::low(),
+            Tier::Medium => Quality::medium(),
+            Tier::High => Quality::high(),
+        };
+        Quality {
+            msaa: self.msaa.unwrap_or(tier.msaa),
+            path: match self.path {
+                PathChoice::Auto => RenderPath::Auto,
+                PathChoice::Full => RenderPath::Full,
+                PathChoice::Downlevel => RenderPath::Downlevel,
+            },
+            ..tier
+        }
+    }
+
+    /// The canvas's size in physical pixels for a `css` size at `ratio`.
+    pub fn physical_size(&self, css: (f32, f32), ratio: f32) -> (u32, u32) {
+        let ratio = ratio.clamp(0.25, self.max_pixel_ratio.max(0.25));
+        let side = |v: f32| ((v * ratio).round() as u32).max(1);
+        (side(css.0), side(css.1))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_options_take_every_default() {
+        assert_eq!(WebSettings::from_json("").unwrap(), WebSettings::default());
+        assert_eq!(
+            WebSettings::from_json("{}").unwrap(),
+            WebSettings::default()
+        );
+    }
+
+    #[test]
+    fn options_override_by_name_and_unknown_ones_fail() {
+        let s = WebSettings::from_json(
+            r#"{"backend":"webgl2","quality":"high","msaa":1,"step":{"step_s":0.01}}"#,
+        )
+        .unwrap();
+        assert_eq!(s.backend, Backend::WebGl2);
+        assert_eq!(s.render_quality().msaa, 1);
+        assert_eq!(s.step.step_s, 0.01);
+        assert_eq!(s.step.max_steps_per_frame, 4);
+        let wrong = WebSettings::from_json(r#"{"quallity":"high"}"#).unwrap_err();
+        assert!(wrong.contains("quallity"), "{wrong}");
+    }
+
+    #[test]
+    fn the_pixel_ratio_is_capped() {
+        let s = WebSettings::default();
+        assert_eq!(s.physical_size((390.0, 844.0), 3.0), (585, 1266));
+        assert_eq!(s.physical_size((800.0, 600.0), 1.0), (800, 600));
+        assert_eq!(s.physical_size((0.0, 0.0), 1.0), (1, 1));
+    }
+}
