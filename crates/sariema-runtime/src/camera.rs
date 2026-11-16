@@ -36,8 +36,8 @@ impl CameraPose {
 
     pub fn looking(position: Vec3, at: Vec3, fov: f32) -> CameraPose {
         let f = (at - position).normalize_or(Vec3::NEG_Z);
-        let yaw = (-f.x).atan2(-f.z).to_degrees();
-        let pitch = f.y.clamp(-1.0, 1.0).asin().to_degrees();
+        let yaw = libm::atan2f(-f.x, -f.z).to_degrees();
+        let pitch = libm::asinf(f.y.clamp(-1.0, 1.0)).to_degrees();
         CameraPose {
             position,
             rotation: CameraPose::rotation_of(yaw, pitch),
@@ -52,7 +52,7 @@ impl CameraPose {
     /// Degrees about +Y of the view direction.
     pub fn yaw(&self) -> f32 {
         let f = self.forward();
-        (-f.x).atan2(-f.z).to_degrees()
+        libm::atan2f(-f.x, -f.z).to_degrees()
     }
 
     pub fn lerp(&self, other: &CameraPose, t: f32) -> CameraPose {
@@ -181,7 +181,7 @@ impl Rig {
             } => {
                 let (pa, pb) = (at(a)?, at(b)?);
                 let half = pa.distance(pb) / 2.0 + margin;
-                let distance = half / (fov.to_radians() / 2.0).tan().max(1e-3);
+                let distance = half / libm::tanf(fov.to_radians() / 2.0).max(1e-3);
                 Some(((pa + pb) / 2.0 + Vec3::Y * height, distance))
             }
             Framing::Fixed(_) => None,
@@ -536,7 +536,7 @@ impl Camera {
             s.elapsed += 1;
             let t = s.elapsed as f32 * STEP_SECONDS;
             let fade = (1.0 - s.elapsed as f32 / s.steps as f32).max(0.0);
-            let wave = |k: usize, rate: f32| (TAU * s.frequency * rate * t + s.phase[k]).sin();
+            let wave = |k: usize, rate: f32| libm::sinf(TAU * s.frequency * rate * t + s.phase[k]);
             pose.position += s.amplitude
                 * fade
                 * fade

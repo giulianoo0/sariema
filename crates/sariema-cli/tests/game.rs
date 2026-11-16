@@ -200,9 +200,9 @@ fn hello_game_replays_its_input_log_to_pinned_events_and_state() {
     assert_eq!(host, ["load_saves", "ready", "save"]);
     assert_eq!(run["saves"], json!({ "met": [1] }));
     assert_eq!(run["names"]["2295560534"], "meet");
-    // Pinned on aarch64-apple-darwin. The runtime's f32 math (sin, exp,
-    // powf) comes from the platform's libm, so another platform may hash
-    // differently; replays are deterministic per platform.
+    // The runtime's and glam's f32 math (sin, exp, powf) come from the libm
+    // crate, not the platform's, so every platform, wasm32 included, gives
+    // this hash.
     assert_eq!(run["world_hash"], "13cf49016a4d7158");
     let again = run_hello(&pack, &[]);
     assert_eq!(

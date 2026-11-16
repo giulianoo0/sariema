@@ -139,7 +139,7 @@ impl Limits {
         Limits {
             metres,
             degrees,
-            cos_half: (degrees.to_radians() / 2.0).cos(),
+            cos_half: libm::cosf(degrees.to_radians() / 2.0),
         }
     }
 
@@ -159,7 +159,7 @@ fn between(a: Pose, b: Pose) -> (f32, f32) {
     let turn = a.rotation.conjugate() * b.rotation;
     (
         a.position.distance(b.position),
-        (2.0 * turn.xyz().length().atan2(turn.w.abs())).to_degrees(),
+        (2.0 * libm::atan2f(turn.xyz().length(), turn.w.abs())).to_degrees(),
     )
 }
 

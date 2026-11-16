@@ -25,7 +25,7 @@ pub struct Followers {
 /// Fraction of the gap a follower with `lag` closes each step; 1 is rigid.
 pub fn gain(lag: f32) -> f32 {
     if lag > 0.0 {
-        1.0 - 0.5f32.powf(STEP_SECONDS / lag)
+        1.0 - libm::powf(0.5, STEP_SECONDS / lag)
     } else {
         1.0
     }

@@ -15,7 +15,9 @@ bytemuck = { version = "1.25.2", features = ["derive"] }
 clap = { version = "4.6.7", features = ["derive"] }
 cpal = "0.18.2"
 ctt-astcenc = "0.6.1"
-glam = "0.34.3"
+# libm: the same f32 trigonometry on every platform, so a replay hashes alike
+# natively and on wasm32.
+glam = { version = "0.34.3", features = ["libm"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 # No remote or file $ref resolution: the schemas are embedded.
 jsonschema = { version = "0.61.2", default-features = false }

@@ -34,7 +34,7 @@ impl Spring {
             let za = -omega * zeta;
             let zb = omega * (zeta * zeta - 1.0).sqrt();
             let (z1, z2) = (za - zb, za + zb);
-            let (e1, e2) = ((z1 * dt).exp(), (z2 * dt).exp());
+            let (e1, e2) = (libm::expf(z1 * dt), libm::expf(z2 * dt));
             let inv = 1.0 / (2.0 * zb);
             let (e1i, e2i) = (e1 * inv, e2 * inv);
             let (z1e1i, z2e2i) = (z1 * e1i, z2 * e2i);
@@ -47,8 +47,8 @@ impl Spring {
         } else if zeta < 1.0 - 1e-4 {
             let oz = omega * zeta;
             let alpha = omega * (1.0 - zeta * zeta).sqrt();
-            let e = (-oz * dt).exp();
-            let (sin, cos) = (alpha * dt).sin_cos();
+            let e = libm::expf(-oz * dt);
+            let (sin, cos) = libm::sincosf(alpha * dt);
             let (es, ec) = (e * sin, e * cos);
             let eozs = e * oz * sin / alpha;
             Spring {
@@ -58,7 +58,7 @@ impl Spring {
                 vv: ec - eozs,
             }
         } else {
-            let e = (-omega * dt).exp();
+            let e = libm::expf(-omega * dt);
             let te = dt * e;
             let tef = te * omega;
             Spring {

@@ -57,14 +57,14 @@ fn quart(t: f32) -> f32 {
 }
 
 fn sine(t: f32) -> f32 {
-    1.0 - (t * PI / 2.0).cos()
+    1.0 - libm::cosf(t * PI / 2.0)
 }
 
 fn expo(t: f32) -> f32 {
     if t <= 0.0 {
         0.0
     } else {
-        (2.0f32).powf(10.0 * t - 10.0)
+        libm::powf(2.0, 10.0 * t - 10.0)
     }
 }
 

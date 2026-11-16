@@ -68,7 +68,7 @@ const IDLE: Mover = Mover {
 
 /// Degrees about +Y of a horizontal direction; 0 is −Z.
 pub fn yaw_of(d: Vec3) -> f32 {
-    (-d.x).atan2(-d.z).to_degrees()
+    libm::atan2f(-d.x, -d.z).to_degrees()
 }
 
 /// Signed shortest turn from `from` to `to`, in (−180, 180].

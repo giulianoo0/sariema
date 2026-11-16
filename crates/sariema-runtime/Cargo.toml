@@ -12,6 +12,7 @@ tinywasm = ["sariema-vm/tinywasm"]
 
 [dependencies]
 glam.workspace = true
+libm.workspace = true
 sariema-core = { path = "../sariema-core" }
 sariema-format = { path = "../sariema-format" }
 sariema-vm = { path = "../sariema-vm" }
