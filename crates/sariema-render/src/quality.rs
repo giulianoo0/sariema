@@ -53,6 +53,11 @@ pub struct Quality {
     /// Leaves out the room draws and actors whose bounds lie outside the
     /// view. Off draws everything, for comparing images.
     pub frustum_culling: bool,
+    /// Shadow slots of a frame, the sun's first and then the highest-ranked
+    /// lights', that also hold actors; each is redrawn in the frames an actor
+    /// within its reach moves. An actor that none holds gets a disc shadow,
+    /// so 0 gives every actor a disc.
+    pub actor_shadow_slots: u32,
 }
 
 impl Quality {
@@ -78,6 +83,7 @@ impl Quality {
             ao_blur_taps: 5,
             ao_max_radius_texels: 24,
             frustum_culling: true,
+            actor_shadow_slots: 0,
         }
     }
 
@@ -94,6 +100,7 @@ impl Quality {
             shadow_pcf_taps: 4,
             ao_samples: 8,
             ao_max_radius_texels: 32,
+            actor_shadow_slots: 1,
             ..Quality::low()
         }
     }
@@ -111,6 +118,7 @@ impl Quality {
             shadow_pcf_taps: 16,
             ao_samples: 12,
             ao_blur_taps: 9,
+            actor_shadow_slots: 2,
             ..Quality::medium()
         }
     }
@@ -145,6 +153,10 @@ impl Quality {
         let min_slots_per_side = (shadow_atlas_size / shadow_min_slot_px) as u64;
         let min_slots = (min_slots_per_side * min_slots_per_side).min(u32::MAX as u64) as u32;
         let blur_taps = self.blur_taps.clamp(1, MAX_BLUR_TAPS);
+        let max_shadowed_lights = self
+            .max_shadowed_lights
+            .min(min_slots)
+            .min(entries(view_stride(limits).max(GPU_SHADOW_SIZE)).saturating_sub(1));
         Quality {
             max_visible_lights: self.max_visible_lights.min(entries(GPU_LIGHT_SIZE)),
             max_lights_per_cluster,
@@ -153,10 +165,8 @@ impl Quality {
             depth_slices: self.depth_slices.clamp(1, cluster_budget),
             shadow_atlas_size,
             // The slot buffers also hold the sun's.
-            max_shadowed_lights: self
-                .max_shadowed_lights
-                .min(min_slots)
-                .min(entries(view_stride(limits).max(GPU_SHADOW_SIZE)).saturating_sub(1)),
+            max_shadowed_lights,
+            actor_shadow_slots: self.actor_shadow_slots.min(max_shadowed_lights + 1),
             shadow_min_slot_px,
             bloom_levels: self.bloom_levels.max(1),
             blur_taps: odd(blur_taps),

@@ -17,5 +17,6 @@ sariema-format = { path = "../sariema-format" }
 wgpu.workspace = true
 
 [dev-dependencies]
+sariema-anim = { path = "../sariema-anim" }
 sariema-format = { path = "../sariema-format", features = ["demo"] }
 sariema-import = { path = "../sariema-import" }

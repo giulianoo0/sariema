@@ -52,7 +52,7 @@ pub(crate) struct Kind {
 }
 
 impl Kind {
-    const COUNT: usize = 12;
+    pub const COUNT: usize = 12;
     const ALPHAS: [AlphaMode; 3] = [AlphaMode::Opaque, AlphaMode::Blend, AlphaMode::Additive];
 
     pub fn of(material: &sariema_format::Material) -> Kind {
@@ -64,7 +64,7 @@ impl Kind {
     }
 
     /// Where its pipeline is in `Scene::pipelines`; [`Kind::from_index`] inverts it.
-    fn index(self) -> usize {
+    pub fn index(self) -> usize {
         let alpha = Kind::ALPHAS.iter().position(|&a| a == self.alpha).unwrap();
         (self.lit as usize * Kind::ALPHAS.len() + alpha) * 2 + self.double_sided as usize
     }
@@ -185,7 +185,15 @@ impl Scene {
         let mesh_layout = pipeline_layout(&[&layouts.frame, &layouts.draw, &layouts.material]);
         let msaa = quality.msaa;
         let pipelines = std::array::from_fn(|i| {
-            mesh_pipeline(gpu, &mesh_layout, &module, Kind::from_index(i), quality)
+            let vertex = ("vs_main", vertex_layout());
+            mesh_pipeline(
+                gpu,
+                &mesh_layout,
+                &module,
+                Kind::from_index(i),
+                quality,
+                vertex,
+            )
         });
         let background = gpu.pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("background"),
@@ -569,12 +577,15 @@ pub(crate) fn depth_state(write: bool, compare: wgpu::CompareFunction) -> wgpu::
     }
 }
 
-fn mesh_pipeline(
+/// The pipeline drawing `kind` with fs_main, its vertices read by the entry
+/// point and buffer layout of `vertex`.
+pub(crate) fn mesh_pipeline(
     gpu: &Gpu,
     layout: &wgpu::PipelineLayout,
     module: &wgpu::ShaderModule,
     kind: Kind,
     quality: &Quality,
+    (entry_point, buffer): (&str, wgpu::VertexBufferLayout<'_>),
 ) -> wgpu::RenderPipeline {
     // The largest square grid within the tap count.
     let pcf_side = quality.shadow_pcf_taps.isqrt().max(1);
@@ -592,9 +603,9 @@ fn mesh_pipeline(
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module,
-            entry_point: Some("vs_main"),
+            entry_point: Some(entry_point),
             compilation_options: options.clone(),
-            buffers: &[Some(vertex_layout())],
+            buffers: &[Some(buffer)],
         },
         primitive: primitive(kind.double_sided),
         depth_stencil: Some(depth_state(kind.is_opaque(), wgpu::CompareFunction::Less)),

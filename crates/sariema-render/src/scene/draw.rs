@@ -1,19 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Recording the scene's draws: the background, then the room's visible
-//! draws in order, or their depth alone.
+//! draws in order with the actors after its opaque ones, or the room's depth
+//! alone.
 
 use sariema_core::Camera;
 use sariema_format::AlphaMode;
 
 use super::{Scene, Targets};
+use crate::actors::{Actors, Layer};
 use crate::cull;
 use crate::resources::Room;
 
 impl Scene {
     /// `keep_depth` stores the depth for post-processing; otherwise it is
     /// discarded, which spares tile-based GPUs writing it out.
-    pub fn draw(&self, encoder: &mut wgpu::CommandEncoder, room: Option<&Room>, keep_depth: bool) {
+    pub fn draw(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        room: Option<&Room>,
+        actors: &Actors,
+        keep_depth: bool,
+    ) {
         let Targets {
             multisampled,
             resolved,
@@ -48,15 +56,22 @@ impl Scene {
         pass.set_bind_group(0, &self.frame_group, &[]);
         pass.set_pipeline(&self.background);
         pass.draw(0..3, 0..1);
-        let Some(room) = room else {
-            return;
-        };
-        if self.order.is_empty() {
-            return;
+        let room = room.filter(|_| !self.order.is_empty());
+        if let Some(room) = room {
+            room.bind_meshes(&mut pass);
         }
-        room.bind_meshes(&mut pass);
         let mut current = None;
-        for &(_, _, i) in &self.order {
+        let mut actors_drawn = false;
+        for &(layer, _, i) in room.map_or(&[][..], |_| &self.order[..]) {
+            let room = room.expect("the order is of the room's draws");
+            // Actors and their discs go between the opaque and the rest.
+            if layer > 0 && !actors_drawn {
+                actors.draw(&mut pass, Layer::Opaque);
+                actors.draw_discs(&mut pass);
+                actors_drawn = true;
+                room.bind_meshes(&mut pass);
+                current = None;
+            }
             let i = i as usize;
             let draw = &room.draws[i];
             if current != Some(draw.kind) {
@@ -76,6 +91,11 @@ impl Scene {
             pass.set_bind_group(2, &material.group, &[]);
             room.draw(&mut pass, i);
         }
+        if !actors_drawn {
+            actors.draw(&mut pass, Layer::Opaque);
+            actors.draw_discs(&mut pass);
+        }
+        actors.draw(&mut pass, Layer::Translucent);
     }
 
     pub fn draw_depth(

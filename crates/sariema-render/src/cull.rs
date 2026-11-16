@@ -36,6 +36,16 @@ pub(crate) fn box_visible(planes: &[Vec4; 6], min: Vec3, max: Vec3) -> bool {
     })
 }
 
+/// World bounds of the box `min..max` moved by `m`.
+pub(crate) fn transformed_box(m: Mat4, min: Vec3, max: Vec3) -> (Vec3, Vec3) {
+    let center = m.transform_point3((min + max) * 0.5);
+    let half = (max - min) * 0.5;
+    let extent = m.x_axis.truncate().abs() * half.x
+        + m.y_axis.truncate().abs() * half.y
+        + m.z_axis.truncate().abs() * half.z;
+    (center - extent, center + extent)
+}
+
 #[cfg(test)]
 mod tests {
     use glam::camera::rh::proj::directx::perspective;
@@ -71,5 +81,25 @@ mod tests {
             vec3(-100.0, -100.0, -10.0),
             vec3(100.0, 100.0, -9.0)
         ));
+    }
+
+    #[test]
+    fn transformed_bounds_hold_every_moved_corner() {
+        let m = Mat4::from_scale_rotation_translation(
+            vec3(2.0, 1.0, 0.5),
+            glam::Quat::from_rotation_y(0.7) * glam::Quat::from_rotation_x(0.3),
+            vec3(1.0, -2.0, 3.0),
+        );
+        let (min, max) = (vec3(-1.0, 0.0, -0.5), vec3(1.0, 2.0, 0.5));
+        let (lo, hi) = transformed_box(m, min, max);
+        for i in 0..8 {
+            let corner = Vec3::select(
+                glam::BVec3::new(i & 1 != 0, i & 2 != 0, i & 4 != 0),
+                max,
+                min,
+            );
+            let p = m.transform_point3(corner);
+            assert!(p.cmpge(lo - 1e-5).all() && p.cmple(hi + 1e-5).all(), "{p}");
+        }
     }
 }

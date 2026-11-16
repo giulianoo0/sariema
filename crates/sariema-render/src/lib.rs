@@ -10,7 +10,10 @@
 //! they show changes. Post-processing blurs the HDR image into a chain of
 //! smaller levels for bloom and a miniature blur, then one pass tone maps,
 //! grades and dithers it into the target.
-//! Every pipeline is created in [`Renderer::new`]; [`Renderer::render`]
+//! Actors are skinned packs drawn after the room's opaque draws with the same
+//! lights and shadows; see [`Renderer::load_actor`].
+//! Every room pipeline is created in [`Renderer::new`] and every actor
+//! pipeline when the first pack needing it is loaded; [`Renderer::render`]
 //! creates no pipeline and no buffer.
 
 use std::cell::Cell;
@@ -18,8 +21,10 @@ use std::fmt;
 use std::sync::Arc;
 
 use sariema_core::Camera;
+use sariema_format::actor::ActorPack;
 use sariema_format::{Look, RoomPack};
 
+mod actors;
 mod cluster;
 mod cull;
 mod golden;
@@ -31,10 +36,12 @@ mod resources;
 mod scene;
 mod shadow;
 
+pub use actors::{ActorId, ActorModel, ActorState, DiscShadow};
 pub use golden::{GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, GoldenDiff, compare_images};
 pub use headless::{Headless, render_coverage, render_to_image};
 pub use quality::Quality;
 
+use actors::Actors;
 use cluster::Visible;
 use post::Post;
 use resources::Room;
@@ -56,6 +63,8 @@ pub enum RenderError {
     Device(String),
     /// The room passed `decode` but cannot be drawn.
     Room(String),
+    /// An actor pack that cannot be drawn, or an actor given what it cannot show.
+    Actor(String),
 }
 
 impl fmt::Display for RenderError {
@@ -64,6 +73,7 @@ impl fmt::Display for RenderError {
             RenderError::NoAdapter => write!(f, "no graphics adapter is available"),
             RenderError::Device(why) => write!(f, "graphics device: {why}"),
             RenderError::Room(why) => write!(f, "room cannot be rendered: {why}"),
+            RenderError::Actor(why) => write!(f, "actor cannot be rendered: {why}"),
         }
     }
 }
@@ -91,6 +101,9 @@ pub struct FrameStats {
     pub post_passes: u32,
     /// Visible room draws left out because their bounds are outside the view.
     pub draws_culled: u32,
+    pub actors_drawn: u32,
+    /// Visible actors left out because their bounds are outside the view.
+    pub actors_culled: u32,
 }
 
 /// The device and queue, counting what is created through them.
@@ -142,6 +155,7 @@ pub struct Renderer {
     scene: Scene,
     shadows: Shadows,
     post: Post,
+    actors: Actors,
     room: Option<Room>,
     visible: Visible,
     stats: FrameStats,
@@ -183,6 +197,7 @@ impl Renderer {
         let shadows = Shadows::new(&gpu, &quality, &layouts.draw);
         let scene = Scene::new(&gpu, (width, height), &quality, layouts, &shadows);
         let post = Post::new(&gpu, config.output_format, &quality, &scene);
+        let actors = Actors::new(&gpu, &quality);
         Ok(Renderer {
             gpu,
             quality,
@@ -191,6 +206,7 @@ impl Renderer {
             scene,
             shadows,
             post,
+            actors,
             room: None,
             visible: Visible::default(),
             stats: FrameStats::default(),
@@ -211,6 +227,41 @@ impl Renderer {
         self.set_look(&room.look);
         self.warned = false;
         Ok(())
+    }
+
+    /// Uploads an actor pack, creating the pipelines its materials need; the
+    /// first pack also creates the shadow and disc pipelines. Fails on a
+    /// pack the device cannot hold, or a device without storage buffers in
+    /// vertex shaders.
+    pub fn load_actor(&mut self, pack: &ActorPack) -> Result<ActorModel, RenderError> {
+        let layouts = self.scene.layouts();
+        let view = &self.shadows.view_layout;
+        (self.actors).load(&self.gpu, layouts, view, &self.quality, pack)
+    }
+
+    /// A new actor showing `model`, hidden until [`Renderer::set_actor`].
+    /// It creates a buffer only when the actors outgrow the one they share.
+    pub fn spawn_actor(&mut self, model: ActorModel) -> Result<ActorId, RenderError> {
+        self.actors.spawn(&self.gpu, model)
+    }
+
+    /// Places and poses `actor` for the frames from the next one on.
+    pub fn set_actor(&mut self, actor: ActorId, state: &ActorState) -> Result<(), RenderError> {
+        self.actors.set(actor, state)
+    }
+
+    /// Shows or hides the actor's parts called `part`; false if there is none.
+    pub fn set_actor_part_visible(&mut self, actor: ActorId, part: &str, visible: bool) -> bool {
+        self.actors.set_part_visible(actor, part, visible)
+    }
+
+    /// Replaces the actor's disc shadow; `None` draws none.
+    pub fn set_actor_disc(
+        &mut self,
+        actor: ActorId,
+        disc: Option<DiscShadow>,
+    ) -> Result<(), RenderError> {
+        self.actors.set_disc(actor, disc)
     }
 
     /// Sizes of 0, or beyond what the device holds, are ignored.
@@ -259,12 +310,22 @@ impl Renderer {
             camera.position,
             self.quality.max_visible_lights,
         );
-        let shadows = self
-            .shadows
-            .assign(&self.gpu, room, camera, &self.visible.lights);
-        let stats = self
+        self.actors.upload(&self.gpu);
+        let shadows = self.shadows.assign(
+            &self.gpu,
+            room,
+            camera,
+            &self.visible.lights,
+            self.actors.moved(),
+        );
+        let mut stats = self
             .scene
             .prepare(&self.gpu, room, camera, time_s, &self.visible, shadows);
+        let lights = room.map_or(&[][..], |r| &r.lights[..]);
+        let actor_stats = (self.actors).prepare(camera, |b| self.shadows.maps(lights, b));
+        self.actors.forget_moves();
+        stats.actors_drawn = actor_stats.drawn;
+        stats.actors_culled = actor_stats.culled;
         if !self.warned && (stats.lights_dropped > 0 || stats.cluster_overflows > 0) {
             self.warned = true;
             log::warn!(
@@ -279,11 +340,11 @@ impl Renderer {
         self.stats = stats;
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
         if let Some(room) = &self.room {
-            self.shadows.draw(&mut encoder, room);
+            self.shadows.draw(&mut encoder, room, &self.actors);
         }
         let keep_depth = self.post.reads_depth();
         self.scene
-            .draw(&mut encoder, self.room.as_ref(), keep_depth);
+            .draw(&mut encoder, self.room.as_ref(), &self.actors, keep_depth);
         self.stats.post_passes = self.post.draw(&self.gpu, &mut encoder, camera, target);
         self.gpu.queue.submit([encoder.finish()]);
     }

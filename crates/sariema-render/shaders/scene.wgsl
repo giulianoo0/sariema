@@ -31,6 +31,8 @@ struct Material {
     rim: f32,
     // Written to the mask in alpha: 1 for the "drawn" look.
     drawn: f32,
+    // The actor face whose atlas cell sets the offset, -1 for none.
+    face: f32,
 }
 
 @group(0) @binding(1) var<storage, read> lights: array<Light>;
