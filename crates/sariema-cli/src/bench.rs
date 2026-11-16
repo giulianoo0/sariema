@@ -16,6 +16,7 @@ use sariema_format::script::{GAME_MAGIC, decode_game};
 use sariema_render::{
     FrameTimings, PassTime, Quality, RenderConfig, RenderError, Renderer, request_device,
 };
+use sariema_view::ViewSettings;
 use serde_json::{Value, json};
 
 use crate::Tier;
@@ -62,6 +63,12 @@ pub struct BenchArgs {
     /// No ambient occlusion.
     #[arg(long)]
     no_ao: bool,
+    /// A game's rooms are decoded and its collision worlds built a share a
+    /// frame, as on the web, instead of on threads. The frames run faster
+    /// than real time, so a thread may not be done by a switch that would
+    /// find its work done in play.
+    #[arg(long)]
+    no_threads: bool,
 }
 
 impl BenchArgs {
@@ -86,6 +93,71 @@ struct Samples {
     stages: Vec<FrameTimings>,
     allocations: Vec<u64>,
     allocated_bytes: Vec<u64>,
+    rooms: RoomSamples,
+}
+
+/// A game's frames by what its rooms did in them.
+#[derive(Default)]
+struct RoomSamples {
+    /// Decoding or uploading a room or building its collision world, or
+    /// finishing either.
+    loading: Vec<f64>,
+    /// While a switch lasts, its first frame included.
+    switching: Vec<f64>,
+    /// The frame of each switch's step.
+    switched: Vec<f64>,
+    /// Neither loading nor switching.
+    steady: Vec<f64>,
+    bytes_decoded: u64,
+    bytes_uploaded: u64,
+    rooms_loaded: u32,
+    loaded_at_once: u32,
+    world_shares: u32,
+    worlds_built: u32,
+}
+
+impl RoomSamples {
+    fn push(&mut self, cpu: f64, parts: &game::Parts) {
+        let r = parts.rooms;
+        let loading = r.bytes_decoded > 0
+            || r.bytes_uploaded > 0
+            || r.rooms_loaded > 0
+            || r.world_share
+            || r.worlds_built > 0;
+        if loading {
+            self.loading.push(cpu);
+        }
+        if parts.switching || parts.switched {
+            self.switching.push(cpu);
+        }
+        if parts.switched {
+            self.switched.push(cpu);
+        }
+        if !loading && !parts.switching && !parts.switched {
+            self.steady.push(cpu);
+        }
+        self.bytes_decoded += r.bytes_decoded;
+        self.bytes_uploaded += r.bytes_uploaded;
+        self.rooms_loaded += r.rooms_loaded;
+        self.loaded_at_once += r.loaded_at_once as u32;
+        self.world_shares += r.world_share as u32;
+        self.worlds_built += r.worlds_built;
+    }
+
+    fn json(&self) -> Value {
+        json!({
+            "steady_cpu_ms": counted(&self.steady),
+            "loading_cpu_ms": counted(&self.loading),
+            "switching_cpu_ms": counted(&self.switching),
+            "switch_step_cpu_ms": self.switched,
+            "bytes_decoded": self.bytes_decoded,
+            "bytes_uploaded": self.bytes_uploaded,
+            "rooms_loaded": self.rooms_loaded,
+            "loaded_at_once": self.loaded_at_once,
+            "world_shares": self.world_shares,
+            "worlds_built": self.worlds_built,
+        })
+    }
 }
 
 impl Samples {
@@ -145,7 +217,11 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     let mut game = match game {
         Some(pack) => Some(GameFrame::load(
             &mut renderer,
-            !args.no_shadows,
+            ViewSettings {
+                shadows: !args.no_shadows,
+                threads: !args.no_threads,
+                ..ViewSettings::default()
+            },
             pack,
             args.input.as_deref(),
             size,
@@ -212,6 +288,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
                 samples.step.push(ms(parts.step));
                 samples.feed.push(ms(parts.feed));
                 samples.hud.push(ms(parts.hud));
+                samples.rooms.push(ms(cpu), &parts);
             }
             samples.stages.push(renderer.last_frame_timings());
             if let (Some((count, bytes)), Some((count_after, bytes_after))) = (before, after) {
@@ -268,6 +345,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
                 "quality": args.quality.to_possible_value().map(|v| v.get_name().to_owned()),
                 "msaa": effective.msaa,
                 "shadows": !args.no_shadows,
+                "threads": !args.no_threads,
                 "ao": effective.ao_samples > 0,
                 "frames": args.frames,
                 "warmup": args.warmup,
@@ -294,6 +372,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
                 "finish": samples.stage(|t| t.finish),
                 "submit": samples.stage(|t| t.submit),
             },
+            "rooms": game.is_some().then(|| samples.rooms.json()),
             "wall_ms_per_frame": { "runs": walls, "median": wall_median },
             "per_frame": {
                 "passes": frame_stats.passes,
