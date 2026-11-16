@@ -82,7 +82,7 @@ impl AudioError {
             AudioError::QueueFull => "E_AUDIO_QUEUE_FULL",
             AudioError::NotFinite(_) => "E_AUDIO_NOT_FINITE",
             AudioError::Settings(_) => "E_SCHEMA",
-            AudioError::Device(_) => "E_DEVICE",
+            AudioError::Device(_) => "E_AUDIO_DEVICE",
         }
     }
 }
