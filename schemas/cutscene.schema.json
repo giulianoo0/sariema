@@ -1036,6 +1036,135 @@
             "hinge"
           ],
           "description": "Turns a hinged node (a door or window leaf) with the time of a role's clip, from the angle it holds when the step starts to `to` over `span`; the collider turns with it and stops short of an actor in its swing. Waits for the role to play the clip and ends once the clip is past the span's end. Put it in a parallel with the clip."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "role": {
+                  "$ref": "#/$defs/name"
+                },
+                "clip": {
+                  "$ref": "#/$defs/name"
+                },
+                "from": {
+                  "$ref": "#/$defs/seconds",
+                  "default": 0,
+                  "description": "Seconds into the clip it starts at."
+                },
+                "hold": {
+                  "$ref": "#/$defs/seconds",
+                  "default": 0,
+                  "description": "Seconds the clip stays on its first frame before playing; keep it under a fade or a cut."
+                },
+                "mode": {
+                  "enum": [
+                    "loop",
+                    "once",
+                    "hold"
+                  ],
+                  "default": "hold"
+                },
+                "blend": {
+                  "$ref": "#/$defs/seconds",
+                  "default": 0.2
+                },
+                "spans": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "at": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/seconds"
+                        },
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "Seconds of the clip the span starts and ends at; spans come in order and do not overlap."
+                      },
+                      "to": {
+                        "$ref": "#/$defs/vec3",
+                        "description": "Where the root goes over the span, from where it stands when the span begins; without it the root stays."
+                      },
+                      "yaw": {
+                        "type": "number",
+                        "description": "Degrees the root turns to over the span."
+                      },
+                      "rate": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "default": 1,
+                        "description": "The clip's rate within the span: 0.4 is slow motion on the span alone."
+                      },
+                      "ease": {
+                        "$ref": "#/$defs/ease",
+                        "default": "linear"
+                      },
+                      "arc": {
+                        "type": "number",
+                        "default": 0,
+                        "description": "Metres the root rises above the straight line halfway: a jump."
+                      }
+                    },
+                    "required": [
+                      "at"
+                    ]
+                  }
+                },
+                "then": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "clip": {
+                        "$ref": "#/$defs/name"
+                      },
+                      "after": {
+                        "$ref": "#/$defs/seconds",
+                        "description": "Seconds of the clip before after which this one begins; that clip's end when absent."
+                      },
+                      "mode": {
+                        "enum": [
+                          "loop",
+                          "once",
+                          "hold"
+                        ],
+                        "default": "hold"
+                      },
+                      "blend": {
+                        "$ref": "#/$defs/seconds",
+                        "default": 0.2
+                      },
+                      "speed": {
+                        "type": "number",
+                        "default": 1
+                      }
+                    },
+                    "required": [
+                      "clip"
+                    ]
+                  },
+                  "description": "Clips played in a row after the path's clip, each taking over inside the step the one before ends, with the time left over."
+                }
+              },
+              "required": [
+                "role",
+                "clip",
+                "spans"
+              ]
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "description": "A traversal bound to a clip: the role's root moves only within the clip's spans, collider off, still while the clip anticipates and settles; a span can slow the clip; the clips of `then` follow without a still frame. Ends when the last clip has played through and the root has landed, on free floor with its collider on."
         }
       ]
     }

@@ -208,6 +208,24 @@ impl Checker<'_> {
                 k.cut = false;
                 elapse(k);
             }
+            Block::Path { role, spans, .. } => {
+                let at = format!("{at}.path");
+                self.uses(k, *role, &at);
+                let mut from: Option<[f32; 3]> = None;
+                for span in spans {
+                    if let (Some(a), Some(b)) = (from, span.to) {
+                        let metres = (0..3)
+                            .map(|i| (b[i] - a[i]) * (b[i] - a[i]))
+                            .sum::<f32>()
+                            .sqrt();
+                        let speed = metres * span.rate / (span.until - span.from);
+                        self.walks(speed, "path span", &at);
+                    }
+                    from = span.to.or(from);
+                }
+                k.cut = false;
+                elapse(k);
+            }
             Block::LookAt { role, target } => {
                 self.uses(k, *role, &format!("{at}.look_at"));
                 if let Some(t) = target {
@@ -395,6 +413,7 @@ fn collect(blocks: &[Block], w: &mut Writes) {
                 collect(otherwise, w);
             }
             Block::Walk { role, .. }
+            | Block::Path { role, .. }
             | Block::Teleport { role, .. }
             | Block::Spawn { role, .. }
             | Block::Despawn { role }
