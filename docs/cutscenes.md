@@ -57,7 +57,13 @@ Then, in order:
    start yaw. The steps begin when every role is in place. A role the game
    teleported in the same tick it played the cutscene, with a collision
    module, is judged a step later, from where the teleport landed, or from
-   where it stood if the module refused it.
+   where it stood if the module refused it. With a collision module the
+   floor holds actors at its height, so for a start within
+   `cutscene.start_height` (0.25 m) above or below the actor these
+   distances are measured along the ground and the actor is eased in x and
+   z only, getting its collider back when the ease ends: a start a few
+   centimetres off in height adds no time. A start farther off in height
+   (another storey) is measured and eased to in full.
 3. **The steps** run in order. A step that takes time (a walk, a line, a
    wait, a blend) holds the next one until it ends.
 4. **The end.** The hero goes back to whoever had it, where the cutscene
@@ -102,15 +108,17 @@ world afterwards is the one playing it through would have left.
 | `call: name` | sends the game `cutscene_call` | at once |
 | `time_scale: { scale, blend }` | plays the world at `scale` times real time (below 1 is slow motion), reached over `blend` seconds; the end of the cutscene gives back the scale it found | at once |
 | `camera_shake: { amplitude, frequency, duration }` | shakes the camera, dying out: an impact | at once |
+| `path: { role, clip, from, hold, mode, blend, spans, then }` | plays a clip from `from` seconds into it (still for `hold` seconds first) and moves the role's root only within its `spans` (`{ at: [t0, t1], to, yaw, rate, ease, arc }`), collider off, each span at its own `rate`; the clips of `then` follow in a row | when the last clip has played through and the root has landed |
 
 Every step is also a command a game can send itself: `shot` is a rig command
 then `camera_use`, `walk` is `move_to`, `face`, `look_at`, `clip`
 (`play_clip`), `line` (`say`), `sound` (`play_sound`), `music`, `fade`,
 `letterbox`, `set_flag`, `spawn`, `despawn`, `show`/`hide` (`set_visible`),
 `teleport`, `time_scale` and `camera_shake` are their commands of the same
-name, a shot's `bone` or `socket` is `rig_anchor`, and `hinge` is a `tween`
+name, a shot's `bone` or `socket` is `rig_anchor`, `hinge` is a `tween`
 of the scene parameter `hinge.<node>` that the clip's time drives instead of
-the clock. The sequencer uses rig
+the clock, and `path` is `clip_path` followed by a `clip_next` for each clip
+of `then`. The sequencer uses rig
 id and line id `u32::MAX` and tween ids from `0xFFFF0000` up; a game leaves
 those to it.
 
@@ -143,12 +151,14 @@ would is refused with `E_TELEPORT_VISIBLE`, and an actor that still went too
 far is put back. A `walk` faster than that fails the check with
 `E_CUTSCENE_SPEED`, against the project's `game.settings` (or the defaults),
 and so does `cutscene.start_walk_speed` in a cutscene with a role that has a
-start. At run time a walk goes at its speed times the role's speed scale,
-which the game sets with `set_speed_scale` and the check cannot see. A walk
-too fast at that scale is refused and ends at once where the role stands,
-played or skipped alike; the walk to a start slows to the fastest allowed
-instead. A walk the run-time measurement stops ends there with `blocked`,
-whether the runtime or a collision module moves actors.
+start. A `path` whose first `then` clip has an `after` earlier than the end
+of the last span fails with `E_CUTSCENE_PATH_CUT`: that clip would take
+over half-way and stop the path there with `blocked`. A walk goes at its speed in metres per second of the world,
+whatever speed scale the game gave the role with `set_speed_scale` (that
+scales the player's axis and `move_intent`, not a scripted walk), so it
+takes its length over its speed, as authored. A walk the run-time
+measurement stops ends there with `blocked`, whether the runtime or a
+collision module moves actors.
 
 To move an actor across the scene: walk it; or hide it, wait, teleport it,
 show it; or fade out, teleport it with `"cover": "fade"`, fade in; or cut
@@ -199,12 +209,20 @@ writes for each.
    leaves").
 5. **Traversal in clip segments.** The root moves only within given spans
    of the clip and is still outside them (anticipation, settling); a span
-   may carry its own time scale. Not expressible yet (see the limits);
-   today `time_scale` slows the whole world around the beat.
+   may carry its own rate. A `path` step writes it: each span names the
+   seconds of the clip it covers (`at`), where the root goes (`to`, from
+   where it stands when the span begins), its `ease` and `arc`, and its
+   `rate` (`0.4` is slow motion for the body alone, while the world and
+   the camera keep their pace). The root is placed every step from the
+   clip's time, so body and root never part, in slow motion either. A
+   span without `to` only changes the rate: the root stays.
 6. **Intended contact is authored, not penetration.** A catching foot is a
    pose of the clip plus a point that places the root so the ankle sits on
-   the edge. The traversal ignores collision for its spans and ends on free
-   floor. Not expressible yet (see the limits).
+   the edge: a span's `to` is that point. The role is posed with its
+   collider off from its first span to its last, so it crosses the sill,
+   and gets its collider back where the root lands, pushed out of any
+   overlap; a landing above the floor falls onto it. End the last span on
+   free floor (see the limits).
 7. **Clip time follows the step clock.** A clip is sought to the time of
    its steps, never left to run on a clock of its own: in slow motion a
    free-running clip can freeze, and a landing waiting on it never starts.
@@ -214,7 +232,12 @@ writes for each.
    like every pose. The animation module seeks to them, so a clip slows
    with `time_scale` without a still frame, and `wait_for: clip_finished`
    still comes. Leftover frame time carries into the next step, so a step
-   boundary shows no still frame either. The one hold is a clip's first
+   boundary shows no still frame either. A span's rate changes the clip's
+   pace from the time it is at, inside the step it gets there, never
+   starting it over; the clips of a `path`'s `then` take over inside the
+   step the one before ends, with the time left over, where a `wait_for:
+   clip_finished` and then a `clip` lose a step or two on a held last
+   frame. The one hold is a clip's first
    frame: a clip begun in a step shows frame 0 until the next step, since
    the frames drawn then have no earlier clip time to show.
 8. **Insert shot on the contact, cut on the action, position continuous
@@ -281,8 +304,45 @@ between 0.35 s and 0.9 s of `reach_open`.
 | no `teleport`, no `hide` | 8: the cuts change the camera only |
 
 It passes `sariema check`
-(`crates/sariema-runtime/tests/fixtures/cutscenes/window_entry.json`). One
-part waits on the limits below: the hero's root crossing the sill (5, 6).
+(`crates/sariema-runtime/tests/fixtures/cutscenes/window_entry.json`). The
+hero's root crossing the sill (5, 6) is the next example.
+
+### Worked example: a traversal in clip spans
+
+The hero climbs onto a sill, steps over, catches a foot, falls, lands on
+its belly and gets up, in one `climb_trip` clip whose root moves only in
+its airborne and climbing frames. The catch plays at 0.4 for the body
+alone while a close shot cuts in on the clip's marker, and the landing
+and the getting up follow with no still frame.
+
+```json
+{ "parallel": [
+  [ { "path": { "role": "hero", "clip": "climb_trip", "from": 0.1, "spans": [
+        { "at": [0.3, 0.6], "to": [0, 0.9, 0.15], "ease": "out_quad" },
+        { "at": [0.6, 0.75], "to": [0, 0.9, -0.1] },
+        { "at": [0.75, 0.9], "rate": 0.4 },
+        { "at": [0.9, 1.2], "to": [0, 0, -0.8], "ease": "in_quad", "arc": 0.1 } ],
+      "then": [ { "clip": "land_belly" }, { "clip": "get_up", "after": 0.6 } ] } } ],
+  [ { "wait_for": { "clip_marker": { "role": "hero", "clip": "climb_trip", "marker": "foot_catches" }, "timeout": 2 } },
+    { "shot": { "follow": "hero", "bone": "foot_l", "distance": 0.9, "pitch": 5, "yaw": 90, "height": 0, "fov": 35, "blend": 0 } },
+    { "wait_for": { "clip_marker": { "role": "hero", "clip": "climb_trip", "marker": "falls" }, "timeout": 2 } },
+    { "shot": { "follow": "hero", "distance": 4, "pitch": 12, "yaw": 35, "blend": 0 } },
+    { "wait_for": { "clip_marker": { "role": "hero", "clip": "climb_trip", "marker": "lands" }, "timeout": 2 } },
+    { "camera_shake": { "amplitude": 0.03, "duration": 0.25 } } ]
+] }
+```
+
+| Part | Rule |
+|---|---|
+| `from: 0.1`, the root still until 0.3 s of the clip | 5: anticipation in place |
+| spans to the sill top, across it, and down | 5 and 6: the root moves only while the body climbs or flies, collider off |
+| `{ "at": [0.75, 0.9], "rate": 0.4 }` with the close shot on `foot_catches` | 3 and 8: slow motion on the contact, cut on the action |
+| `then`: `land_belly`, `get_up` after 0.6 s of it | 2 and 7: impact and recovery, no still frame at the seams |
+
+`land_belly` begins when `climb_trip` ends and `get_up` once `land_belly`
+has played 0.6 s; the step ends when `get_up` has played through. It
+passes `sariema check`
+(`crates/sariema-runtime/tests/fixtures/cutscenes/sill_trip.json`).
 
 ## Writing one that passes
 
@@ -298,12 +358,6 @@ part waits on the limits below: the hero's root crossing the sill (5, 6).
 
 ## Limits known
 
-- **Traversals bound to clip time** (port item L8): root motion that moves
-  the actor only within spans of a clip, with a time scale per span; the
-  traversal running kinematic (collider off) over its spans; `check`
-  accepting declared contact points on a surface and failing on any other
-  penetration, or on a traversal that does not end on free floor. Today a
-  traversal is a clip plus `walk`s, and slow motion covers the whole world.
 - **A `hinge` step** waits for its role to play its clip for
   `cutscene.hinge_clip_wait` seconds (2); then it ends with the leaf where
   it was, and the game gets `rejected` `E_CUTSCENE_HINGE_WAIT`. A step on
@@ -312,6 +366,13 @@ part waits on the limits below: the hero's root crossing the sill (5, 6).
   room of the project has (`E_CUTSCENE_HINGE`, naming the node and the
   step), building the rooms only when some cutscene has a `hinge` step.
   Hinges turn about a vertical axis only.
+- **A path's landing** is not proven by `check`: a cutscene does not name
+  the room it plays in. At run time the collider comes back where the root
+  lands, pushed out of an overlap of up to the collision module's
+  `max_depenetration`; past that the game hears `rejected`
+  `E_TELEPORT_BLOCKED` and the root stays. Declared contacts that `check`
+  proves (a foot placed on an edge by its socket) are the collision pack's
+  traversals, carried by the `traverse` command.
 - **A room switch inside a cutscene** (port item L1): a cutscene plays
   inside one room.
 - **Bones and sockets** are data until the animation module is integrated:
@@ -333,6 +394,13 @@ part waits on the limits below: the hero's root crossing the sill (5, 6).
 - Bones and sockets as camera targets: Unreal's skeletal mesh sockets and
   Godot's `BoneAttachment3D`, kept as names until the animation module
   resolves them.
+- A traversal as root motion keyed to spans of its clip: Unreal's root
+  motion from montages, which also moves the capsule only while the
+  animation does; here each span is an eased line to a point instead of a
+  curve extracted from the clip, so a clip without root motion drives it.
+- Clips queued in a row with the time left over: Godot's
+  `AnimationNodeStateMachine` "at end" transitions and Unity's exit time,
+  taken at the exact time inside the step instead of on the next frame.
 - Slow motion as a scale on the clock that feeds the fixed step, as Bevy's
   `Time<Virtual>` relative speed does, instead of a smaller step: a step
   stays 1/60 s of world time, so play stays deterministic, and clips that

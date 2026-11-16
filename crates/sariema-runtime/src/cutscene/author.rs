@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use sariema_format::script::cutscene::{
-    Await, Block, Cover, Cutscene, Place, Point, Role, Shot, Toward,
+    Await, Block, Cover, Cutscene, PathSpan, Place, Point, Role, Shot, Then, Toward,
 };
 use sariema_format::script::{Advance, Anchor, Bus, ClipMode, Ease, name_id};
 use serde::Deserialize;
@@ -72,6 +72,76 @@ pub enum Step {
     TimeScale(TimeScale),
     CameraShake(CameraShake),
     Hinge(HingeSource),
+    Path(PathSource),
+}
+
+/// A clip that moves the role's root only within spans of it; see
+/// [`Block::Path`].
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PathSource {
+    pub role: String,
+    pub clip: String,
+    /// Seconds into the clip it starts at.
+    #[serde(default)]
+    pub from: f32,
+    /// Seconds it stays on its first frame before playing.
+    #[serde(default)]
+    pub hold: f32,
+    #[serde(default = "PathSource::mode")]
+    pub mode: String,
+    #[serde(default = "PathSource::blend")]
+    pub blend: f32,
+    pub spans: Vec<SpanSource>,
+    #[serde(default)]
+    pub then: Vec<ThenSource>,
+}
+
+impl PathSource {
+    fn mode() -> String {
+        "hold".into()
+    }
+    fn blend() -> f32 {
+        0.2
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpanSource {
+    /// Seconds of the clip the span starts and ends at.
+    pub at: [f32; 2],
+    pub to: Option<[f32; 3]>,
+    pub yaw: Option<f32>,
+    #[serde(default = "SpanSource::rate")]
+    pub rate: f32,
+    #[serde(default = "SpanSource::ease")]
+    pub ease: String,
+    #[serde(default)]
+    pub arc: f32,
+}
+
+impl SpanSource {
+    fn rate() -> f32 {
+        1.0
+    }
+    fn ease() -> String {
+        "linear".into()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ThenSource {
+    pub clip: String,
+    /// Seconds of the clip before after which this one begins; its end when absent.
+    pub after: Option<f32>,
+    #[serde(default = "PathSource::mode")]
+    pub mode: String,
+    #[serde(default = "PathSource::blend")]
+    pub blend: f32,
+    #[serde(default = "SpanSource::rate")]
+    pub speed: f32,
 }
 
 /// A hinged node turned with an actor's clip; see [`Block::Hinge`].
@@ -652,6 +722,47 @@ impl Compiler<'_> {
                 frequency: c.frequency,
                 duration: c.duration,
             },
+            Step::Path(p) => {
+                let at = format!("{at}.path");
+                let mut spans = Vec::with_capacity(p.spans.len());
+                for (i, span) in p.spans.iter().enumerate() {
+                    spans.push(PathSpan {
+                        from: span.at[0],
+                        until: span.at[1],
+                        rate: span.rate,
+                        to: span.to,
+                        yaw: span.yaw,
+                        ease: self.pick(
+                            &format!("{at}.spans[{i}]"),
+                            "ease",
+                            Ease::from_name,
+                            &span.ease,
+                        )? as u8,
+                        arc: span.arc,
+                    });
+                }
+                let mut then = Vec::with_capacity(p.then.len());
+                for (i, t) in p.then.iter().enumerate() {
+                    let at = format!("{at}.then[{i}]");
+                    then.push(Then {
+                        clip: self.name(&t.clip),
+                        mode: self.pick(&at, "clip mode", ClipMode::from_name, &t.mode)? as u8,
+                        blend: t.blend,
+                        speed: t.speed,
+                        after: t.after.unwrap_or(0.0),
+                    });
+                }
+                Block::Path {
+                    role: self.role(&p.role, &at)?,
+                    clip: self.name(&p.clip),
+                    mode: self.pick(&at, "clip mode", ClipMode::from_name, &p.mode)? as u8,
+                    blend: p.blend,
+                    from: p.from,
+                    hold: p.hold,
+                    spans,
+                    then,
+                }
+            }
             Step::Hinge(h) => {
                 let at = format!("{at}.hinge");
                 let [start, end] = h.span;

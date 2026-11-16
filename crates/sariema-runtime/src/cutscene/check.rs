@@ -19,6 +19,9 @@
 //!   project's `motion.max_visible_speed`. (`E_CUTSCENE_SPEED`)
 //! - A `hinge` step names a hinged node some room of the game has, which
 //!   only the project knows: [`check_hinges`]. (`E_CUTSCENE_HINGE`)
+//! - A `path` plays its clip to its last span's end: the first clip after
+//!   it may not begin before then, which would stop the path half-way.
+//!   (`E_CUTSCENE_PATH_CUT`)
 
 use std::collections::BTreeSet;
 
@@ -46,7 +49,7 @@ impl std::fmt::Display for CheckError {
 }
 
 /// Every error code the check can give.
-pub const CODES: [&str; 8] = [
+pub const CODES: [&str; 9] = [
     "E_CUTSCENE_TELEPORT",
     "E_CUTSCENE_COVER",
     "E_CUTSCENE_START",
@@ -55,6 +58,7 @@ pub const CODES: [&str; 8] = [
     "E_CUTSCENE_RACE",
     "E_CUTSCENE_SPEED",
     "E_CUTSCENE_HINGE",
+    "E_CUTSCENE_PATH_CUT",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -209,6 +213,40 @@ impl Checker<'_> {
             Block::Clip { role, .. } => self.uses(k, *role, &format!("{at}.clip")),
             Block::Hinge { role, .. } => {
                 self.uses(k, *role, &format!("{at}.hinge"));
+                k.cut = false;
+                elapse(k);
+            }
+            Block::Path {
+                role, spans, then, ..
+            } => {
+                let at = format!("{at}.path");
+                self.uses(k, *role, &at);
+                let end = spans.last().map_or(0.0, |s| s.until);
+                if let Some(first) = then.first()
+                    && first.after > 0.0
+                    && first.after < end
+                {
+                    self.fail(
+                        "E_CUTSCENE_PATH_CUT",
+                        &format!("{at}.then[0].after"),
+                        format!(
+                            "the next clip begins at {} s, before the last span ends at {end} s, and would stop the path there",
+                            first.after
+                        ),
+                    );
+                }
+                let mut from: Option<[f32; 3]> = None;
+                for span in spans {
+                    if let (Some(a), Some(b)) = (from, span.to) {
+                        let metres = (0..3)
+                            .map(|i| (b[i] - a[i]) * (b[i] - a[i]))
+                            .sum::<f32>()
+                            .sqrt();
+                        let speed = metres * span.rate / (span.until - span.from);
+                        self.walks(speed, "path span", &at);
+                    }
+                    from = span.to.or(from);
+                }
                 k.cut = false;
                 elapse(k);
             }
@@ -399,6 +437,7 @@ fn collect(blocks: &[Block], w: &mut Writes) {
                 collect(otherwise, w);
             }
             Block::Walk { role, .. }
+            | Block::Path { role, .. }
             | Block::Teleport { role, .. }
             | Block::Spawn { role, .. }
             | Block::Despawn { role }

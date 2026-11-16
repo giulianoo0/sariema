@@ -17,9 +17,11 @@ use serde::{Deserialize, Serialize};
 #[macro_use]
 mod codegen;
 pub mod cutscene;
+mod span;
 mod table;
 mod wire;
 
+pub use span::{CLIP_SPAN, ClipSpan, clip_spans};
 pub use table::{BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Event};
 pub use wire::{
     Advance, Anchor, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,
@@ -476,6 +478,48 @@ fn validate_block(block: &Block, roles: usize) -> Result<(), String> {
             }
             finite("hinge angle", *to)?;
             known("ease", Ease::from_u8(*ease).is_some())
+        }
+        Block::Path {
+            role: r,
+            mode,
+            blend,
+            from,
+            hold,
+            spans,
+            then,
+            ..
+        } => {
+            role(*r)?;
+            known("clip mode", ClipMode::from_u8(*mode).is_some())?;
+            seconds("path blend", *blend)?;
+            seconds("path start", *from)?;
+            seconds("path hold", *hold)?;
+            let mut last = *from;
+            for s in spans {
+                seconds("span start", s.from)?;
+                seconds("span end", s.until)?;
+                if s.from < last || s.until <= s.from {
+                    return Err(format!(
+                        "span {:?} starts before {last} or ends before it starts",
+                        [s.from, s.until]
+                    ));
+                }
+                if !(s.rate.is_finite() && s.rate > 0.0) {
+                    return Err(format!("span rate is {}", s.rate));
+                }
+                for v in s.to.iter().flatten().chain(&s.yaw).chain([&s.arc]) {
+                    finite("span number", *v)?;
+                }
+                known("ease", Ease::from_u8(s.ease).is_some())?;
+                last = s.until;
+            }
+            for t in then {
+                known("clip mode", ClipMode::from_u8(t.mode).is_some())?;
+                seconds("blend", t.blend)?;
+                seconds("after", t.after)?;
+                positive("speed", t.speed)?;
+            }
+            Ok(())
         }
     }
 }

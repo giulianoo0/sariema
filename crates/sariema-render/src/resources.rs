@@ -96,6 +96,8 @@ pub(crate) struct Room {
     pub lights: Vec<Light>,
     /// By light: whether its group, if any, is on.
     pub light_on: Vec<bool>,
+    /// By light: whether the game switched it off, whatever its group.
+    pub light_off: Vec<bool>,
     pub sun: Option<Sun>,
     pub ambient: [[f32; 3]; 9],
     pub background: Background,
@@ -575,6 +577,7 @@ impl PendingRoom {
             materials,
             lights: room.lights.clone(),
             light_on,
+            light_off: vec![false; room.lights.len()],
             sun: room.sun.clone(),
             ambient: room.ambient.sh9,
             background: room.background.clone(),

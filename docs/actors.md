@@ -100,7 +100,8 @@ and listed in the project file under `actors`:
   can size a collider from them.
 - The ground speed of a clip is the mean horizontal speed of the lowest foot
   while it is the lowest. Game code that moves an actor at that speed keeps
-  its feet from sliding.
+  its feet from sliding; when the actor's pace changes, `clip_rate` sets
+  the walk clip's rate to pace over ground speed without starting it over.
 
 Errors: `E_ACTOR_NAME` (a clip, joint, material, face, frame or socket the
 description names does not exist; the message lists the names that do),
@@ -464,7 +465,9 @@ those of its children `CommandEncoder::finish`, `Queue::submit`,
 
 - **Godot 4**: `AnimationPlayer`'s blend time on `play` and
   `AnimationNodeTransition`'s cross-fade (one fade length per play, overridable
-  per call); `BoneAttachment3D`, a node that follows a bone, for sockets; the
+  per call); `BoneAttachment3D`, a node that follows a bone, for sockets and
+  the game's `hold`, which also keeps the held thing's world size the way
+  three.js's `Object3D.attach` keeps its world placement; the
   Compatibility renderer's bones in a texture, for the OpenGL ES fallback.
   <https://docs.godotengine.org/en/stable/classes/class_animationplayer.html>,
   <https://docs.godotengine.org/en/stable/classes/class_boneattachment3d.html>

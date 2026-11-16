@@ -211,6 +211,11 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "a cutscene hinge step names a hinged node no room of the game has",
     ),
     (
+        "E_CUTSCENE_PATH_CUT",
+        Kind::Failure,
+        "a path's first clip after it begins before its last span ends",
+    ),
+    (
         "E_SETTINGS",
         Kind::Failure,
         "the runtime settings cannot run: a time scale bound is not positive or min_time_scale is above max_time_scale",
@@ -326,6 +331,36 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "E_RIG_UNKNOWN",
         Kind::Rejected,
         "camera_use names a rig never defined",
+    ),
+    (
+        "E_CLIP_SPANS",
+        Kind::Rejected,
+        "clip_path spans out of order, past the clip's end, at a rate of 0 or not finite",
+    ),
+    (
+        "E_CLIP_NOT_PLAYING",
+        Kind::Rejected,
+        "clip_rate names a clip the actor does not play",
+    ),
+    (
+        "E_CLIP_RATE",
+        Kind::Rejected,
+        "clip_rate below 0, or play_clip or clip_next at a speed of 0 or below",
+    ),
+    (
+        "E_HOLD_ACTOR",
+        Kind::Rejected,
+        "hold names an actor as the thing to hold",
+    ),
+    (
+        "E_NOT_LIGHT",
+        Kind::Rejected,
+        "light_aim names an entity that is not a light",
+    ),
+    (
+        "E_SOCKET_UNKNOWN",
+        Kind::Rejected,
+        "hold names a socket or joint the actor's model lacks",
     ),
     (
         "E_ROOM_UNKNOWN",

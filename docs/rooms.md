@@ -46,7 +46,9 @@ command, enum and error.
 | `piece_state { piece, state }` | Shows a state of a piece of the active room. |
 | `tween { property: scene, var: <parameter>, to, duration, ease }` | Tweens a scene parameter. |
 | `spawn { kind: room_node, asset: <node> }` | Binds a node to an entity: its transform and visibility follow the entity. |
-| `spawn { kind: light, asset: <light> }` | Binds a light to an entity: it follows the entity's position. |
+| `spawn { kind: light, asset: <light> }` | Binds a light to an entity: it follows the entity's position, and hidden (`set_visible`) it is off and takes no place among the frame's lights, whatever its group. |
+| `light_aim { entity, at, target }` | Points a bound spot light at `target` in `at`'s frame (metres of the world), following `at`; `at` NONE for a point of the world. |
+| `hold { entity, actor, socket, offset, keep }` | Puts a bound node or light in an actor's hand ([game API](game-api.md)); `actor` NONE lets go where it is. |
 
 Unknown names are refused with `E_SCENE_UNKNOWN`; an unknown room with
 `E_ROOM_UNKNOWN`.

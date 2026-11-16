@@ -22,16 +22,16 @@ use std::collections::BTreeMap;
 use glam::Vec3;
 use sariema_format::script::cutscene::{Await, Block, Cutscene, Place, Point, Shot, Toward};
 use sariema_format::script::{
-    Advance, Anchor, Bus, ClipMode, Command, Controller, Ease, Entity, Event, Kind, Property,
-    name_id,
+    Advance, Anchor, Bus, CLIP_SPAN, ClipMode, ClipSpan, Command, Controller, Ease, Entity, Event,
+    Kind, Property, name_id,
 };
 
 use crate::apply::{Source, apply};
 use crate::ease::ease;
 use crate::events::Happening;
 use crate::motion::yaw_of;
-use crate::no_jump;
 use crate::outbox::PhysicsIntent;
+use crate::paths;
 use crate::settings::CutsceneSettings;
 use crate::state::{CutsceneRequest, State};
 use crate::tween::steps_of;
@@ -112,6 +112,7 @@ enum Running {
         /// Steps waited for it.
         waited: u32,
     },
+    Path,
 }
 
 #[derive(Debug, Default)]
@@ -417,7 +418,12 @@ fn begin_role(
     let mut ctx = ctx!(s, cutscene, run, false);
     let at = ctx.position(e);
     let visible = ctx.s.world.node(e).is_some_and(|n| n.visible) || ctx.s.world.was_visible(e);
-    let distance = at.distance(to);
+    let floored = !ctx.s.settings.motion.builtin && (to.y - at.y).abs() <= settings.start_height;
+    let distance = if floored {
+        (to - at).with_y(0.0).length()
+    } else {
+        at.distance(to)
+    };
     if !visible {
         ctx.place(e, to, yaw);
         Placing::Done
@@ -433,6 +439,9 @@ fn begin_role(
         .into_iter()
         .enumerate()
         {
+            if floored && property == Property::PositionY {
+                continue;
+            }
             ctx.issue(Command::Tween {
                 tween: TWEENS + 3 * i as u32 + k as u32,
                 entity: e,
@@ -447,7 +456,7 @@ fn begin_role(
         Placing::Easing
     } else {
         let since = ctx.s.happenings;
-        let fastest = ctx.s.settings.motion.max_visible_speed / no_jump::walk_speed(ctx.s, e, 1.0);
+        let fastest = ctx.s.settings.motion.max_visible_speed;
         let walk = Command::MoveTo {
             entity: e,
             target: position,
@@ -487,7 +496,11 @@ fn place_step(s: &mut State, cutscene: &Cutscene, run: &mut Run) -> bool {
             Placing::Easing if easing => Placing::Easing,
             Placing::Walking { since } if !walked(s, e, since) => Placing::Walking { since },
             Placing::Easing | Placing::Walking { .. } => {
-                ctx!(s, cutscene, run, false).issue(Command::Face { entity: e, yaw });
+                let mut ctx = ctx!(s, cutscene, run, false);
+                if run.placing[i] == Placing::Easing {
+                    ctx.issue(Command::Stop { entity: e });
+                }
+                ctx.issue(Command::Face { entity: e, yaw });
                 Placing::Turning
             }
             Placing::Turning if !turned(s, e) => Placing::Turning,
@@ -692,8 +705,22 @@ fn tick_block(current: &mut Option<Box<Running>>, block: &Block, ctx: &mut Ctx<'
             let _ = (ctx.s.scenery).set_param(*hinge, *from + (*to - *from) * ease(curve, f));
             t >= span[1]
         }
+        (Running::Path, Block::Path { role, .. }) => {
+            let e = ctx.role(*role);
+            if skip {
+                land(ctx.s, e);
+                return true;
+            }
+            !ctx.s.paths.moving(e) && ctx.s.clips.through(e)
+        }
         (running, block) => unreachable!("{running:?} does not run {block:?}"),
     }
+}
+
+/// A path's root at its end and its clips played through, as if played.
+fn land(s: &mut State, e: Entity) {
+    paths::finish(s, e);
+    s.clips.finish(e, &mut s.outbox.clips);
 }
 
 /// Starts a block; `None` when it ended at once.
@@ -804,7 +831,7 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
                 target: to.to_array(),
                 speed: *speed,
             };
-            if no_jump::walk_speed(ctx.s, e, *speed) > ctx.s.settings.motion.max_visible_speed {
+            if speed.abs() > ctx.s.settings.motion.max_visible_speed {
                 ctx.s.events.push(Event::Rejected {
                     opcode: walk.opcode(),
                     code: Reject::TeleportVisible.code(),
@@ -837,6 +864,59 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
                 speed: *speed,
             });
             None
+        }
+        Block::Path {
+            role,
+            clip,
+            mode,
+            blend,
+            from,
+            hold,
+            spans,
+            then,
+        } => {
+            let e = ctx.role(*role);
+            let mut bytes = Vec::with_capacity(spans.len() * CLIP_SPAN);
+            for span in spans {
+                ClipSpan {
+                    from: span.from,
+                    until: span.until,
+                    rate: span.rate,
+                    to: span.to,
+                    yaw: span.yaw,
+                    ease: Ease::from_u8(span.ease).unwrap_or(Ease::Linear),
+                    arc: span.arc,
+                }
+                .put(&mut bytes);
+            }
+            let pick = |m: u8| ClipMode::from_u8(m).unwrap_or(ClipMode::Hold);
+            let path = Command::ClipPath {
+                entity: e,
+                clip: *clip,
+                mode: pick(*mode),
+                blend: *blend,
+                from: *from,
+                hold: if skip { 0.0 } else { *hold },
+                spans: &bytes,
+            };
+            if !ctx.try_issue(path) {
+                return None;
+            }
+            for t in then {
+                ctx.issue(Command::ClipNext {
+                    entity: e,
+                    clip: t.clip,
+                    mode: pick(t.mode),
+                    blend: t.blend,
+                    speed: t.speed,
+                    after: t.after,
+                });
+            }
+            if skip {
+                land(ctx.s, e);
+                return None;
+            }
+            Some(Running::Path)
         }
         Block::Hinge { hinge, role, .. } => match ctx.s.scenery.param(*hinge) {
             Ok(from) => Some(Running::Hinge {

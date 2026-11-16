@@ -667,20 +667,26 @@ impl Renderer {
         true
     }
 
-    /// Switches light `light` of the room in `slot`; off, it takes no place
-    /// among the frame's lights. False if there is none.
+    /// Switches light `light` of the room in `slot`, apart from its group:
+    /// it shines while on and its group, if any, is on. Off, it takes no
+    /// place among the frame's lights. False if there is none.
     pub fn set_light_on(&mut self, slot: u32, light: usize, on: bool) -> bool {
         let Some(room) = self.stage.get_mut(slot) else {
             return false;
         };
-        let Some(was) = room.light_on.get_mut(light) else {
+        let Some(off) = room.light_off.get_mut(light) else {
             return false;
         };
-        if *was != on {
-            *was = on;
+        if *off == on {
+            *off = !on;
             room.lights_switched = true;
         }
         true
+    }
+
+    /// The lights the last frame shone, from the drawn rooms.
+    pub fn frame_lights(&self) -> &[Light] {
+        &self.lights
     }
 
     /// The frame's lights: rebuilt when the drawn set or a light switched,
@@ -696,7 +702,7 @@ impl Renderer {
             self.light_keys.clear();
             for (slot, room) in self.stage.drawn() {
                 for (i, light) in room.lights.iter().enumerate() {
-                    if room.light_on[i] {
+                    if room.light_on[i] && !room.light_off[i] {
                         self.lights.push(Light {
                             intensity: light.intensity * room.light_scale,
                             ..light.clone()

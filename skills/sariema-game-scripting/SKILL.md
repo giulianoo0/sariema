@@ -79,6 +79,8 @@ game!(Hello);
 | particles | define the effect in `game.settings.fx.effects`; `FxStart { emitter, effect, entity, position, points, seed }` (on a point, from an entity, or along `PointList::Slice(&[…])`), `FxStop { emitter, fade }`, `FxBurst { effect, entity, position, count, seed }`; seed from `ctx.rng()`. Fields: `docs/fx.md` |
 | a way to a goal | `Trail { trail, from: hero, points: PointList::Slice(&[goal]), spacing: 1.0, size: 0.2, color: [1.0, 0.6, 0.2], intensity: 0.55, wave_speed, fade_from, fade_to, fade }` once when the walk starts (the dots stay put as the hero walks); `TrailOff { trail, fade }` on arrival |
 | something to use, within reach | `Highlight { entity: Entity::NONE, node: id("<node>"), fill: 0.12, rim: 0.35, pulse: 2.0, fade: 0.6 }` on `TriggerEnter`, the same with `fill` and `rim` 0 on `TriggerExit`; an actor by its `entity` |
+| something in a hand | `Hold { entity, actor, socket: id("<socket>"), offset, keep }`; `actor: Entity::NONE` lets go where it is |
+| a lantern | a spot `Kind::Light` held at the hand, `LightAim { entity, at: <the light>, target: [0, 0, -4] }`; `SetVisible` off frees its light place |
 
 Test the logic natively with `sariema_sdk::testing::TestHost` (queue
 events, `Runner::run`, decode with `testing::commands`;
@@ -90,7 +92,7 @@ with `sariema run --headless … --json`.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `rejected` with `E_TELEPORT_VISIBLE` | something would move a visible actor faster than `motion.max_visible_speed`: `set_transform`, `teleport`, a fast `tween` or walk (at its speed scale), a rigid `follow`, `set_parent`, or moving what carries it. Opcode 0: the step's measurement put the actor back and stopped what moved it; the first event names the actor, the next ones each carrier stopped (a fast move begun under a fade or cut that lifted, or while hidden; a spring; a carrier turning or growing, even one spawned or placed this step; moves that add up). A walk stopped this way also ends with `blocked` | walk or ease it slower; hide it a step before; or keep the fade or cut over the whole move |
+| `rejected` with `E_TELEPORT_VISIBLE` | something would move a visible actor faster than `motion.max_visible_speed`: `set_transform`, `teleport`, a fast `tween`, walk or velocity (a velocity at its speed scale), a rigid `follow`, `set_parent`, or moving what carries it. Opcode 0: the step's measurement put the actor back and stopped what moved it; the first event names the actor, the next ones each carrier stopped (a fast move begun under a fade or cut that lifted, or while hidden; a spring; a carrier turning or growing, even one spawned or placed this step; moves that add up). A walk stopped this way also ends with `blocked` | walk or ease it slower; hide it a step before; or keep the fade or cut over the whole move |
 | `rejected` with `E_TURN_RATE` | `SetTurnRate` faster than `motion.turn_rate` or below 0 | raise `motion.turn_rate` to the fastest actor's rate in `game.settings` |
 | `rejected` with `E_ENTITY_STALE` | a handle kept after `despawn` or a `despawned` event | drop handles when they die |
 | `rejected` with `E_HOST_QUEUE_FULL` | more `save`, `host_send` or other host messages than the host takes between its frames (256, or 4 MiB) | send fewer or smaller ones; save when something changes, not every tick |

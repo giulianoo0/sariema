@@ -15,6 +15,8 @@ pub struct ClipRequest {
     /// Crossfade seconds.
     pub blend: f32,
     pub speed: f32,
+    /// Seconds into the clip it starts at.
+    pub from: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

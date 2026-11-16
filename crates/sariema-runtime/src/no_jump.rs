@@ -246,7 +246,17 @@ pub(crate) fn may_follow(
     may_jump(s, e, moved)
 }
 
-/// `e` walking to `goal` at its speed scale.
+/// `e`'s root moved along a clip path, by its farthest step.
+pub(crate) fn may_path(s: &State, e: Entity, moved: f32) -> Result<(), Refusal> {
+    may_jump(s, e, moved)
+}
+
+/// The most a visible actor may turn in a step, in degrees.
+pub(crate) fn turn_step(s: &State) -> f32 {
+    turn_limit(s) * SLACK
+}
+
+/// `e` walking to `goal`, a velocity at its speed scale.
 pub(crate) fn may_walk(s: &State, e: Entity, goal: Goal) -> Result<(), Refusal> {
     may_jump(s, e, walk_move(s, e, goal, speed_scale(s, e)))
 }
@@ -263,24 +273,19 @@ pub(crate) fn may_rescale(s: &State, e: Entity, scale: f32) -> Result<(), Refusa
     may_jump(s, e, moved)
 }
 
-/// The speed in m/s `e` walks at when asked for `speed`.
-pub(crate) fn walk_speed(s: &State, e: Entity, speed: f32) -> f32 {
-    (speed * speed_scale(s, e)).abs()
-}
-
 fn speed_scale(s: &State, e: Entity) -> f32 {
     s.motion.get(e).map_or(1.0, |m| m.speed_scale)
 }
 
-/// How far `e` walking to `goal` with its speed scaled by `scale` goes in
-/// one step.
+/// How far `e` going for `goal` goes in one step: a velocity scaled by
+/// `scale`, a walk to a point at its own speed in world units.
 fn walk_move(s: &State, e: Entity, goal: Goal, scale: f32) -> f32 {
     match goal {
         Goal::Idle => 0.0,
         Goal::Velocity(v) => v.length() * scale.abs() * STEP_SECONDS,
         Goal::To { target, speed } => {
             let at = s.world.node(e).map_or(target, |n| n.local.position);
-            ((speed * scale).abs() * STEP_SECONDS).min(at.distance(target))
+            (speed.abs() * STEP_SECONDS).min(at.distance(target))
         }
     }
 }

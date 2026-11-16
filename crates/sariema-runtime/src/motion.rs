@@ -153,7 +153,7 @@ impl Motion {
                 Goal::To { target, speed } => {
                     let gap = target - local.position;
                     let distance = gap.length();
-                    let reach = speed * m.speed_scale * STEP_SECONDS;
+                    let reach = speed * STEP_SECONDS;
                     if distance <= reach.max(settings.arrive_distance) {
                         local.position = target;
                         m.goal = Goal::Idle;

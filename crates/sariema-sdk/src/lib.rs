@@ -19,6 +19,8 @@ extern crate alloc;
 #[macro_use]
 #[path = "../../sariema-format/src/script/codegen.rs"]
 mod codegen;
+#[path = "../../sariema-format/src/script/span.rs"]
+mod span;
 #[path = "../../sariema-format/src/script/table.rs"]
 mod table;
 #[path = "../../sariema-format/src/script/wire.rs"]
@@ -41,6 +43,7 @@ pub use machine::Machine;
 pub use region::Transforms;
 pub use rng::Pcg32 as Rng;
 pub use run::{EventIter, Events, Game, Runner};
+pub use span::{CLIP_SPAN, ClipSpan, clip_spans};
 pub use table::{BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Event};
 pub use wire::{
     Advance, Anchor, Bus, ClipMode, Controller, Ease, Entity, Kind, Orientation, PointList,

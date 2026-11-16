@@ -66,7 +66,8 @@ batch_table! {
         /// module: with `motion.builtin` it ends at once with `blocked`.
         0x001B Traverse traverse { entity: Entity, traversal: u32, duration: f32 }
 
-        /// `blend` is the crossfade from the current clip, in seconds.
+        /// `blend` is the crossfade from the current clip, in seconds. Refused
+        /// with E_CLIP_RATE for a `speed` of 0 or below.
         0x0020 PlayClip play_clip { entity: Entity, clip: u32, mode: ClipMode, blend: f32, speed: f32 }
 
         /// `emitter` NONE plays without position. `volume` is linear gain.
@@ -228,6 +229,55 @@ batch_table! {
         /// host. An entity gone by the end of the step gets `rejected`
         /// (`E_ENTITY_STALE`) instead.
         0x00D2 Locate locate { entity: Entity }
+
+        /// Plays `clip` on `entity` from `from` seconds into it, still for
+        /// `hold` seconds first, and moves the actor's root only within the
+        /// clip's `spans` (`ClipSpan::put` writes them, in order of the
+        /// clip's time, none overlapping): within a span the clip plays at
+        /// the span's rate and the root goes from where it stands when the
+        /// span begins to the span's point, eased, collider off; outside
+        /// them the root stays and the clip plays at its own rate. Ends with
+        /// `arrived` when the last span ends, the collider on again where
+        /// the root stands, pushed out of any overlap. Refused with
+        /// E_CLIP_SPANS for spans out of order, past the clip's end or not
+        /// finite, and with E_TELEPORT_VISIBLE when a span would carry a
+        /// visible actor faster than it may be seen to move.
+        0x0021 ClipPath clip_path { entity: Entity, clip: u32, mode: ClipMode, blend: f32, from: f32, hold: f32, spans: Bytes }
+        /// Plays the clip `entity` plays at `rate` from this step, going on
+        /// from where it is: no restart and no crossfade, so a walk cycle
+        /// follows the actor's pace without its feet sliding. 0 holds it
+        /// where it is. Within a `clip_path` span, the next span's rate
+        /// replaces it when that span begins; the clips queued after it keep
+        /// their own. Refused with E_CLIP_NOT_PLAYING when the actor plays
+        /// another clip or none, and with E_CLIP_RATE for a rate below 0 or
+        /// not finite.
+        0x0022 ClipRate clip_rate { entity: Entity, clip: u32, rate: f32 }
+        /// Queues `clip` after the clip `entity` plays and those queued
+        /// after it: it begins once the one before has played `after`
+        /// seconds, or reached its end when `after` is 0, with the time left
+        /// over, so the seam shows no still frame. Plays at once when the
+        /// actor plays no clip. A `play_clip` or `clip_path` drops the queue.
+        /// Refused with E_CLIP_RATE for a `speed` of 0 or below.
+        0x0023 ClipNext clip_next { entity: Entity, clip: u32, mode: ClipMode, blend: f32, speed: f32, after: f32 }
+        /// `actor` holds `entity` (a room node, a light, an empty) at its
+        /// socket or joint `socket`, a socket looked up first: the entity
+        /// stays where it stands on the socket when `keep`, else sits at
+        /// `offset` from it, in the socket's frame and turned with it. Either
+        /// way it is placed each step on the socket rigidly, in metres of the
+        /// world whatever the actor's scale, and taken out of any parent,
+        /// follow or tween. `actor` NONE lets go: the entity stays where it
+        /// was. Refused with E_HOLD_ACTOR for an actor to hold, and with
+        /// E_SOCKET_UNKNOWN, a step later, for a socket or joint the actor's
+        /// model lacks; an actor drawn with no model keeps it where it is.
+        0x00E0 Hold hold { entity: Entity, actor: Entity, socket: u32, offset: Vec3, keep: bool }
+        /// Points the spot light `entity` (a room light spawned as an
+        /// entity) at `target` in `at`'s frame, in metres of the world
+        /// whatever `at`'s scale, following `at` as it moves and turns: `at`
+        /// the light itself, held in a hand, lights where the hand points.
+        /// `at` NONE aims at a point of the world. A point light has no aim.
+        /// Despawning `at` leaves the light pointing where it last did.
+        /// Refused with E_NOT_LIGHT for an entity that is not a light.
+        0x00E1 LightAim light_aim { entity: Entity, at: Entity, target: Vec3 }
     }
     events {
         /// The first event of the first tick.

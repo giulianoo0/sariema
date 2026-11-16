@@ -5,15 +5,18 @@
 
 use sariema_format::script::{Controller, Entity, Event};
 
+use crate::aim::Aims;
 use crate::camera::Camera;
 use crate::clips::ClipClock;
 use crate::events::{EventQueue, Happening};
 use crate::follow::Followers;
 use crate::fx::Fx;
 use crate::hash::StateHasher;
+use crate::hold::Holds;
 use crate::input::Input;
 use crate::motion::{Goal, Motion};
 use crate::outbox::Outbox;
+use crate::paths::Paths;
 use crate::rng::Pcg32;
 use crate::scenery::Scenery;
 use crate::screen::{Dialogue, Fader, Screen};
@@ -49,6 +52,8 @@ pub struct State {
     /// Particles: drawn, never hashed.
     pub fx: Fx,
     pub followers: Followers,
+    pub holds: Holds,
+    pub aims: Aims,
     pub timers: Timers,
     pub zones: Zones,
     pub camera: Camera,
@@ -58,6 +63,7 @@ pub struct State {
     /// World time per real time; see [`State::time_scale`].
     pub time_scale: Fader,
     pub clips: ClipClock,
+    pub paths: Paths,
     pub control: Control,
     pub input: Input,
     pub outbox: Outbox,
@@ -83,6 +89,8 @@ impl State {
             scenery: Scenery::default(),
             fx: Fx::new(&settings.fx),
             followers: Followers::default(),
+            holds: Holds::default(),
+            aims: Aims::default(),
             timers: Timers::default(),
             zones: Zones::default(),
             camera: Camera::new(settings.camera, &settings.motion),
@@ -91,6 +99,7 @@ impl State {
             dialogue: Dialogue::default(),
             time_scale: Fader::at(1.0),
             clips: ClipClock::default(),
+            paths: Paths::default(),
             control: Control {
                 hero: Entity::NONE,
                 speed: 0.0,

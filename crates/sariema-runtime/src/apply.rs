@@ -3,10 +3,12 @@
 //! Carries out one command against the state. Commands from the game and
 //! from the cutscene sequencer both come through here.
 
-use glam::Vec3;
-use sariema_format::script::{Bus, Command, Entity, Event, Kind, Property};
+use glam::{EulerRot, Vec3};
+use sariema_core::STEP_SECONDS;
+use sariema_format::script::{Bus, Command, Entity, Event, Kind, Property, clip_spans};
 
 use crate::camera::{CameraPose, CameraSettings, Framing};
+use crate::clips::Next;
 use crate::events::Happening;
 use crate::fx::{FxReject, GlowTarget, TrailLook};
 use crate::motion::Goal;
@@ -14,10 +16,11 @@ use crate::no_jump;
 use crate::outbox::{
     ClipRequest, HostOut, LookAt, MusicRequest, PhysicsIntent, SoundRequest, UiOp,
 };
+use crate::paths;
 use crate::scenery::{Binding, SceneReject};
 use crate::state::{CutsceneRequest, State};
-use crate::tween::Target;
-use crate::world::Reject;
+use crate::tween::{Target, steps_of};
+use crate::world::{Reject, Transform};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
@@ -33,6 +36,25 @@ pub struct Refusal {
     pub entity: Entity,
 }
 
+/// The code of a `clip_path` refused for its spans.
+pub const CLIP_SPANS: &str = "E_CLIP_SPANS";
+
+/// The code of a `clip_rate` for a clip the actor does not play.
+pub const CLIP_NOT_PLAYING: &str = "E_CLIP_NOT_PLAYING";
+
+/// The code of a `clip_rate` below 0 or not finite, or of a `play_clip` or
+/// `clip_next` at a speed of 0 or below.
+pub const CLIP_RATE: &str = "E_CLIP_RATE";
+
+/// The code of a `hold` of an actor.
+pub const HOLD_ACTOR: &str = "E_HOLD_ACTOR";
+
+/// The code of a `hold` at a socket or joint the actor's model lacks.
+pub const SOCKET_UNKNOWN: &str = "E_SOCKET_UNKNOWN";
+
+/// The code of a `light_aim` of an entity that is not a light.
+pub const NOT_LIGHT: &str = "E_NOT_LIGHT";
+
 fn refuse(entity: Entity) -> impl Fn(Reject) -> Refusal {
     move |r| Refusal {
         code: r.code(),
@@ -46,6 +68,7 @@ fn v3(v: [f32; 3]) -> Vec3 {
 
 fn place(s: &mut State, e: Entity, position: Vec3, yaw: f32, force: bool) -> Result<(), Reject> {
     let node = s.world.node_mut(e)?;
+    s.paths.forget(e);
     node.local.position = position;
     node.local.yaw = yaw;
     s.world.place(e);
@@ -81,8 +104,11 @@ fn fx(r: FxReject) -> Refusal {
 
 fn forget(s: &mut State, e: Entity) {
     s.clips.forget(e);
+    s.paths.forget(e);
     s.tweens.forget(e);
     s.followers.forget(e);
+    s.holds.forget(e);
+    s.aims.forget(e);
     s.motion.forget(e);
     if s.control.hero == e {
         s.control.hero = Entity::NONE;
@@ -162,6 +188,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             };
             no_jump::may_walk(s, entity, goal)?;
             s.motion.mover_mut(entity).goal = goal;
+            s.paths.forget(entity);
             s.outbox.physics.push(PhysicsIntent::MoveTo {
                 entity,
                 target: v3(target),
@@ -173,6 +200,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             let goal = Goal::Velocity(v3(velocity));
             no_jump::may_walk(s, entity, goal)?;
             s.motion.mover_mut(entity).goal = goal;
+            s.paths.forget(entity);
             s.outbox.physics.push(PhysicsIntent::Velocity {
                 entity,
                 velocity: v3(velocity),
@@ -180,6 +208,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
         }
         C::Stop { entity } => {
             actor(s, entity)?;
+            s.paths.forget(entity);
             s.motion.mover_mut(entity).goal = Goal::Idle;
             s.outbox.physics.push(PhysicsIntent::Stop { entity });
         }
@@ -254,14 +283,171 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             speed,
         } => {
             actor(s, entity)?;
+            moving_rate(entity, speed)?;
             s.outbox.clips.push(ClipRequest {
                 entity,
                 clip,
                 mode,
                 blend,
                 speed,
+                from: 0.0,
             });
             s.clips.play(entity, clip, speed);
+            let length = (s.world.node(entity)).and_then(|n| s.clips.length_of(n.asset, clip));
+            s.clips.set_length(entity, length);
+        }
+        C::ClipPath {
+            entity,
+            clip,
+            mode,
+            blend,
+            from,
+            hold,
+            spans,
+        } => {
+            actor(s, entity)?;
+            let asset = s.world.node(entity).map_or(0, |n| n.asset);
+            let length = s.clips.length_of(asset, clip);
+            if !(from.is_finite() && from >= 0.0 && hold.is_finite() && hold >= 0.0)
+                || !spans_in_order(spans, from, length)
+            {
+                return Err(Refusal {
+                    code: CLIP_SPANS,
+                    entity,
+                });
+            }
+            let spans = || clip_spans(spans).into_iter().flatten().flatten();
+            let node = s.world.node(entity).expect("an actor");
+            let root = (node.local.position, node.local.yaw);
+            let moved = paths::fastest(root, spans(), STEP_SECONDS, no_jump::turn_step(s));
+            no_jump::may_path(s, entity, moved)?;
+            s.motion.mover_mut(entity).goal = Goal::Idle;
+            s.outbox.physics.push(PhysicsIntent::Stop { entity });
+            s.outbox.clips.push(ClipRequest {
+                entity,
+                clip,
+                mode,
+                blend,
+                speed: 1.0,
+                from,
+            });
+            s.clips.play_from(entity, clip, 1.0, from);
+            s.clips.set_length(entity, length);
+            if hold > 0.0 {
+                s.clips.hold(entity, steps_of(hold));
+            }
+            for span in spans() {
+                s.clips.rate_at(entity, span.from, span.rate);
+                s.clips.rate_at(entity, span.until, 1.0);
+            }
+            s.paths.start(entity, clip, spans());
+        }
+        C::ClipNext {
+            entity,
+            clip,
+            mode,
+            blend,
+            speed,
+            after,
+        } => {
+            actor(s, entity)?;
+            moving_rate(entity, speed)?;
+            let asset = s.world.node(entity).map_or(0, |n| n.asset);
+            let next = Next {
+                clip,
+                mode,
+                blend,
+                rate: speed,
+                after: (after > 0.0).then_some(after),
+                length: s.clips.length_of(asset, clip),
+            };
+            if s.clips.time(entity).is_some() {
+                s.clips.then(entity, next);
+            } else {
+                apply(
+                    s,
+                    &Command::PlayClip {
+                        entity,
+                        clip,
+                        mode,
+                        blend,
+                        speed,
+                    },
+                    source,
+                )?;
+            }
+        }
+        C::ClipRate { entity, clip, rate } => {
+            actor(s, entity)?;
+            let code = if !(rate.is_finite() && rate >= 0.0) {
+                Some(CLIP_RATE)
+            } else if !s.clips.set_rate(entity, clip, rate) {
+                Some(CLIP_NOT_PLAYING)
+            } else {
+                None
+            };
+            if let Some(code) = code {
+                return Err(Refusal { code, entity });
+            }
+        }
+        C::Hold {
+            entity,
+            actor: holder,
+            socket,
+            offset,
+            keep,
+        } => {
+            let kind = s
+                .world
+                .node(entity)
+                .ok_or(refuse(entity)(Reject::Stale))?
+                .kind;
+            if holder.is_none() {
+                s.holds.release(entity);
+                return Ok(());
+            }
+            actor(s, holder)?;
+            if kind == Kind::Actor {
+                return Err(Refusal {
+                    code: HOLD_ACTOR,
+                    entity,
+                });
+            }
+            let pose = s
+                .world
+                .current_pose(entity)
+                .ok_or(refuse(entity)(Reject::Stale))?;
+            s.world
+                .set_parent(entity, Entity::NONE)
+                .map_err(refuse(entity))?;
+            let (yaw, pitch, roll) = pose.rotation.to_euler(EulerRot::YXZ);
+            s.world.node_mut(entity).map_err(refuse(entity))?.local = Transform {
+                position: pose.position,
+                yaw: yaw.to_degrees(),
+                pitch: pitch.to_degrees(),
+                roll: roll.to_degrees(),
+                scale: pose.scale,
+            };
+            s.tweens.forget(entity);
+            s.followers.unfollow(entity);
+            s.holds.hold(entity, holder, socket, v3(offset), keep);
+        }
+        C::LightAim { entity, at, target } => {
+            let kind = s
+                .world
+                .node(entity)
+                .ok_or(refuse(entity)(Reject::Stale))?
+                .kind;
+            if kind != Kind::Light {
+                return Err(Refusal {
+                    code: NOT_LIGHT,
+                    entity,
+                });
+            }
+            if !at.is_none() {
+                s.world.check(at).map_err(refuse(at))?;
+            }
+            s.aims.aim(entity, at, v3(target));
         }
         C::PlaySound {
             sound,
@@ -674,6 +860,52 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
         }
     }
     Ok(())
+}
+
+/// Spans of a clip path that start at or after `from` and after the span
+/// before ends, end after they start and by the clip's end, at a rate above
+/// 0, every number finite.
+fn spans_in_order(spans: &[u8], from: f32, length: Option<f32>) -> bool {
+    let Some(list) = clip_spans(spans) else {
+        return false;
+    };
+    let mut last = from;
+    for span in list {
+        let Some(span) = span else { return false };
+        let numbers = [
+            span.from,
+            span.until,
+            span.rate,
+            span.arc,
+            span.yaw.unwrap_or(0.0),
+        ];
+        let finite = numbers
+            .iter()
+            .chain(span.to.iter().flatten())
+            .all(|v| v.is_finite());
+        if !finite
+            || span.from < last
+            || span.until <= span.from
+            || span.rate <= 0.0
+            || length.is_some_and(|l| span.until > l)
+        {
+            return false;
+        }
+        last = span.until;
+    }
+    true
+}
+
+/// A clip's speed above 0: at 0 or below it would never reach its end.
+fn moving_rate(entity: Entity, speed: f32) -> Result<(), Refusal> {
+    if speed > 0.0 {
+        Ok(())
+    } else {
+        Err(Refusal {
+            code: CLIP_RATE,
+            entity,
+        })
+    }
 }
 
 fn actor(s: &State, e: Entity) -> Result<(), Refusal> {

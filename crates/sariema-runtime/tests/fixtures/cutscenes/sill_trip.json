@@ -1,0 +1,25 @@
+{
+  "name": "sill_trip",
+  "roles": {
+    "hero": { "start": { "position": [0, 0, 0.6], "yaw": 0 } }
+  },
+  "steps": [
+    { "letterbox": { "to": 1, "duration": 0.4 } },
+    { "shot": { "follow": "hero", "distance": 4, "pitch": 12, "yaw": 35, "blend": 0.6 } },
+    { "parallel": [
+      [ { "path": { "role": "hero", "clip": "climb_trip", "from": 0.1, "spans": [
+            { "at": [0.3, 0.6], "to": [0, 0.9, 0.15], "ease": "out_quad" },
+            { "at": [0.6, 0.75], "to": [0, 0.9, -0.1] },
+            { "at": [0.75, 0.9], "rate": 0.4 },
+            { "at": [0.9, 1.2], "to": [0, 0, -0.8], "ease": "in_quad", "arc": 0.1 } ],
+          "then": [ { "clip": "land_belly" }, { "clip": "get_up", "after": 0.6 } ] } } ],
+      [ { "wait_for": { "clip_marker": { "role": "hero", "clip": "climb_trip", "marker": "foot_catches" }, "timeout": 2 } },
+        { "shot": { "follow": "hero", "bone": "foot_l", "distance": 0.9, "pitch": 5, "yaw": 90, "height": 0, "fov": 35, "blend": 0 } },
+        { "wait_for": { "clip_marker": { "role": "hero", "clip": "climb_trip", "marker": "falls" }, "timeout": 2 } },
+        { "shot": { "follow": "hero", "distance": 4, "pitch": 12, "yaw": 35, "blend": 0 } },
+        { "wait_for": { "clip_marker": { "role": "hero", "clip": "climb_trip", "marker": "lands" }, "timeout": 2 } },
+        { "camera_shake": { "amplitude": 0.03, "duration": 0.25 } } ]
+    ] },
+    { "letterbox": { "to": 0, "duration": 0.4 } }
+  ]
+}

@@ -54,9 +54,9 @@ One step, in order:
 4. The cutscene sequencer runs.
 5. The hero is driven by the move axis (when the player has control), the
    room's hinged leaves turn to the angle their tween or the game gives
-   them unless an actor is in the way, actors move and turn, followers,
-   tweens, springs and timers advance, the fade, cinema bars and dialogue
-   advance.
+   them unless an actor is in the way, actors move and turn, what they
+   hold is placed on its socket, followers, tweens, springs and timers
+   advance, the fade, cinema bars and dialogue advance.
 6. World placement is resolved and measured, putting back a visible actor
    that went too far ([Entities](#a-visible-actor-never-jumps)), the camera
    rig steps, trigger zones report.
@@ -151,8 +151,8 @@ millimetre within 10 km of the origin, more beyond (a third of a metre at
 A command that surely jumps is refused when given, with its own opcode, and
 changes nothing: `set_transform` and `teleport` (always too far for an
 actor), `tween` (its fastest step), `follow` (its first step), `move_to`,
-`move_intent`, `set_hero` and `set_speed_scale` (the speed, times the
-actor's speed scale), and `set_parent` (the change of world placement). It
+`move_intent`, `set_hero` and `set_speed_scale` (the velocity times the
+actor's speed scale; a `move_to` at its own speed), and `set_parent` (the change of world placement). It
 is refused with `E_TELEPORT_VISIBLE` when it would carry too far an actor
 visible when the step began that no forced teleport placed: the entity
 itself, a child at any depth (going as far) or a follower (going its lag's
@@ -363,9 +363,11 @@ without `--headless` the pack plays in a window.
 
 ## The engine's systems
 
-- **Movement**: `move_to` walks at a speed and ends with `arrived` (exactly
-  on the target) or `blocked`; `move_intent` holds a velocity; `face` turns
-  at the actor's turn rate. `motion.turn_rate` is every actor's rate and the
+- **Movement**: `move_to` walks at a speed, in metres per second of the
+  world whatever the actor's speed scale, and ends with `arrived` (exactly
+  on the target) or `blocked`; `set_speed_scale` scales the player's axis
+  and `move_intent`; `move_intent` holds a velocity; `face` turns at the
+  actor's turn rate. `motion.turn_rate` is every actor's rate and the
   fastest anything turns; `set_turn_rate` gives one actor a rate of its own,
   no faster (`E_TURN_RATE` otherwise), and 0 gives it the setting back, so
   a big hero and a small companion turn each at its own speed under the
@@ -425,6 +427,66 @@ without `--headless` the pack plays in a window.
   its first frame until the next step: the frames drawn then lie between
   the step before, which had no clip, and the one that started it, so there
   is no earlier time to show. Start a clip one step before it must move.
+  The engine tells the runtime how long each actor's clips last.
+- **Clips bound to the root**: `clip_path` plays a clip from `from`
+  seconds into it, still for `hold` seconds first (under a fade or a cut:
+  the pose does not move), and moves the actor's root only within the
+  clip's spans (`ClipSpan`, written with `ClipSpan::put` into `spans`, in
+  order of the clip's time). Within a span the clip plays at the span's
+  `rate` (0.4 is slow motion on that span alone) and the root goes from
+  where it stood when the span began to the span's point, eased, rising
+  `arc` metres halfway, and turning to its `yaw`; outside the spans the
+  root stays while the clip anticipates or settles, at its own rate. The
+  root is placed each step from the clip's time, so a slowed span, slow
+  motion or the hold keep body and root together, and a rate due inside a
+  step takes over within it. With a collision module the actor is posed
+  with its collider off for the spans (over a sill, onto a ledge) and gets
+  it back where the root stands when the last span ends, pushed out of any
+  overlap, then hears `arrived`; a `move_to`, `move_intent`, `stop` or
+  `teleport` ends the path where the root stands, and another clip ends it
+  with `blocked`. Refused with `E_CLIP_SPANS` (out of order, overlapping,
+  past the clip's end, a rate of 0, not finite) or `E_TELEPORT_VISIBLE`
+  (a span faster than `motion.max_visible_speed`, or turning faster than
+  `motion.turn_rate`, for a visible actor).
+- **Clips in a row**: `clip_next` queues a clip after the one an actor
+  plays and those queued after it. It begins once the one before has
+  played `after` seconds, or at its end when `after` is 0, inside the step
+  that happens, with the time left over: the seam shows no still frame and
+  loses no time, where waiting for `clip_finished` and then playing loses a
+  step or two. The animation module crossfades over `blend`. A `play_clip`
+  or `clip_path` drops the queue; with no clip playing it plays at once.
+- **Held things**: `hold` puts an entity (a room node, a light, an empty)
+  in an actor's hand: at its socket or joint `socket` (a socket looked up
+  first), staying where it stands on it with `keep`, else sitting at
+  `offset` from it in the socket's frame. Each step, once the actors have
+  moved and the animation module has posed them, it is placed on the
+  socket rigidly, in metres of the world: the actor's scale never grows it
+  or its offset. Holding takes it out of its parent, follow and tweens.
+  `hold` with `actor` NONE lets go and it stays where it was, so a tween
+  can carry it on from there (a bag into a bin); despawning the actor lets
+  go too. Refused with `E_HOLD_ACTOR` for an actor to hold and, the step
+  after, `E_SOCKET_UNKNOWN` for a name the actor's model lacks; an actor
+  drawn without a model keeps it where it stands.
+- **A lantern in the hand**: a room's spot light spawned as a `light`
+  entity, held at the hand, and aimed with `light_aim` at a point ahead in
+  its own frame (or the carrier's) lights where the hand points as the
+  actor walks and turns; the target is in metres of the world whatever the
+  scale of the frame. `at` NONE aims at a point of the world; a point light
+  has no aim. Hidden with `set_visible`, the light is off and takes no
+  place among the frame's lights, so a lantern switched off frees its place
+  for another light. `E_NOT_LIGHT` refuses an entity that is not a light.
+- **A clip's rate while it plays**: `clip_rate` plays the clip an actor
+  plays at a new rate from the step it arrives, going on from the time it
+  is at: no restart and no crossfade, where a second `play_clip` starts it
+  over and blends. A game that eases its hero from a stroll to a run sets
+  the walk cycle's rate to the pace over the clip's ground speed each step
+  the pace changes, and the feet keep to the ground. A rate of 0 holds the
+  clip where it is. A rate sent during a `clip_path` lasts until the next
+  span begins with its own; the clips queued with `clip_next` keep theirs.
+  Refused with `E_CLIP_NOT_PLAYING` when the actor plays another clip or
+  none, and `E_CLIP_RATE` below 0. A `play_clip` or `clip_next` at a
+  speed of 0 or below is refused with `E_CLIP_RATE` too: it would never
+  reach its end.
 - **Time scale**: `time_scale` plays the world slower or faster than real
   time, reached over `blend` seconds. The display frames' time is scaled
   before it becomes steps: a step stays 1/60 s of world time, so play stays
@@ -519,6 +581,7 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `cutscene.skip_fade` | 0.3 | Seconds of the fade a skip runs under, out and back in. |
 | `cutscene.start_blend` | 0.25 | Seconds of that easing. |
 | `cutscene.start_blend_max` | 0.3 | Up to this distance an actor is eased into its start place; farther, it walks there. |
+| `cutscene.start_height` | 0.25 | With a collision module, metres a start may sit above or below the actor and still be measured along the ground, the floor holding the actor at its height; a start farther in height is eased or walked to in full. |
 | `cutscene.start_tolerance` | 0.02 | Metres from its declared start an actor may be and still start in place. |
 | `cutscene.start_walk_speed` | 1.5 | Metres per second of the walk to the start place. |
 | `fx.effects` | none | The particle effects fx_start and fx_burst name: sprite, rate and puffs, life, size, speed, gravity, drag, drift, spin, colour keys, intensity and how additive; see docs/fx.md. |

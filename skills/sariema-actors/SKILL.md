@@ -56,7 +56,10 @@ The JSON of `run` gives `actors_drawn`, `actors_culled`,
   what game code shows or hides. Mark parts that start hidden with node
   extras `visible: false`, or list them in `hidden`.
 - **Sockets**: an empty node under a bone becomes a socket of that name; or
-  declare one with `{"joint", "translation", "rotation"}`.
+  declare one with `{"joint", "translation", "rotation"}`. A game puts a
+  room node in the hand with `hold` (entity, actor, socket, `offset` in
+  metres in the socket's frame, `keep` to take it where it stands) and lets
+  go with `hold` to actor NONE; the actor's scale never grows what it holds.
 - **Clips**: name loops so a pattern catches them (`*_lp`, `idle*`, `walk`,
   `run`) and list the patterns in `loop`; or set glTF `extras.loop`.
 - **Faces**: one atlas per face, a material per eye or mouth. Give `grid`,
@@ -117,9 +120,11 @@ own colours under a coloured lamp; 1 is the room's colour as it is.
 | E_ACTOR_NAME | a name the model lacks; the message lists those it has | copy the name from the list |
 | huge disc shadow or culling box | a clip (a fall) moves far; bounds hold every clip | expected; the disc comes from the bind pose height |
 | no shadow from an actor | `Quality::actor_shadow_slots` is 0 or the room has no shadowed light reaching it | a disc is drawn instead; raise the setting |
-| feet slide | the game moves the actor faster than the clip's stride | move at the clip's ground speed, or scale the clip's speed |
+| feet slide | the game moves the actor faster than the clip's stride | move at the clip's ground speed, or set the clip's rate to pace over ground speed with `clip_rate`; a second `play_clip` restarts the cycle |
 | parts named `""`, a hidden part shows | the GLB went through gltfpack without `-kn -ke` | rebuild it with them, or from the source GLB |
 | prop floats beside the hand | wrong socket, or the socket's offset is in another space | `inspect` the sockets; offsets are in the joint's space |
+| held thing stays put, `E_SOCKET_UNKNOWN` | `hold` names a socket the model lacks | copy a name from `inspect`'s `sockets` or `joints` |
+| held thing does not swing with the arm | the socket sits on a joint the clip does not move (`grip` on the elbow) | hold at a socket further down the chain (`tip`) |
 | hair black, clothes grey, skin orange | an exporter left a `metallicRoughnessTexture` with no factors, and an older importer read glTF's default metal | rebuild the actor: the importer now scales the factors by the texture's mean |
 | white lines along the hair's facets | the material `rim` | set it to 0; use the room's `character_light.rim` |
 | actor dark in one room only | that room's light is dim, from the side or coloured | that room's `character_light` (`intensity`, `min_brightness`, `room_tint`) |

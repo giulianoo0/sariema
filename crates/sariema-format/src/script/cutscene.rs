@@ -161,6 +161,46 @@ pub enum Block {
         to: f32,
         ease: u8,
     },
+    /// Plays `clip` on `role` from `from` seconds into it, still for `hold`
+    /// seconds first, moving the role's root only within `spans`, as the
+    /// `clip_path` command does; then the clips of `then` in a row, each
+    /// from where the one before ends. Ends when the last clip has played
+    /// through and the root has landed.
+    Path {
+        role: u16,
+        clip: u32,
+        mode: u8,
+        blend: f32,
+        from: f32,
+        hold: f32,
+        spans: Vec<PathSpan>,
+        then: Vec<Then>,
+    },
+}
+
+/// A span of a [`Block::Path`]'s clip, `from` to `until` seconds of it.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PathSpan {
+    pub from: f32,
+    pub until: f32,
+    pub rate: f32,
+    pub to: Option<[f32; 3]>,
+    /// Degrees.
+    pub yaw: Option<f32>,
+    pub ease: u8,
+    pub arc: f32,
+}
+
+/// A clip that follows a [`Block::Path`]'s clip, or the one before it.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Then {
+    pub clip: u32,
+    pub mode: u8,
+    pub blend: f32,
+    pub speed: f32,
+    /// Seconds into the clip before at which this one begins; 0 is that
+    /// clip's end.
+    pub after: f32,
 }
 
 /// The point of a role a shot aims at: its origin, or a bone or socket

@@ -549,6 +549,7 @@ const BRISK: &str = r#"{ "name": "brisk", "roles": { "hero": { "start": { "posit
     "steps": [ { "walk": { "role": "hero", "to": [10, 0, 0], "speed": 15 } }, { "call": "after" } ] }"#;
 
 #[test]
+#[ignore = "superseded: a scripted walk no longer goes at its speed times the role's speed scale; see a_walk_past_the_visible_speed_is_refused_alike_played_or_skipped"]
 fn a_walk_scaled_past_the_visible_speed_is_refused_alike_played_or_skipped() {
     let mut wrong = Vec::new();
     for builtin in [true, false] {
@@ -564,6 +565,48 @@ fn a_walk_scaled_past_the_visible_speed_is_refused_alike_played_or_skipped() {
             if end.x != 0.0 {
                 wrong.push(format!("{case}: the role went to x {}", end.x));
             }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+const SWIFT: &str = r#"{ "name": "swift", "roles": { "hero": { "start": { "position": [0, 0, 0] } } },
+    "steps": [ { "walk": { "role": "hero", "to": [10, 0, 0], "speed": 25 } }, { "call": "after" } ] }"#;
+
+#[test]
+fn a_walk_past_the_visible_speed_is_refused_alike_played_or_skipped() {
+    let mut wrong = Vec::new();
+    for builtin in [true, false] {
+        for skip in [None, Some(1)] {
+            let (events, end) = hero_plays(SWIFT, builtin, 2.0, skip, nothing);
+            let case = format!("builtin {builtin}, skip {skip:?}");
+            if at(&events, "E_TELEPORT_VISIBLE").len() != 1 {
+                wrong.push(format!("{case}: not refused once"));
+            }
+            if at(&events, &call("after")).len() != 1 {
+                wrong.push(format!("{case}: the walk never ended"));
+            }
+            if end.x != 0.0 {
+                wrong.push(format!("{case}: the role went to x {}", end.x));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+#[test]
+fn a_walk_within_the_visible_speed_is_not_refused_whatever_the_speed_scale() {
+    let mut wrong = Vec::new();
+    for builtin in [true, false] {
+        let (events, end) = hero_plays(BRISK, builtin, 2.0, None, nothing);
+        if !at(&events, "Rejected").is_empty() {
+            wrong.push(format!(
+                "builtin {builtin}: refused at {:?}",
+                at(&events, "Rejected")
+            ));
+        }
+        if builtin && (end.x - 10.0).abs() > 0.05 {
+            wrong.push(format!("builtin {builtin}: the role ended at x {}", end.x));
         }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
