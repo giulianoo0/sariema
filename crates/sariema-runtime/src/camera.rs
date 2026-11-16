@@ -14,6 +14,7 @@ use sariema_format::script::{Anchor, Ease};
 use serde::{Deserialize, Serialize};
 
 use crate::ease::ease;
+use crate::motion::MotionSettings;
 use crate::rng::Pcg32;
 use crate::spring::Spring;
 use crate::tween::steps_of;
@@ -273,6 +274,10 @@ impl CameraError {
 
 pub struct Camera {
     settings: CameraSettings,
+    /// How far and how much a reframing may move the view in one step and
+    /// still be shown as is: `motion.max_visible_speed` and `turn_rate`.
+    step_move: f32,
+    step_turn: f32,
     rigs: BTreeMap<u32, Rig>,
     active: Option<u32>,
     blend: Option<Blend>,
@@ -285,9 +290,11 @@ pub struct Camera {
 }
 
 impl Camera {
-    pub fn new(settings: CameraSettings) -> Camera {
+    pub fn new(settings: CameraSettings, motion: &MotionSettings) -> Camera {
         Camera {
             settings,
+            step_move: motion.max_visible_speed * STEP_SECONDS,
+            step_turn: motion.turn_rate * STEP_SECONDS,
             rigs: BTreeMap::new(),
             active: None,
             blend: None,
@@ -299,18 +306,87 @@ impl Camera {
         }
     }
 
-    /// Creates or reframes a rig, keeping its tuning and bounds. Reframing
-    /// the rig in use blends from the pose shown.
+    /// Creates or reframes a rig, keeping its tuning and bounds. A sudden
+    /// reframing of the rig in use blends from the pose shown; a gradual
+    /// one, like a camera turned by a stick, is shown as is.
     pub fn set_framing(&mut self, rig: u32, framing: Framing) {
         let tuning = self.settings;
         let r = self
             .rigs
             .entry(rig)
             .or_insert_with(|| Rig::new(framing, tuning));
-        let changed = r.framing != framing;
+        let was = r.framing;
         r.framing = framing;
-        if changed && self.active == Some(rig) {
+        if self.active == Some(rig) && !self.gradual(&was, &framing) {
             self.transition(tuning.reframe_blend, tuning.reframe_ease);
+        }
+    }
+
+    /// Whether going from framing `a` to `b` in one step keeps the subjects
+    /// and moves and turns no faster than a visible actor may.
+    fn gradual(&self, a: &Framing, b: &Framing) -> bool {
+        let turn =
+            |x: f32, y: f32| ((x - y + 180.0).rem_euclid(360.0) - 180.0).abs() <= self.step_turn;
+        let near = |x: f32, y: f32| (x - y).abs() <= self.step_move;
+        match (*a, *b) {
+            (
+                Framing::Follow {
+                    subject: s1,
+                    distance: d1,
+                    pitch: p1,
+                    yaw: y1,
+                    height: h1,
+                    fov: f1,
+                },
+                Framing::Follow {
+                    subject: s2,
+                    distance: d2,
+                    pitch: p2,
+                    yaw: y2,
+                    height: h2,
+                    fov: f2,
+                },
+            ) => {
+                s1 == s2
+                    && near(d1, d2)
+                    && near(h1, h2)
+                    && turn(p1, p2)
+                    && turn(y1, y2)
+                    && turn(f1, f2)
+            }
+            (
+                Framing::Frame {
+                    a: a1,
+                    b: b1,
+                    pitch: p1,
+                    yaw: y1,
+                    height: h1,
+                    fov: f1,
+                    margin: m1,
+                },
+                Framing::Frame {
+                    a: a2,
+                    b: b2,
+                    pitch: p2,
+                    yaw: y2,
+                    height: h2,
+                    fov: f2,
+                    margin: m2,
+                },
+            ) => {
+                (a1, b1) == (a2, b2)
+                    && near(h1, h2)
+                    && near(m1, m2)
+                    && turn(p1, p2)
+                    && turn(y1, y2)
+                    && turn(f1, f2)
+            }
+            (Framing::Fixed(p1), Framing::Fixed(p2)) => {
+                p1.position.distance(p2.position) <= self.step_move
+                    && p1.rotation.angle_between(p2.rotation).to_degrees() <= self.step_turn
+                    && turn(p1.fov, p2.fov)
+            }
+            _ => false,
         }
     }
 

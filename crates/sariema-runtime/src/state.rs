@@ -76,7 +76,7 @@ impl State {
             followers: Followers::default(),
             timers: Timers::default(),
             zones: Zones::default(),
-            camera: Camera::new(settings.camera),
+            camera: Camera::new(settings.camera, &settings.motion),
             motion: Motion::default(),
             screen: Screen::default(),
             dialogue: Dialogue::default(),

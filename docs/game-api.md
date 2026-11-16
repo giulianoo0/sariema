@@ -290,8 +290,11 @@ world hashes and timing.
 - **Camera rigs**: follow a subject (dead zone, spring, look-ahead, bounds),
   frame two subjects, or a fixed pose; `camera_use` blends from the pose on
   screen to the new rig over `blend` seconds with an easing. Reframing the
-  rig in use (`rig_follow`, `rig_frame`, `rig_fixed` with a new framing)
-  blends the same way over `camera.reframe_blend`. A blend of 0 is a cut,
+  rig in use (`rig_follow`, `rig_frame`, `rig_fixed`) is shown as is when it
+  is gradual: the same subjects, nothing moving faster than
+  `motion.max_visible_speed` or turning faster than `motion.turn_rate`, like
+  a camera a stick turns every step. A sudden reframing blends from the pose
+  on screen over `camera.reframe_blend`. A blend of 0 is a cut,
   the only way the camera moves discontinuously. `camera_shake` is seeded
   and deterministic. `rig_anchor` aims a rig at a bone or socket of its
   subject; the camera lists those anchors for the animation module to
@@ -333,7 +336,7 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `camera.dead_zone` | 0.25 | Metres a followed subject moves before the camera follows. |
 | `camera.frequency` | 1.5 | Hz of the spring that carries the camera's focus. |
 | `camera.look_ahead` | 0 | Seconds of the subject's velocity the focus leads by. |
-| `camera.reframe_blend` | 0.5 | Seconds the camera blends when the rig in use is reframed; 0 cuts. |
+| `camera.reframe_blend` | 0.5 | Seconds the camera blends when the rig in use is reframed suddenly; 0 cuts. |
 | `camera.reframe_ease` | `in_out_cubic` | Easing of that blend. |
 | `cutscene.advance_action` | `confirm` | Button that ends a tap dialogue line. |
 | `cutscene.end_blend` | 0.6 | Seconds of the camera blend back to the game's rig when a cutscene ends. |

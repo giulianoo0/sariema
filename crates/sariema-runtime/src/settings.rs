@@ -139,7 +139,7 @@ pub const DOCS: &[(&str, &str)] = &[
     ),
     (
         "camera.reframe_blend",
-        "Seconds the camera blends when the rig in use is reframed; 0 cuts.",
+        "Seconds the camera blends when the rig in use is reframed suddenly; 0 cuts.",
     ),
     ("camera.reframe_ease", "Easing of that blend."),
     (

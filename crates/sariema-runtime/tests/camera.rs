@@ -3,6 +3,7 @@
 use glam::Vec3;
 use sariema_format::script::Ease;
 use sariema_runtime::camera::{Camera, CameraPose, CameraSettings, Framing};
+use sariema_runtime::motion::MotionSettings;
 use sariema_runtime::rng::Pcg32;
 use sariema_runtime::world::{Entity, Kind, World};
 
@@ -51,7 +52,7 @@ fn angle(a: &CameraPose, b: &CameraPose) -> f32 {
 #[test]
 fn follow_never_overshoots_its_bounds() {
     let (mut w, es) = world_with(1);
-    let mut cam = Camera::new(CameraSettings::default());
+    let mut cam = Camera::new(CameraSettings::default(), &MotionSettings::default());
     cam.set_framing(1, follow(es[0], 0.0));
     cam.set_tuning(
         1,
@@ -90,7 +91,7 @@ fn follow_never_overshoots_its_bounds() {
 #[test]
 fn the_subject_moves_freely_inside_the_dead_zone() {
     let (mut w, es) = world_with(1);
-    let mut cam = Camera::new(CameraSettings::default());
+    let mut cam = Camera::new(CameraSettings::default(), &MotionSettings::default());
     cam.set_framing(1, follow(es[0], 0.0));
     cam.use_rig(1, 0.0, Ease::Linear).unwrap();
     cam.begin_step();
@@ -117,7 +118,7 @@ fn the_subject_moves_freely_inside_the_dead_zone() {
 fn a_blend_between_rigs_is_continuous_and_a_cut_is_the_only_jump() {
     let (mut w, es) = world_with(2);
     put(&mut w, es[1], Vec3::new(8.0, 0.0, -5.0));
-    let mut cam = Camera::new(CameraSettings::default());
+    let mut cam = Camera::new(CameraSettings::default(), &MotionSettings::default());
     cam.set_framing(1, follow(es[0], 0.0));
     cam.set_framing(2, follow(es[1], 120.0));
     cam.set_framing(
@@ -178,7 +179,7 @@ fn a_blend_between_rigs_is_continuous_and_a_cut_is_the_only_jump() {
 #[test]
 fn framing_two_subjects_backs_off_as_they_part() {
     let (mut w, es) = world_with(2);
-    let mut cam = Camera::new(CameraSettings::default());
+    let mut cam = Camera::new(CameraSettings::default(), &MotionSettings::default());
     let frame = Framing::Frame {
         a: es[0],
         b: es[1],
@@ -214,7 +215,7 @@ fn framing_two_subjects_backs_off_as_they_part() {
 fn shake_is_seeded_and_dies_out() {
     let run = |seed: u64| {
         let (w, es) = world_with(1);
-        let mut cam = Camera::new(CameraSettings::default());
+        let mut cam = Camera::new(CameraSettings::default(), &MotionSettings::default());
         cam.set_framing(1, follow(es[0], 0.0));
         cam.use_rig(1, 0.0, Ease::Linear).unwrap();
         cam.shake(0.3, 8.0, 0.5, &mut Pcg32::new(seed, 9));
@@ -235,7 +236,7 @@ fn shake_is_seeded_and_dies_out() {
 #[test]
 fn reframing_the_rig_in_use_blends_from_the_shown_pose() {
     let (w, es) = world_with(1);
-    let mut cam = Camera::new(CameraSettings::default());
+    let mut cam = Camera::new(CameraSettings::default(), &MotionSettings::default());
     cam.set_framing(1, follow(es[0], 0.0));
     cam.use_rig(1, 0.0, Ease::Linear).unwrap();
     let fixed = Framing::Fixed(CameraPose::looking(
@@ -274,4 +275,33 @@ fn reframing_the_rig_in_use_blends_from_the_shown_pose() {
     };
     assert!(end.position.distance(target.position) < 1e-3, "it arrives");
     assert!(!cam.blending(), "the same framing again starts no blend");
+}
+
+#[test]
+fn a_camera_turned_a_little_every_step_tracks_it_without_cuts() {
+    let (w, es) = world_with(1);
+    let mut cam = Camera::new(CameraSettings::default(), &MotionSettings::default());
+    cam.set_framing(1, follow(es[0], 0.0));
+    cam.use_rig(1, 0.0, Ease::Linear).unwrap();
+    for step in 0..200u32 {
+        cam.begin_step();
+        let yaw = if step < 20 {
+            0.0
+        } else {
+            (step - 20) as f32 * 2.0
+        };
+        cam.set_framing(1, follow(es[0], yaw));
+        cam.step(&w);
+        if step > 0 {
+            assert!(!cam.cut(), "step {step}: cut");
+        }
+        let want = CameraPose::rotation_of(yaw, -40.0);
+        let off = cam
+            .pose()
+            .unwrap()
+            .rotation
+            .angle_between(want)
+            .to_degrees();
+        assert!(off < 0.5, "step {step}: {off}° behind the stick");
+    }
 }
