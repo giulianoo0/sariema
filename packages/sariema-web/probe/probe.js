@@ -49,6 +49,8 @@ function show() {
   ];
   if (result.smoke) {
     rows.push(["Engine", result.smoke.ok ? `${result.smoke.backend}, ${result.smoke.path}` : result.smoke.error]);
+    const fetched = result.smoke.mount_downloads?.reduce((n, d) => Math.max(n, d.ms), 0);
+    rows.push(["Mount", result.smoke.mount_ms != null ? `${Math.round(result.smoke.mount_ms)} ms, slowest download ${fetched ?? "—"} ms` : "—"]);
     rows.push(["First frame", result.smoke.first_frame_ms != null ? `${Math.round(result.smoke.first_frame_ms)} ms` : "—"]);
     rows.push(["Chime through the worklet", result.smoke.audio_ok]);
     const shown = (f) => f && `${Math.round(f.fps)} fps, p95 ${f.interval_ms.p95.toFixed(1)} ms, ${f.size.join("×")}`;
@@ -80,6 +82,7 @@ function page() {
     screen: [screen.width, screen.height],
     hardware_concurrency: navigator.hardwareConcurrency ?? null,
     device_memory_gb: navigator.deviceMemory ?? null,
+    connection: navigator.connection?.effectiveType ?? null,
   };
 }
 
@@ -223,6 +226,7 @@ async function smoke() {
     const canvas = document.getElementById("stage");
     const sariema = await mount(canvas, { autoStart: false });
     s.mount_ms = performance.now() - t0;
+    s.mount_downloads = downloads();
     Object.assign(s, { backend: sariema.backend, ...pick(sariema.capabilities(), ["path", "msaa", "texture_variants", "format"]) });
     const t1 = performance.now();
     const manifest = await sariema.loadGame(new URL("../demo/", import.meta.url));
@@ -277,6 +281,19 @@ async function copy() {
     getSelection()?.selectAllChildren(out);
     say("Copying was blocked. The result below is selected: copy it from there.", "no");
   }
+}
+
+// What the mount fetched and how long each took, to tell the network from
+// compiling the module and starting the GPU.
+function downloads() {
+  return performance
+    .getEntriesByType("resource")
+    .filter((e) => /\.(wasm|js)$/.test(new URL(e.name).pathname))
+    .map((e) => ({
+      file: new URL(e.name).pathname.split("/").pop(),
+      ms: Math.round(e.duration),
+      kb: Math.round(e.encodedBodySize / 1024),
+    }));
 }
 
 function pick(o, keys) {
