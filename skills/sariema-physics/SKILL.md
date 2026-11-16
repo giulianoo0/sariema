@@ -24,7 +24,7 @@ Every command runs from the repository root; `sariema` is
 
 ```sh
 sariema build examples/collision --room hall -o /tmp/hall.srma   # also writes /tmp/hall.srmc
-sariema inspect /tmp/hall.srmc                                   # colliders by shape, disabled, triggers, spots, routes
+sariema inspect /tmp/hall.srmc                                   # colliders by shape, disabled, triggers, spots, routes, grid columns
 sariema check examples/collision                                 # every room; --room hall for one
 sariema check examples/collision --room sill                     # a traversal over a sill, with a foot contact
 sariema physics-map /tmp/hall.srmc -o /tmp/hall-map.png --path start:back
@@ -43,7 +43,11 @@ Add `--json` to any of them for one JSON object (`{"ok":true,...}`, or
    is the montagem room in `show`, as loose draws are named; pieces that start
    hidden are disabled. Add `primitives` for what the pieces do not
    cover (the floor, invisible walls), `actors` (collider and model bounds),
-   `spots` and `routes`.
+   `spots` and `routes`. When the room's scenery reaches far around where
+   actors walk (a ground plane, a backdrop), add `nav_bounds`
+   (`{ "min": [x, y, z], "max": [x, y, z] }`, usually the inside of its
+   boundary walls): a walkable grid costs a column per 10 cm square of the
+   static colliders' bounds otherwise, and `inspect` prints how many.
 2. **Exclude what must not block.** List in `exclude` the pieces a character
    walks through: rugs, grass, ropes and vines, hanging props, test scenery
    kept hidden in the room. Force a shape with `as_mesh` (arches, roots,

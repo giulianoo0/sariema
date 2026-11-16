@@ -138,6 +138,16 @@ block, instead of eroding voxels by a radius. A floor with anything right
 above it within the step height (the ground inside a dais) is no floor.
 Neighbouring floors within the step height are linked; linked floors are
 grouped into islands, so a search between islands is refused in constant time.
+
+A grid covers the static colliders' bounds, a column per `nav.cell_size`
+square: the cost of a room's grid grows with how far its geometry reaches,
+not with where actors walk. A room with scenery far around the walk (a
+ground plane, a backdrop) declares `collision.nav_bounds`, the box in x and
+z where its grids are built (`World::set_nav_bounds`); a path to a target
+outside it is refused. `sariema inspect <room>.srmc` prints the columns a
+grid has. A tree-house room whose ground reaches 470 m across has 22.2
+million columns, 17–32 s for one body; within its 40 × 25 m of walls,
+100,651 columns, 0.37 s.
 `World::reachable(actor, target)` runs the same search without moving the
 actor: the engine asks it when a skipped cutscene walk would have landed the
 actor somewhere no path leads.
@@ -440,6 +450,11 @@ actor-to-actor pushing; its 20 m path search (`guidePath`) takes 6.5 ms median,
 the 2D circle and stays below 0.1 % of a frame for a room's handful of
 actors; path search is about 5–15 times faster.
 
+A walkable grid costs about 0.8–5 µs a column on an Apple M5 (release, one
+core), less where nothing stands: 100,651 columns of a tree house in 0.37 s,
+526,000 of a house and its street in 2.6 s, 22.2 million mostly empty ones
+in 17–32 s.
+
 Baking is fast enough to run on every build: a tree-house room (12 mesh
 colliders, 11,421 triangles after exclusions) bakes in 0.3–2.5 s, a house
 room with 135 colliders in 0.2 s.
@@ -456,7 +471,9 @@ room with 135 colliders in 0.2 s.
 - The walkable grid is per collider shape, regular and 2.5D (`max_layers`
   floors per column). Cells are 10 cm by default, so a gap narrower than the
   actor by less than a cell may still pass on the grid and be refused by the
-  sweep, and very large outdoor areas cost memory; there is no navmesh,
+  sweep, and very large outdoor areas cost memory and time unless the room
+  declares `nav_bounds`; grids are built whole, not a tile at a time on
+  demand; there is no navmesh,
   no off-mesh links (jumps, ladders) and no partial path to an unreachable
   target.
 - Platforms move and turn about Y only (`Pose` is a translation and a yaw);

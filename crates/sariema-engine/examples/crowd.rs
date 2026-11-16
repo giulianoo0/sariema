@@ -114,6 +114,7 @@ fn floor(columns: u32, rows: u32) -> CollisionPack {
         spots: Vec::new(),
         routes: Vec::new(),
         traversals: Vec::new(),
+        nav_bounds: None,
     }
 }
 

@@ -5,7 +5,7 @@ mod common;
 use common::{Owned, Room, actor, settle};
 use glam::{Mat3, Vec2, Vec3};
 use sariema_physics::{
-    ActorCollider, ActorId, BlockReason, EventKind, Intent, Settings, World, wrap_angle,
+    ActorCollider, ActorId, BlockReason, Bounds, EventKind, Intent, Settings, World, wrap_angle,
 };
 
 /// A 12 m square room cut in two by a wall along z = 0 with a 0.8 m door at
@@ -383,4 +383,23 @@ fn a_grid_finished_after_a_collider_changed_sees_the_change() {
     world.finish_grid(build);
     let id = actor(&mut world, start);
     assert_eq!(world.walkable_cells(id).collect::<Vec<_>>(), opened);
+}
+
+#[test]
+fn a_grid_covers_only_the_nav_bounds() {
+    let start = Vec3::new(3.0, 0.0, 3.0);
+    let mut world = fixture().world(Settings::default());
+    world.set_nav_bounds(Some(Bounds {
+        min: Vec3::new(-1.0, -1.0, 1.0),
+        max: Vec3::new(5.0, 3.0, 5.0),
+    }));
+    let id = actor(&mut world, start);
+    let cells: Vec<Vec3> = world.walkable_cells(id).collect();
+    assert!(cells.len() > 1000, "{} cells", cells.len());
+    let inside = |c: &Vec3| (-1.0..=5.0).contains(&c.x) && (1.0..=5.0).contains(&c.z);
+    let outside: Vec<&Vec3> = cells.iter().filter(|c| !inside(c)).take(5).collect();
+    assert!(outside.is_empty(), "cells out of the bounds: {outside:?}");
+    let mut path = Vec::new();
+    assert!(world.find_path(id, start, Vec3::new(4.5, 0.0, 4.5), &mut path));
+    assert!(!world.find_path(id, start, Vec3::new(-4.0, 0.0, 4.0), &mut path));
 }

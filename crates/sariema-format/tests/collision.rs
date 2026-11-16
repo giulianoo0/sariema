@@ -97,6 +97,10 @@ fn pack() -> CollisionPack {
                 point: [3.0, 0.9, 0.0],
             }],
         }],
+        nav_bounds: Some(Aabb {
+            min: [-1.0, -1.0, -1.0],
+            max: [5.0, 3.0, 5.0],
+        }),
     }
 }
 
@@ -200,4 +204,8 @@ fn a_pack_with_bad_numbers_or_indices_is_rejected() {
     let again = p.traversals[0].clone();
     p.traversals.push(again);
     assert!(invalid(&p).contains("two traversals"));
+
+    let mut p = pack();
+    p.nav_bounds.as_mut().unwrap().min[0] = 9.0;
+    assert!(invalid(&p).contains("nav_bounds"));
 }

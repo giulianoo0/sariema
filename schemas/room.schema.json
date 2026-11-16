@@ -157,6 +157,13 @@
           "description": "Scripted moves with the actor's collider off, such as climbing in through a window; sariema check proves that each ends on free floor and that its contacts lie on a surface.",
           "items": { "$ref": "#/$defs/collision_traversal" }
         },
+        "nav_bounds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max"],
+          "description": "The box, in x and z, where the actors' walkable grids are built; without it they cover every collider. For a room whose geometry reaches far around where actors walk: a grid costs a column per nav.cell_size square.",
+          "properties": { "min": { "$ref": "#/$defs/vec3" }, "max": { "$ref": "#/$defs/vec3" } }
+        },
         "bake": {
           "type": "object",
           "additionalProperties": false,

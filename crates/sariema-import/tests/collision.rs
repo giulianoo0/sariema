@@ -226,3 +226,21 @@ fn the_schema_rejects_unknown_keys_and_bad_settings() {
         schema_error(collision);
     }
 }
+
+#[test]
+fn nav_bounds_reach_the_pack_and_an_inside_out_one_is_refused() {
+    let bounds = json!({ "min": [0.0, -1.0, -3.0], "max": [4.0, 2.0, 0.0] });
+    let pack = baked(json!({ "primitives": [floor()], "nav_bounds": bounds }));
+    let b = pack.nav_bounds.expect("nav_bounds in the pack");
+    assert_eq!((b.min, b.max), ([0.0, -1.0, -3.0], [4.0, 2.0, 0.0]));
+    assert!(
+        baked(json!({ "primitives": [floor()] }))
+            .nav_bounds
+            .is_none()
+    );
+    let e = schema_error(json!({
+        "primitives": [floor()],
+        "nav_bounds": { "min": [5.0, 0.0, 0.0], "max": [4.0, 2.0, 0.0] }
+    }));
+    assert!(e.contains("nav_bounds"), "{e}");
+}

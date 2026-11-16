@@ -6,6 +6,7 @@ use glam::{Mat3, Vec3};
 use sariema_format::collision::{self as pack, CollisionPack};
 
 use crate::actor::{ActorCollider, ActorDesc, Head, LocalBounds};
+use crate::math::Bounds;
 use crate::settings::Settings;
 use crate::shape::Shape;
 use crate::world::{BuildError, ColliderDesc, World};
@@ -113,6 +114,10 @@ impl World {
             })
             .collect();
         let mut world = World::new(settings, &descs)?;
+        world.set_nav_bounds(pack.nav_bounds.as_ref().map(|b| Bounds {
+            min: Vec3::from(b.min),
+            max: Vec3::from(b.max),
+        }));
         for t in &pack.triggers {
             world.add_trigger(&t.name, OwnedShape::of(&t.shape).shape())?;
         }

@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::Aabb;
 
 pub const MAGIC: [u8; 4] = *b"SRMC";
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
@@ -31,6 +31,9 @@ pub struct CollisionPack {
     /// Pairs of indices into `spots` that a script walks between.
     pub routes: Vec<[u32; 2]>,
     pub traversals: Vec<Traversal>,
+    /// Where across the walkable grids are built; none covers every
+    /// collider. Only `x` and `z` count.
+    pub nav_bounds: Option<Aabb>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -363,6 +366,15 @@ fn validate(pack: &CollisionPack) -> Result<(), CollisionError> {
         return Err(invalid(format!(
             "route {r:?} uses a spot beyond the {} spots",
             pack.spots.len()
+        )));
+    }
+    if let Some(b) = &pack.nav_bounds
+        && !(b.min.iter().chain(&b.max).all(|v| v.is_finite())
+            && (0..3).all(|i| b.min[i] <= b.max[i]))
+    {
+        return Err(invalid(format!(
+            "nav_bounds {:?}..{:?} is no box",
+            b.min, b.max
         )));
     }
     unique("colliders", pack.colliders.iter().map(|c| c.name.as_str())).map_err(invalid)?;

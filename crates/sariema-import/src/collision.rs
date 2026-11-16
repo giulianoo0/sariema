@@ -15,7 +15,7 @@ use std::path::Path;
 use glam::{Mat3, Mat4, Vec3};
 use meshopt::SimplifyOptions;
 use sariema_format::collision::{self as pack, CollisionPack};
-use sariema_format::{AlphaMode, Material};
+use sariema_format::{Aabb, AlphaMode, Material};
 use sariema_physics::{
     ActorCollider, ColliderDesc, LocalBounds, Settings, Shape, World, convex_hull, yaw_matrix,
 };
@@ -52,8 +52,19 @@ pub struct CollisionSource {
     /// Scripted moves with the collider off; `sariema check` proves where they end and touch.
     #[serde(default)]
     pub traversals: Vec<TraversalSource>,
+    /// Where across the walkable grids are built, when the colliders reach
+    /// far around where actors walk.
+    #[serde(default)]
+    pub nav_bounds: Option<NavBoundsSource>,
     #[serde(default)]
     pub bake: BakeSettings,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NavBoundsSource {
+    pub min: [f32; 3],
+    pub max: [f32; 3],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
@@ -332,6 +343,18 @@ pub fn build_collision(
         })
         .collect::<Result<_, String>>()
         .map_err(schema)?;
+    let nav_bounds = match collision.nav_bounds {
+        Some(b) if (0..3).any(|i| b.min[i] > b.max[i]) => {
+            return Err(schema(format!(
+                "nav_bounds min {:?} is past max {:?}",
+                b.min, b.max
+            )));
+        }
+        b => b.map(|b| Aabb {
+            min: b.min,
+            max: b.max,
+        }),
+    };
     let pack = CollisionPack {
         room: source.name.clone(),
         colliders,
@@ -340,6 +363,7 @@ pub fn build_collision(
         spots,
         routes,
         traversals,
+        nav_bounds,
     };
     pack::decode(&pack::encode(&pack)).map_err(|e| schema(e.to_string()))?;
     Ok(Some(pack))

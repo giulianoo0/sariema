@@ -130,6 +130,7 @@ pub struct World {
     triggers: Vec<Trigger>,
     actors: Vec<Actor>,
     navs: Vec<NavGrid>,
+    nav_bounds: Option<Bounds>,
     /// Colliders switched on or off since the world was built.
     collider_changes: u64,
     steps: u64,
@@ -181,6 +182,7 @@ impl World {
             triggers: Vec::new(),
             actors: Vec::new(),
             navs: Vec::new(),
+            nav_bounds: None,
             collider_changes: 0,
             steps: 0,
             geometry_changed: false,
@@ -193,6 +195,13 @@ impl World {
 
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// Limits the walkable grids built from now on to `bounds` across, for
+    /// a room whose geometry reaches far around where actors walk; `None`
+    /// covers the static colliders' bounds.
+    pub fn set_nav_bounds(&mut self, bounds: Option<Bounds>) {
+        self.nav_bounds = bounds;
     }
 
     pub(crate) fn scene(&self) -> &Scene {
@@ -343,6 +352,12 @@ impl World {
         self.navs.len()
     }
 
+    /// The columns each walkable grid has to build.
+    pub fn grid_columns(&self) -> usize {
+        let (_, nx, nz) = NavGrid::extent(&self.nav_ctx());
+        nx * nz
+    }
+
     /// Whether a scripted move of `actor` to `target` would find a path
     /// from where it stands, as [`Intent::MoveTo`] would search it.
     pub fn reachable(&mut self, actor: ActorId, target: Vec3) -> bool {
@@ -351,6 +366,7 @@ impl World {
             scene: &self.scene,
             settings: &self.settings,
             derived: &self.derived,
+            area: self.nav_bounds,
         };
         let from = self.actors[actor.0 as usize].position;
         self.navs[nav].find(&ctx, from, target, &mut Vec::new())
@@ -367,6 +383,7 @@ impl World {
             scene: &self.scene,
             settings: &self.settings,
             derived: &self.derived,
+            area: self.nav_bounds,
         }
     }
 
@@ -920,6 +937,7 @@ impl World {
             scene: &self.scene,
             settings: &self.settings,
             derived: &self.derived,
+            area: self.nav_bounds,
         };
         let a = &mut self.actors[i];
         let found = self.navs[nav].find(&ctx, a.position, target, &mut a.path);
@@ -1137,6 +1155,7 @@ impl World {
             scene: &self.scene,
             settings: &self.settings,
             derived: &self.derived,
+            area: self.nav_bounds,
         };
         self.navs[nav].find(&ctx, from, to, out)
     }

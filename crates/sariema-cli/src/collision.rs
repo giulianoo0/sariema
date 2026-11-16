@@ -94,6 +94,15 @@ pub fn inspect(path: &Path, bytes: &[u8]) -> Result<Done, Failure> {
         .map(|a| json!({ "name": a.name, "radius": a.radius, "height": a.height, "head": a.head.as_ref().map(|h| json!({ "radius": h.radius, "height": h.height, "forward": h.forward })) }))
         .collect();
     let actor_names: Vec<&str> = pack.actors.iter().map(|a| a.name.as_str()).collect();
+    let settings = sariema_physics::Settings::default();
+    let cell = settings.nav.cell_size;
+    let columns = sariema_physics::World::from_pack(settings, &pack)
+        .map(|w| w.grid_columns())
+        .map_err(|e| Failure::new("E_SCHEMA", format!("{}: {e}", path.display())))?;
+    let nav_bounds = pack
+        .nav_bounds
+        .as_ref()
+        .map(|b| json!({ "min": b.min, "max": b.max }));
     Ok(Done {
         json: json!({
             "kind": "collision",
@@ -110,9 +119,10 @@ pub fn inspect(path: &Path, bytes: &[u8]) -> Result<Done, Failure> {
             "spots": spots,
             "routes": routes,
             "traversals": traversals,
+            "nav": { "bounds": nav_bounds, "cell_size": cell, "columns": columns },
         }),
         text: format!(
-            "{} collision: {} colliders ({} boxes, {} spheres, {} capsules, {} hulls, {} meshes; {} triangles)\ndisabled: {}\ntriggers: {}\nactors: {}\nspots: {}\nroutes: {}\ntraversals: {}",
+            "{} collision: {} colliders ({} boxes, {} spheres, {} capsules, {} hulls, {} meshes; {} triangles)\ndisabled: {}\ntriggers: {}\nactors: {}\nspots: {}\nroutes: {}\ntraversals: {}\nnav: {} columns of {} m a walkable grid{}",
             pack.room,
             pack.colliders.len(),
             shapes[0],
@@ -132,6 +142,12 @@ pub fn inspect(path: &Path, bytes: &[u8]) -> Result<Done, Failure> {
                     .collect::<Vec<_>>()
             ),
             list(&traversals),
+            columns,
+            cell,
+            match &pack.nav_bounds {
+                Some(b) => format!(", within {:?}..{:?}", b.min, b.max),
+                None => String::new(),
+            },
         ),
     })
 }

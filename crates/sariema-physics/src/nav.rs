@@ -26,6 +26,8 @@ pub(crate) struct NavCtx<'a> {
     pub scene: &'a Scene,
     pub settings: &'a Settings,
     pub derived: &'a Derived,
+    /// Where across a grid is built, within the static bounds.
+    pub area: Option<Bounds>,
 }
 
 const STATIC: Filter = Filter {
@@ -99,9 +101,15 @@ impl NavGrid {
         grid
     }
 
-    /// A grid none of whose columns is built yet.
-    pub fn start(ctx: &NavCtx, collider: ActorCollider) -> NavGrid {
-        let bounds = ctx.scene.static_bounds();
+    /// Where a grid starts across, and its columns along x and z.
+    pub fn extent(ctx: &NavCtx) -> ((f32, f32), usize, usize) {
+        let mut bounds = ctx.scene.static_bounds();
+        if let Some(area) = ctx.area {
+            bounds.min.x = bounds.min.x.max(area.min.x);
+            bounds.min.z = bounds.min.z.max(area.min.z);
+            bounds.max.x = bounds.max.x.min(area.max.x);
+            bounds.max.z = bounds.max.z.min(area.max.z);
+        }
         let cell = ctx.settings.nav.cell_size;
         let (nx, nz) = if bounds.is_empty() {
             (0, 0)
@@ -111,9 +119,16 @@ impl NavGrid {
                 ((bounds.max.z - bounds.min.z) / cell).ceil() as usize + 1,
             )
         };
+        ((bounds.min.x, bounds.min.z), nx, nz)
+    }
+
+    /// A grid none of whose columns is built yet.
+    pub fn start(ctx: &NavCtx, collider: ActorCollider) -> NavGrid {
+        let (origin, nx, nz) = NavGrid::extent(ctx);
+        let cell = ctx.settings.nav.cell_size;
         let mut grid = NavGrid {
             collider,
-            origin: (bounds.min.x, bounds.min.z),
+            origin,
             cell,
             nx,
             nz,
