@@ -1,0 +1,20 @@
+[package]
+name = "sariema-render"
+description = "wgpu renderer of the Sariema engine: clustered forward lighting and headless rendering."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+bytemuck.workspace = true
+glam.workspace = true
+image.workspace = true
+log.workspace = true
+pollster.workspace = true
+sariema-core = { path = "../sariema-core" }
+sariema-format = { path = "../sariema-format" }
+wgpu.workspace = true
+
+[dev-dependencies]
+sariema-format = { path = "../sariema-format", features = ["demo"] }

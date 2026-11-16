@@ -85,12 +85,12 @@ pub fn demo_room() -> RoomPack {
         Light {
             name: "spot".into(),
             kind: LightKind::Spot {
-                target: [0.0, 0.0, 0.0],
-                cone_deg: 50.0,
+                target: [-1.0, 0.0, -1.0],
+                cone_deg: 60.0,
             },
             color: [1.0, 0.9, 0.75],
-            intensity: 30.0,
-            position: [-4.0, 5.0, 4.0],
+            intensity: 60.0,
+            position: [-3.0, 6.0, 3.0],
             range: 15.0,
             flicker: None,
             casts_shadow: true,
@@ -130,7 +130,7 @@ pub fn demo_room() -> RoomPack {
             bottom: [0.012, 0.01, 0.01],
         },
         look: Look {
-            exposure: 1.0,
+            exposure: 2.0,
             bloom_threshold: 1.0,
             bloom_strength: 0.3,
             tint: [1.0, 1.0, 1.0],
@@ -250,19 +250,24 @@ fn box_mesh() -> Mesh {
     mesh
 }
 
-/// 8×8 sRGB checker, one texel per square, base level only.
+/// 32×32 sRGB checker, 8 squares a side. Its mips stop at 8×8, one texel per
+/// square, so every level is exact without filtering.
 fn checker_texture() -> Texture {
-    const SIZE: u32 = 8;
-    let texels = (0..SIZE * SIZE).flat_map(|i| {
-        let light = (i % SIZE + i / SIZE).is_multiple_of(2);
-        let g = if light { 200 } else { 120 };
-        [g, g, g, 255]
-    });
+    let level = |size: u32| -> Vec<u8> {
+        let square = size / 8;
+        (0..size * size)
+            .flat_map(|i| {
+                let light = (i % size / square + i / size / square).is_multiple_of(2);
+                let g = if light { 200 } else { 120 };
+                [g, g, g, 255]
+            })
+            .collect()
+    };
     Texture {
         name: "checker".into(),
-        width: SIZE,
-        height: SIZE,
+        width: 32,
+        height: 32,
         format: TextureFormat::Rgba8Srgb,
-        mips: vec![texels.collect()],
+        mips: [32, 16, 8].map(level).into(),
     }
 }
