@@ -164,3 +164,56 @@ fn a_leaf_set_across_an_actor_in_one_go_is_refused() {
     assert_eq!(world.try_platform_pose(leaf, turned(-FRAC_PI_2)), Err(id));
     assert_eq!(world.platform_pose(leaf), Some(turned(FRAC_PI_2)));
 }
+
+#[test]
+fn a_pack_hinge_makes_its_collider_turn_about_the_pivot_from_closed() {
+    use sariema_format::collision::{Collider, CollisionPack, Hinge, Shape};
+    let leaf = |axis_y: f32, angle_deg: f32| CollisionPack {
+        room: "doorway".into(),
+        colliders: vec![Collider {
+            name: "doorway.door_leaf".into(),
+            shape: Shape::Box {
+                center: [0.0, 1.0, 0.0],
+                half_extents: [0.47, 1.0, 0.025],
+                rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            },
+            enabled: true,
+        }],
+        triggers: Vec::new(),
+        actors: Vec::new(),
+        spots: Vec::new(),
+        routes: Vec::new(),
+        traversals: Vec::new(),
+        nav_bounds: None,
+        hinges: vec![Hinge {
+            collider: 0,
+            pivot: [-0.49, 0.0, 0.0],
+            axis: [0.0, axis_y, 0.0],
+            angle_deg,
+        }],
+    };
+    let hits = |pack: &CollisionPack| {
+        let world = World::from_pack(Settings::default(), pack).unwrap();
+        let leaf = ColliderId(0);
+        let pose = world.platform_pose(leaf).expect("a hinged collider turns");
+        let ray = |x: f32, z: f32| {
+            world
+                .raycast(Vec3::new(x, 2.5, z), Vec3::NEG_Y, 1.0)
+                .is_some()
+        };
+        (pose, ray(0.3, 0.0), ray(-0.49, -0.6), ray(-0.49, 0.6))
+    };
+    let (pose, across, north, south) = hits(&leaf(1.0, 0.0));
+    assert_eq!(pose.translation, Vec3::new(-0.49, 0.0, 0.0));
+    assert_eq!(pose.yaw, 0.0);
+    assert!(across && !north && !south);
+    let (pose, across, north, south) = hits(&leaf(1.0, 90.0));
+    assert!((pose.yaw - FRAC_PI_2).abs() < 1e-6);
+    assert!(!across && north && !south, "turned up 90° it swings to −z");
+    let (pose, across, north, south) = hits(&leaf(-1.0, 90.0));
+    assert!((pose.yaw + FRAC_PI_2).abs() < 1e-6);
+    assert!(
+        !across && !north && south,
+        "turned down 90° it swings to +z"
+    );
+}

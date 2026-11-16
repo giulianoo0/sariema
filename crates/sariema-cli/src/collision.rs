@@ -103,6 +103,17 @@ pub fn inspect(path: &Path, bytes: &[u8]) -> Result<Done, Failure> {
         .nav_bounds
         .as_ref()
         .map(|b| json!({ "min": b.min, "max": b.max }));
+    let hinges: Vec<Value> = (pack.hinges.iter())
+        .map(|h| json!({ "collider": pack.colliders[h.collider as usize].name, "pivot": h.pivot, "axis": h.axis, "angle_deg": h.angle_deg }))
+        .collect();
+    let hinged: Vec<String> = (pack.hinges.iter())
+        .map(|h| {
+            format!(
+                "{} at {}°",
+                pack.colliders[h.collider as usize].name, h.angle_deg
+            )
+        })
+        .collect();
     Ok(Done {
         json: json!({
             "kind": "collision",
@@ -119,10 +130,11 @@ pub fn inspect(path: &Path, bytes: &[u8]) -> Result<Done, Failure> {
             "spots": spots,
             "routes": routes,
             "traversals": traversals,
+            "hinges": hinges,
             "nav": { "bounds": nav_bounds, "cell_size": cell, "columns": columns },
         }),
         text: format!(
-            "{} collision: {} colliders ({} boxes, {} spheres, {} capsules, {} hulls, {} meshes; {} triangles)\ndisabled: {}\ntriggers: {}\nactors: {}\nspots: {}\nroutes: {}\ntraversals: {}\nnav: {} columns of {} m a walkable grid{}",
+            "{} collision: {} colliders ({} boxes, {} spheres, {} capsules, {} hulls, {} meshes; {} triangles)\ndisabled: {}\ntriggers: {}\nactors: {}\nspots: {}\nroutes: {}\ntraversals: {}\nhinges: {}\nnav: {} columns of {} m a walkable grid{}",
             pack.room,
             pack.colliders.len(),
             shapes[0],
@@ -142,6 +154,7 @@ pub fn inspect(path: &Path, bytes: &[u8]) -> Result<Done, Failure> {
                     .collect::<Vec<_>>()
             ),
             list(&traversals),
+            list(&hinged),
             columns,
             cell,
             match &pack.nav_bounds {

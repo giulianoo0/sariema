@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use common::write_glb;
 use glam::{Mat4, Vec3};
-use sariema_format::{RoomPack, decode, encode};
-use sariema_import::{ImportError, RoomSource, build_room};
+use sariema_format::{RoomPack, collision, decode, encode};
+use sariema_import::{ImportError, RoomSource, build_collision, build_room};
 use serde_json::{Value, json};
 
 mod common;
@@ -68,6 +68,12 @@ fn write(name: &str, value: &Value) -> PathBuf {
 /// look, lit by `b_light`. `changes` replaces top-level keys of the room
 /// description and `montagem` edits the placement file.
 fn build(changes: Value, montagem: impl FnOnce(&mut Value)) -> Result<RoomPack, ImportError> {
+    let room = build_room(&source(changes, montagem)?, Path::new("/"))?;
+    Ok(decode(&encode(&room)).expect("the importer writes valid packs"))
+}
+
+/// The room description [`build`] builds.
+fn source(changes: Value, montagem: impl FnOnce(&mut Value)) -> Result<RoomSource, ImportError> {
     let mut m = json!({
         "celula": 1.5,
         "comodos": {
@@ -112,8 +118,7 @@ fn build(changes: Value, montagem: impl FnOnce(&mut Value)) -> Result<RoomPack, 
     for (key, value) in changes.as_object().unwrap() {
         sala[key] = value.clone();
     }
-    let room = build_room(&RoomSource::from_json(&sala.to_string())?, Path::new("/"))?;
-    Ok(decode(&encode(&room)).expect("the importer writes valid packs"))
+    RoomSource::from_json(&sala.to_string())
 }
 
 fn draw_names(room: &RoomPack, draws: &[u32]) -> Vec<String> {
@@ -240,4 +245,51 @@ fn a_hinge_the_piece_lacks_is_an_error() {
     })
     .unwrap_err();
     assert!(error.to_string().contains("has no hinge lid"), "{error}");
+}
+
+#[test]
+fn a_hinged_node_collides_on_its_own_stored_closed_with_its_hinge() {
+    let collision = || json!({ "collision": {} });
+    let source = source(collision(), |_| {}).unwrap();
+    let room = build_room(&source, Path::new("/")).unwrap();
+    let pack = build_collision(&source, Path::new("/")).unwrap().unwrap();
+    let pack = collision::decode(&collision::encode(&pack)).expect("a valid pack");
+    let index = |name: &str| pack.colliders.iter().position(|c| c.name == name);
+    let points = |name: &str| match &pack.colliders[index(name).unwrap()].shape {
+        collision::Shape::Mesh { vertices, .. } => vertices.clone(),
+        other => panic!("{name}: {other:?}"),
+    };
+    let leaf = index("a.window_leaf").expect("the leaf collides on its own");
+    assert_eq!(pack.hinges.len(), 1);
+    let hinge = &pack.hinges[0];
+    assert_eq!(hinge.collider as usize, leaf);
+    assert_eq!(hinge.axis, [0.0, 1.0, 0.0]);
+    assert_eq!(hinge.angle_deg, 30.0);
+    let node = room
+        .nodes
+        .iter()
+        .find(|n| n.name == "a.window_leaf")
+        .unwrap();
+    let pivot = Mat4::from_cols_array(&node.pivot).transform_point3(Vec3::ZERO);
+    assert!(
+        Vec3::from(hinge.pivot).abs_diff_eq(pivot, 1e-6),
+        "{:?}",
+        hinge.pivot
+    );
+    let closed = pivot + Vec3::X;
+    assert!(
+        points("a.window_leaf")
+            .iter()
+            .any(|&p| Vec3::from(p).abs_diff_eq(closed, 1e-5)),
+        "stored closed: {:?}",
+        points("a.window_leaf")
+    );
+    assert_eq!(points("a.window").len(), 3, "the frame without its leaf");
+
+    let mut fixed = collision();
+    fixed["loose"] = json!(["lamp"]);
+    let source = self::source(fixed, |_| {}).unwrap();
+    let pack = build_collision(&source, Path::new("/")).unwrap().unwrap();
+    assert!(pack.hinges.is_empty(), "a merged piece has no node to turn");
+    assert!(pack.colliders.iter().all(|c| c.name != "a.window_leaf"));
 }

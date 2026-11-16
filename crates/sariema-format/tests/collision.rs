@@ -2,7 +2,7 @@
 
 use sariema_format::Aabb;
 use sariema_format::collision::{
-    ActorBody, Collider, CollisionError, CollisionPack, Contact, HeadSphere, Shape, Spot,
+    ActorBody, Collider, CollisionError, CollisionPack, Contact, HeadSphere, Hinge, Shape, Spot,
     Traversal, Trigger, decode, encode,
 };
 
@@ -101,6 +101,12 @@ fn pack() -> CollisionPack {
             min: [-1.0, -1.0, -1.0],
             max: [5.0, 3.0, 5.0],
         }),
+        hinges: vec![Hinge {
+            collider: 1,
+            pivot: [0.5, 0.0, 0.5],
+            axis: [0.0, 1.0, 0.0],
+            angle_deg: 30.0,
+        }],
     }
 }
 
@@ -208,4 +214,28 @@ fn a_pack_with_bad_numbers_or_indices_is_rejected() {
     let mut p = pack();
     p.nav_bounds.as_mut().unwrap().min[0] = 9.0;
     assert!(invalid(&p).contains("nav_bounds"));
+}
+
+#[test]
+fn a_hinge_turns_a_collider_of_the_pack_about_a_vertical_axis_once() {
+    let mut p = pack();
+    p.hinges[0].collider = 4;
+    assert!(invalid(&p).contains("hinge of collider 4"));
+
+    let mut p = pack();
+    p.hinges[0].axis = [1.0, 0.0, 0.0];
+    assert!(invalid(&p).contains("vertical"));
+
+    let mut p = pack();
+    p.hinges[0].angle_deg = f32::NAN;
+    assert!(invalid(&p).contains("hinge of collider 1"));
+
+    let mut p = pack();
+    let again = p.hinges[0].clone();
+    p.hinges.push(again);
+    assert!(invalid(&p).contains("two hinges"));
+
+    let mut p = pack();
+    p.hinges[0].axis = [0.0, -1.0, 0.0];
+    assert_eq!(decode(&encode(&p)).unwrap(), p);
 }

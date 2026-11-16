@@ -9,7 +9,7 @@ use sariema_format::collision::{self as pack, CollisionPack};
 
 use crate::actor::{ActorCollider, ActorDesc, Head, LocalBounds};
 use crate::math::Bounds;
-use crate::scene::{NewCollider, SceneBuild};
+use crate::scene::{NewCollider, Pose, SceneBuild};
 use crate::settings::Settings;
 use crate::shape::Shape;
 use crate::world::{BuildError, World, tolerance};
@@ -67,6 +67,37 @@ impl OwnedShape {
         }
     }
 
+    /// The shape moved by `offset`.
+    pub fn moved(self, offset: Vec3) -> OwnedShape {
+        match self {
+            OwnedShape::Box {
+                center,
+                half_extents,
+                rotation,
+            } => OwnedShape::Box {
+                center: center + offset,
+                half_extents,
+                rotation,
+            },
+            OwnedShape::Sphere { center, radius } => OwnedShape::Sphere {
+                center: center + offset,
+                radius,
+            },
+            OwnedShape::Capsule { a, b, radius } => OwnedShape::Capsule {
+                a: a + offset,
+                b: b + offset,
+                radius,
+            },
+            OwnedShape::Hull(points) => {
+                OwnedShape::Hull(points.into_iter().map(|p| p + offset).collect())
+            }
+            OwnedShape::Mesh(vertices, triangles) => OwnedShape::Mesh(
+                vertices.into_iter().map(|p| p + offset).collect(),
+                triangles,
+            ),
+        }
+    }
+
     pub fn shape(&self) -> Shape<'_> {
         match self {
             OwnedShape::Box {
@@ -98,7 +129,9 @@ impl OwnedShape {
 
 impl World {
     /// The pack's colliders and triggers: collider `i` and trigger `i` get id
-    /// `i`. Actors are the caller's to add, for instance with [`spot_actor`].
+    /// `i`. A hinged collider is a platform whose origin is its pivot and
+    /// whose yaw is its angle, negated for an axis pointing down. Actors are
+    /// the caller's to add, for instance with [`spot_actor`].
     pub fn from_pack(settings: Settings, pack: &CollisionPack) -> Result<World, BuildError> {
         let mut build = World::build_from_pack(settings, pack);
         loop {
@@ -142,12 +175,16 @@ impl<P: Borrow<CollisionPack>> WorldBuild<P> {
             if units == 0 {
                 return Ok(None);
             }
-            let shape = OwnedShape::of(&c.shape);
+            let hinge = (pack.hinges.iter()).find(|h| h.collider as usize == self.next);
+            let shape = match hinge {
+                Some(h) => OwnedShape::of(&c.shape).moved(-Vec3::from(h.pivot)),
+                None => OwnedShape::of(&c.shape),
+            };
             let collider = NewCollider {
                 name: &c.name,
                 shape: shape.shape(),
                 enabled: c.enabled,
-                platform: None,
+                platform: hinge.map(hinge_pose),
             };
             self.scene
                 .add(&collider)
@@ -174,6 +211,19 @@ impl<P: Borrow<CollisionPack>> WorldBuild<P> {
             world.add_trigger(&t.name, OwnedShape::of(&t.shape).shape())?;
         }
         Ok(Some(world))
+    }
+}
+
+/// Where a hinge puts its collider: about its pivot, turned its angle.
+pub fn hinge_pose(hinge: &pack::Hinge) -> Pose {
+    hinge_turned(hinge, hinge.angle_deg)
+}
+
+/// A hinge's collider turned `degrees` from closed.
+pub fn hinge_turned(hinge: &pack::Hinge, degrees: f32) -> Pose {
+    Pose {
+        translation: Vec3::from(hinge.pivot),
+        yaw: (degrees * hinge.axis[1].signum()).to_radians(),
     }
 }
 

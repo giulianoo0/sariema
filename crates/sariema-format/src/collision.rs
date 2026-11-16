@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The collision pack of a room: static colliders, triggers, the actors'
-//! collision bodies, named action spots, the routes scripts walk between
-//! them, and the traversals scripts carry actors along.
+//! The collision pack of a room: colliders, static or turning on a hinge,
+//! triggers, the actors' collision bodies, named action spots, the routes
+//! scripts walk between them, and the traversals scripts carry actors
+//! along.
 //!
 //! A pack is the 4-byte [`MAGIC`], the [`VERSION`] as a little-endian `u32`,
 //! then a postcard body holding a [`CollisionPack`]. Coordinates follow the
@@ -17,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::Aabb;
 
 pub const MAGIC: [u8; 4] = *b"SRMC";
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
@@ -34,6 +35,22 @@ pub struct CollisionPack {
     /// Where across the walkable grids are built; none covers every
     /// collider. Only `x` and `z` count.
     pub nav_bounds: Option<Aabb>,
+    pub hinges: Vec<Hinge>,
+}
+
+/// A collider that turns about a vertical axis, such as a door leaf. Its
+/// shape is stored closed, at angle 0; walkable grids do not see it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Hinge {
+    /// Index into [`CollisionPack::colliders`].
+    pub collider: u32,
+    /// A point on the axis.
+    pub pivot: [f32; 3],
+    /// The unit axis, up or down; a positive angle turns the collider
+    /// about it by the right-hand rule.
+    pub axis: [f32; 3],
+    /// Degrees it is turned from closed when the room loads.
+    pub angle_deg: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -376,6 +393,29 @@ fn validate(pack: &CollisionPack) -> Result<(), CollisionError> {
             "nav_bounds {:?}..{:?} is no box",
             b.min, b.max
         )));
+    }
+    let mut hinged = BTreeSet::new();
+    for h in &pack.hinges {
+        let what = format!("hinge of collider {}", h.collider);
+        if h.collider as usize >= pack.colliders.len() {
+            return Err(invalid(format!(
+                "{what}: there are {} colliders",
+                pack.colliders.len()
+            )));
+        }
+        if !finite(&h.pivot) || !h.angle_deg.is_finite() {
+            return Err(invalid(format!("{what}: pivot or angle is not finite")));
+        }
+        let [x, y, z] = h.axis;
+        if !((x * x + z * z) < 1e-6 && (y.abs() - 1.0).abs() < 1e-3) {
+            return Err(invalid(format!(
+                "{what}: axis {:?} is not vertical",
+                h.axis
+            )));
+        }
+        if !hinged.insert(h.collider) {
+            return Err(invalid(format!("two hinges turn collider {}", h.collider)));
+        }
     }
     unique("colliders", pack.colliders.iter().map(|c| c.name.as_str())).map_err(invalid)?;
     unique("triggers", pack.triggers.iter().map(|t| t.name.as_str())).map_err(invalid)?;
