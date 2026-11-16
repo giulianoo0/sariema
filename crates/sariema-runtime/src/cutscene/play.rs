@@ -10,9 +10,10 @@
 //! - Skipping fades out, runs the rest of the body to its end state at once
 //!   (walks land on their targets, lines and waits end, sounds are dropped)
 //!   and fades back in, so the world ends as if the cutscene had played.
-//! - A walk faster than `motion.max_visible_speed`, or one its `move_to`
-//!   refuses, is reported in `rejected` and ends at once where the role
-//!   stands, played or skipped alike.
+//! - A walk faster than `motion.max_visible_speed`, at the role's speed
+//!   scale, or one its `move_to` refuses, is reported in `rejected` and ends
+//!   at once where the role stands, played or skipped alike. The walk to a
+//!   start slows to that speed instead.
 //! - At the end the hero goes back to whoever had it, the input buffer is
 //!   cleared, and the camera blends back to the rig the game was using.
 
@@ -28,6 +29,7 @@ use sariema_format::script::{
 use crate::apply::{Source, apply};
 use crate::events::Happening;
 use crate::motion::yaw_of;
+use crate::no_jump;
 use crate::state::{CutsceneRequest, State};
 use crate::tween::steps_of;
 use crate::world::Reject;
@@ -391,10 +393,12 @@ fn begin_placing(s: &mut State, cutscene: &Cutscene, run: &mut Run) {
             Placing::Easing
         } else {
             let since = ctx.s.happenings;
+            let fastest =
+                ctx.s.settings.motion.max_visible_speed / no_jump::walk_speed(ctx.s, e, 1.0);
             let walk = Command::MoveTo {
                 entity: e,
                 target: position,
-                speed: settings.start_walk_speed,
+                speed: settings.start_walk_speed.min(fastest),
             };
             if ctx.try_issue(walk) {
                 Placing::Walking { since }
@@ -432,7 +436,8 @@ fn place_step(s: &mut State, cutscene: &Cutscene, run: &mut Run) -> bool {
 
 /// Whether a walk of `e` that began at happening `since` ended: the runtime's
 /// mover stopped, or, when another module moves actors, it reported the
-/// arrival or the block.
+/// arrival or the block. A walk the no-jump measurement stops ends with a
+/// block in both cases.
 fn walked(s: &State, e: Entity, since: u64) -> bool {
     if s.settings.motion.builtin {
         !s.motion.walking(e)
@@ -441,8 +446,10 @@ fn walked(s: &State, e: Entity, since: u64) -> bool {
     }
 }
 
-/// Whether `e` faces where it was told; a module that moves actors turns
-/// them at once.
+/// Whether `e` faces where it was told. When another module moves actors the
+/// runtime does not see the turn and counts it done at once; that module
+/// turns them no faster than `motion.turn_rate`, or the no-jump measurement
+/// puts them back.
 fn turned(s: &State, e: Entity) -> bool {
     !(s.settings.motion.builtin && s.motion.turning(e))
 }
@@ -690,7 +697,7 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
                 target: to.to_array(),
                 speed: *speed,
             };
-            if speed.abs() > ctx.s.settings.motion.max_visible_speed {
+            if no_jump::walk_speed(ctx.s, e, *speed) > ctx.s.settings.motion.max_visible_speed {
                 ctx.s.events.push(Event::Rejected {
                     opcode: walk.opcode(),
                     code: Reject::TeleportVisible.code(),

@@ -51,12 +51,17 @@ fn set_transform(e: Entity, x: f32) -> Command<'static> {
     }
 }
 
+fn parent(e: Entity, parent: Entity) -> Command<'static> {
+    Command::SetParent { entity: e, parent }
+}
+
 const BLACK: Command<'static> = Command::Fade {
     to: 1.0,
     duration: 0.0,
     color: [0.0; 3],
 };
 
+#[derive(Default)]
 struct Run {
     /// The actor's world position after each step.
     at: Vec<Vec3>,
@@ -66,6 +71,17 @@ struct Run {
     covered: Vec<bool>,
     /// The actor drawn halfway between the previous step and each step.
     drawn: Vec<Vec3>,
+    heard: Heard,
+}
+
+/// `(step, what)` of the events the game heard, by the step they happened in.
+#[derive(Clone, Default)]
+struct Heard {
+    /// The entity each refusal names.
+    named: Vec<(u64, Entity)>,
+    blocked: Vec<(u64, Entity)>,
+    arrived: Vec<(u64, Entity)>,
+    done: Vec<(u64, u32)>,
 }
 
 /// A game that runs `script[step]` each step and, after the tick, writes
@@ -76,6 +92,7 @@ struct Scripted<F, R> {
     region: R,
     bytes: Vec<u8>,
     refused: Vec<(u64, String)>,
+    heard: Heard,
 }
 
 impl<F, R> Logic for Scripted<F, R>
@@ -85,9 +102,18 @@ where
 {
     fn tick(&mut self, events: &[u8], _: &[u32], commands: &mut Vec<u8>) -> Result<(), Stop> {
         commands.clear();
+        let step = self.step.saturating_sub(1);
+        let heard = &mut self.heard;
         for e in records::<Event>(events) {
-            if let Ok(Event::Rejected { code, .. }) = e {
-                self.refused.push((self.step - 1, code.to_string()));
+            match e {
+                Ok(Event::Rejected { code, entity, .. }) => {
+                    self.refused.push((step, code.to_string()));
+                    heard.named.push((step, entity));
+                }
+                Ok(Event::Blocked { entity }) => heard.blocked.push((step, entity)),
+                Ok(Event::Arrived { entity }) => heard.arrived.push((step, entity)),
+                Ok(Event::TweenDone { tween }) => heard.done.push((step, tween)),
+                _ => {}
             }
         }
         if self.step == 0 {
@@ -134,25 +160,24 @@ fn run_with(
         region,
         bytes: Vec::new(),
         refused: Vec::new(),
+        heard: Heard::default(),
     };
     let settings = Settings::default();
     let idle = Actions::for_settings(&settings.input);
     let mut sim = Simulation::new(settings, vec![], logic, 0);
-    let (mut at, mut covered, mut drawn) = (Vec::new(), Vec::new(), Vec::new());
+    let mut r = Run::default();
     for _ in 0..steps {
         sim.step(&idle);
         let world = &sim.state().world;
-        at.push(world.current_pose(ACTOR).unwrap().position);
-        drawn.push(world.interpolated(ACTOR, 0.5).unwrap().position);
-        covered.push(sim.state().screen.covered());
+        r.at.push(world.current_pose(ACTOR).unwrap().position);
+        r.drawn
+            .push(world.interpolated(ACTOR, 0.5).unwrap().position);
+        r.covered.push(sim.state().screen.covered());
     }
     sim.step(&idle);
-    Run {
-        at,
-        refused: sim.logic().refused.clone(),
-        covered,
-        drawn,
-    }
+    r.refused = sim.logic().refused.clone();
+    r.heard = sim.logic().heard.clone();
+    r
 }
 
 fn run(script: Vec<Vec<Command<'static>>>) -> Run {
@@ -401,9 +426,13 @@ fn moved(r: &Run, k: usize) -> f32 {
     r.at[k].distance(r.at[k - 1])
 }
 
+fn tween_id(entity: Entity, property: Property) -> u32 {
+    entity.index * 8 + property as u32
+}
+
 fn tween_to(entity: Entity, property: Property, to: f32, steps: u32) -> Command<'static> {
     Command::Tween {
-        tween: entity.index * 8 + property as u32,
+        tween: tween_id(entity, property),
         entity,
         property,
         var: 0,
@@ -501,7 +530,11 @@ fn a_carrier_that_turns_or_grows_cannot_sweep_a_visible_child_away() {
         script.push(vec![motion]);
         script.resize(8, vec![]);
         let r = run(script);
-        assert_eq!(r.refused, refused_at(3), "{motion:?}");
+        assert_eq!(
+            r.heard.named,
+            [(3, ACTOR), (3, PROP)],
+            "the actor put back and the carrier stopped: {motion:?}"
+        );
         for k in 3..r.at.len() {
             assert!(
                 r.at[k].distance(r.at[2]) < 1e-3,
@@ -579,4 +612,224 @@ fn a_forced_teleport_carries_a_visible_child_without_sliding_it() {
     assert!(r.refused.is_empty(), "{:?}", r.refused);
     assert_eq!(r.at[2].x, 50.0);
     assert_eq!(r.drawn[2].x, 50.0, "drawn where it lands, not halfway");
+}
+
+#[test]
+fn an_actor_that_appears_is_drawn_where_it_is_and_measured_from_there() {
+    let r = run(vec![
+        vec![],
+        vec![visible(ACTOR, false)],
+        vec![],
+        vec![
+            visible(ACTOR, true),
+            tween_to(ACTOR, Property::PositionX, 1000.0, 2),
+        ],
+        vec![],
+    ]);
+    assert_eq!(r.at[3].x, 500.0);
+    assert_eq!(
+        r.drawn[3].x, 500.0,
+        "it appears where it is, not sliding in from where it hid"
+    );
+    assert_eq!(r.refused, refused_at(4), "the next step is seen");
+    assert_eq!(r.at[4].x, 500.0);
+    assert_eq!(r.drawn[4].x, 500.0);
+}
+
+#[test]
+fn a_carrier_placed_in_the_step_cannot_carry_a_visible_actor_off() {
+    let ship = entity(2);
+    let r = run(vec![
+        vec![],
+        vec![
+            spawn(Kind::Empty, ship),
+            set_transform(ship, 100.0),
+            parent(ACTOR, ship),
+        ],
+        vec![],
+    ]);
+    assert_eq!(r.refused, refused_at(1), "spawned this step");
+    assert!(r.at.iter().all(|p| p.x == 0.0), "{:?}", r.at);
+    assert!(r.drawn.iter().all(|p| p.x == 0.0), "{:?}", r.drawn);
+
+    let force = Command::Teleport {
+        entity: PROP,
+        position: [100.0, 0.0, 0.0],
+        yaw: 0.0,
+        force: true,
+    };
+    let r = run(vec![vec![], vec![force, parent(ACTOR, PROP)], vec![]]);
+    assert_eq!(
+        r.refused,
+        refused_at(1),
+        "forced this step, before the ride"
+    );
+    assert!(r.at.iter().all(|p| p.x == 0.0), "{:?}", r.at);
+
+    let r = run(vec![vec![], vec![parent(ACTOR, PROP), force], vec![]]);
+    assert_eq!(
+        r.refused,
+        refused_at(1),
+        "a forced teleport carries only what rode on it when the step began"
+    );
+    assert!(r.at.iter().all(|p| p.x == 0.0), "{:?}", r.at);
+    assert!(r.drawn.iter().all(|p| p.x == 0.0), "{:?}", r.drawn);
+}
+
+#[test]
+fn a_rider_cannot_mount_an_actor_spawned_away_from_it() {
+    let horse = entity(2);
+    let r = run(vec![
+        vec![],
+        vec![
+            spawn(Kind::Actor, horse),
+            set_transform(horse, -3.0),
+            parent(ACTOR, horse),
+        ],
+        vec![],
+    ]);
+    assert_eq!(r.refused, refused_at(1));
+    assert!(r.at.iter().all(|p| p.x == 0.0), "{:?}", r.at);
+
+    let mut script = vec![
+        vec![],
+        vec![spawn(Kind::Actor, horse), parent(ACTOR, horse)],
+        vec![tween_to(horse, Property::PositionX, 3.0, 60)],
+    ];
+    script.resize(64, vec![]);
+    let r = run(script);
+    assert!(r.refused.is_empty(), "spawned under it: {:?}", r.refused);
+    assert_eq!(r.at[63].x, 3.0, "and carried at a walk");
+}
+
+#[test]
+fn a_horse_and_its_rider_moved_under_a_cut_are_drawn_where_they_land() {
+    let horse = entity(2);
+    let cut = [
+        Command::RigFixed {
+            rig: 1,
+            position: [0.0, 5.0, 5.0],
+            look_at: [0.0; 3],
+            fov: 40.0,
+        },
+        Command::CameraUse {
+            rig: 1,
+            blend: 0.0,
+            ease: Ease::Linear,
+        },
+    ];
+    let r = run(vec![
+        vec![spawn(Kind::Actor, horse)],
+        vec![parent(ACTOR, horse)],
+        vec![cut[0], cut[1], teleport(horse, 30.0)],
+        vec![],
+    ]);
+    assert!(r.refused.is_empty(), "{:?}", r.refused);
+    assert_eq!(r.at[2].x, 30.0);
+    assert_eq!(r.drawn[2].x, 30.0, "the rider lands with the horse");
+    assert_eq!(r.at[3].x, 30.0);
+    assert_eq!(r.drawn[3].x, 30.0);
+}
+
+/// The actor 10 m from its carrier, which turns 8° a step: 1.4 m a step.
+fn on_a_turning_carrier(more: Vec<Command<'static>>, steps: usize) -> Run {
+    let mut first = vec![tween_to(PROP, Property::Yaw, 320.0, 40)];
+    first.extend(more);
+    let mut script = vec![
+        vec![],
+        vec![visible(ACTOR, false)],
+        vec![
+            set_transform(ACTOR, 10.0),
+            parent(ACTOR, PROP),
+            visible(ACTOR, true),
+        ],
+        first,
+    ];
+    script.resize(steps, vec![]);
+    run(script)
+}
+
+#[test]
+fn a_carrier_stopped_for_carrying_a_visible_actor_off_is_named() {
+    let r = on_a_turning_carrier(vec![], 60);
+    assert_eq!(r.heard.named, [(3, ACTOR), (3, PROP)]);
+    assert!(
+        r.heard.done.is_empty(),
+        "the stopped turn never ends: {:?}",
+        r.heard.done
+    );
+}
+
+#[test]
+fn an_actor_walking_on_a_carrier_that_carried_it_off_keeps_walking() {
+    let walk = Command::MoveTo {
+        entity: ACTOR,
+        target: [10.0, 0.0, -2.0],
+        speed: 1.5,
+    };
+    let r = on_a_turning_carrier(vec![walk], 240);
+    assert_eq!(r.heard.named, [(3, ACTOR), (3, PROP)]);
+    assert!(r.heard.blocked.is_empty(), "{:?}", r.heard.blocked);
+    assert_eq!(
+        r.heard.arrived.iter().map(|a| a.1).collect::<Vec<_>>(),
+        [ACTOR],
+        "the walk was not what carried it off"
+    );
+}
+
+#[test]
+fn a_carrier_whose_own_motion_did_not_carry_the_actor_off_keeps_moving() {
+    let spring = Command::Spring {
+        tween: 50,
+        entity: ACTOR,
+        property: Property::PositionZ,
+        var: 0,
+        to: 5.0,
+        frequency: 50.0,
+        damping: 1.0,
+    };
+    let mut script = vec![
+        vec![],
+        vec![parent(ACTOR, PROP)],
+        vec![tween_to(PROP, Property::PositionX, 3.0, 30)],
+        vec![spring],
+    ];
+    script.resize(40, vec![]);
+    let r = run(script);
+    assert_eq!(
+        r.heard.named,
+        [(3, ACTOR)],
+        "only its own spring is at fault"
+    );
+    assert_eq!(
+        r.heard.done.iter().map(|d| d.1).collect::<Vec<_>>(),
+        [tween_id(PROP, Property::PositionX)],
+        "the platform's tween still ends"
+    );
+    let end = *r.at.last().unwrap();
+    assert!((end.x - 2.9).abs() < 1e-4 && end.z == 0.0, "{end}");
+}
+
+#[test]
+fn a_walk_the_measurement_stops_ends_with_blocked() {
+    let walk = Command::MoveTo {
+        entity: ACTOR,
+        target: [5.0, 0.0, 0.0],
+        speed: 1.0,
+    };
+    let spring = Command::Spring {
+        tween: 50,
+        entity: ACTOR,
+        property: Property::Yaw,
+        var: 0,
+        to: 170.0,
+        frequency: 40.0,
+        damping: 1.0,
+    };
+    let mut script = vec![vec![], vec![walk], vec![], vec![spring]];
+    script.resize(400, vec![]);
+    let r = run(script);
+    assert_eq!(r.heard.named, [(3, ACTOR)]);
+    assert_eq!(r.heard.blocked, [(3, ACTOR)]);
+    assert!(r.heard.arrived.is_empty(), "{:?}", r.heard.arrived);
 }

@@ -15,6 +15,7 @@ pub mod game;
 pub mod hash;
 pub mod input;
 pub mod motion;
+mod no_jump;
 pub mod outbox;
 pub mod rng;
 pub mod screen;

@@ -198,9 +198,12 @@ impl Tweens {
         self.list.retain(|a| a.id != id);
     }
 
-    pub fn forget(&mut self, entity: Entity) {
+    /// Drops every animation of `entity`'s placement; whether there was any.
+    pub fn forget(&mut self, entity: Entity) -> bool {
+        let before = self.list.len();
         self.list
             .retain(|a| a.target.property == Property::Var || a.target.entity != entity);
+        self.list.len() != before
     }
 
     /// Advances every animation one step; `done` receives each finished id.

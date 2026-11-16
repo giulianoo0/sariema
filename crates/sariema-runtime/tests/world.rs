@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use glam::Vec3;
-use sariema_runtime::world::{Entity, Kind, Reject, World};
+use sariema_runtime::world::{Entity, Kind, Limits, Reject, World};
 
 fn e(index: u32, generation: u32) -> Entity {
     Entity { index, generation }
@@ -69,7 +69,7 @@ fn children_follow_their_parent_and_keep_their_place_when_it_goes() {
 }
 
 #[test]
-fn rendering_interpolates_between_steps_except_after_a_snap() {
+fn rendering_interpolates_between_steps_except_after_a_placement() {
     let mut w = World::new(8);
     let a = e(0, 0);
     w.spawn(a, Kind::Empty, 0).unwrap();
@@ -81,8 +81,9 @@ fn rendering_interpolates_between_steps_except_after_a_snap() {
 
     w.begin_step();
     w.node_mut(a).unwrap().local.position.x = 10.0;
-    w.snap(a);
+    w.place(a);
     w.resolve();
+    w.settle(Limits::new(1.0, 10.0), false);
     assert_eq!(w.interpolated(a, 0.25).unwrap().position.x, 10.0);
 }
 

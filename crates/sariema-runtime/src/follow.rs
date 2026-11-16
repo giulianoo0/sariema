@@ -73,8 +73,11 @@ impl Followers {
         Ok(())
     }
 
-    pub fn unfollow(&mut self, entity: Entity) {
+    /// Whether `entity` was following anything.
+    pub fn unfollow(&mut self, entity: Entity) -> bool {
+        let before = self.list.len();
         self.list.retain(|f| f.entity != entity);
+        self.list.len() != before
     }
 
     pub fn forget(&mut self, entity: Entity) {

@@ -7,8 +7,9 @@
 //! last step plus this step's input and writes its commands; the commands
 //! and bulk regions are applied; the cutscene sequencer runs; then the
 //! hero's control, movement, followers, tweens, timers, the screen, the
-//! dialogue, world placement, the measurement that puts back a visible actor
-//! carried too far, the camera and trigger zones.
+//! dialogue, world placement, the no-jump measurement, which puts back a
+//! visible actor carried too far and settles where the frames draw each
+//! entity from, the camera and trigger zones.
 
 use std::time::Duration;
 
@@ -16,13 +17,14 @@ use glam::Vec3;
 use sariema_format::script::cutscene::Cutscene;
 use sariema_format::script::{Command, Controller, Entity, Event, Kind, records};
 
-use crate::apply::{Source, apply, hold_jumps};
+use crate::apply::{Source, apply};
 use crate::clock::{FixedClock, Tick};
 use crate::cutscene::Sequencer;
 use crate::events::{EventQueue, Happening};
 use crate::hash::StateHasher;
 use crate::input::{Actions, RawInput};
 use crate::motion::Goal;
+use crate::no_jump;
 use crate::outbox::{HostIn, HostOut};
 use crate::settings::Settings;
 use crate::state::State;
@@ -237,9 +239,7 @@ impl<L: Logic> Simulation<L> {
             s.end_line(line);
         }
         s.world.resolve();
-        if hold_jumps(s) {
-            s.world.resolve();
-        }
+        no_jump::measure(s);
         s.camera.step(&s.world);
         let events = &mut s.events;
         s.zones.step(&s.world, |e| events.push(e));

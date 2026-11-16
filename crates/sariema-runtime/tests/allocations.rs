@@ -8,7 +8,7 @@ use std::cell::Cell;
 use sariema_format::script::{Command, Ease, Event, Kind, Property};
 use sariema_runtime::input::Actions;
 use sariema_runtime::settings::Settings;
-use sariema_runtime::sim::Simulation;
+use sariema_runtime::sim::{Logic, Simulation};
 
 use common::{entity, native, send};
 
@@ -34,6 +34,21 @@ unsafe impl GlobalAlloc for Counting {
 
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
+
+/// Allocations in 100 steps of `logic` after 10 to settle.
+fn steady_allocations<L: Logic>(logic: L) -> u64 {
+    let settings = Settings::default();
+    let actions = Actions::for_settings(&settings.input);
+    let mut sim = Simulation::new(settings, Vec::new(), logic, 1);
+    for _ in 0..10 {
+        sim.step(&actions);
+    }
+    let before = ALLOCATIONS.with(Cell::get);
+    for _ in 0..100 {
+        sim.step(&actions);
+    }
+    ALLOCATIONS.with(Cell::get) - before
+}
 
 #[test]
 fn a_steady_step_with_two_thousand_tweens_allocates_nothing() {
@@ -63,16 +78,39 @@ fn a_steady_step_with_two_thousand_tweens_allocates_nothing() {
             }
         }
     });
-    let settings = Settings::default();
-    let actions = Actions::for_settings(&settings.input);
-    let mut sim = Simulation::new(settings, Vec::new(), logic, 1);
-    for _ in 0..10 {
-        sim.step(&actions);
-    }
-    let before = ALLOCATIONS.with(Cell::get);
-    for _ in 0..100 {
-        sim.step(&actions);
-    }
-    let steps_allocated = ALLOCATIONS.with(Cell::get) - before;
-    assert_eq!(steps_allocated, 0, "allocations in 100 steady steps");
+    assert_eq!(
+        steady_allocations(logic),
+        0,
+        "allocations in 100 steady steps"
+    );
+}
+
+#[test]
+fn a_steady_step_with_two_thousand_visible_actors_walking_allocates_nothing() {
+    let logic = native(|_, events: &[Event<'_>], out| {
+        if events.iter().any(|e| matches!(e, Event::Started { .. })) {
+            for i in 0..2_000 {
+                send(
+                    out,
+                    Command::Spawn {
+                        entity: entity(i),
+                        kind: Kind::Actor,
+                        asset: 0,
+                    },
+                );
+                send(
+                    out,
+                    Command::MoveIntent {
+                        entity: entity(i),
+                        velocity: [3.0, 0.0, 1.0],
+                    },
+                );
+            }
+        }
+    });
+    assert_eq!(
+        steady_allocations(logic),
+        0,
+        "allocations in 100 steady steps"
+    );
 }

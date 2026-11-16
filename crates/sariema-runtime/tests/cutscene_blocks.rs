@@ -7,8 +7,10 @@ use std::rc::Rc;
 
 use std::time::Duration;
 
+use glam::Vec3;
+
 use sariema_core::STEP_SECONDS;
-use sariema_format::script::{Anchor, Command, Entity, Kind, name_id};
+use sariema_format::script::{Anchor, Command, Entity, Kind, Property, name_id};
 use sariema_runtime::cutscene::author::compile_json;
 use sariema_runtime::input::Actions;
 use sariema_runtime::settings::Settings;
@@ -443,10 +445,19 @@ fn in_slow_motion_the_clip_time_drawn_grows_every_frame() {
 const DASH: &str = r#"{ "name": "dash", "roles": { "hero": { "start": { "position": [0, 0, 0] } } },
     "steps": [ { "walk": { "role": "hero", "to": [10, 0, 0], "speed": 30 } }, { "call": "after" } ] }"#;
 
-/// Plays `DASH`, whose walk is faster than an actor may be seen to move,
-/// played through or skipped from the start; the events seen and where the
-/// role ends.
-fn dash(builtin: bool, skip: bool) -> (Vec<(u64, String)>, f32) {
+/// Plays `cutscene` from step 1 with actor 0, spawned at the origin, as
+/// `hero`, its speed scaled by `scale`; skips it at step `skip`, and adds
+/// `extra(step, out)` to the game's commands. The events seen and where the
+/// hero ends.
+fn hero_plays(
+    cutscene: &str,
+    builtin: bool,
+    scale: f32,
+    skip: Option<u64>,
+    extra: fn(u64, &mut Vec<u8>),
+) -> (Vec<(u64, String)>, Vec3) {
+    let compiled = compile_json(cutscene).unwrap().0;
+    let name = compiled.name.clone();
     let seen = Rc::new(RefCell::new(Vec::new()));
     let log = seen.clone();
     let logic = native(move |step, events, out| {
@@ -464,44 +475,48 @@ fn dash(builtin: bool, skip: bool) -> (Vec<(u64, String)>, f32) {
             1 => {
                 send(
                     out,
+                    Command::SetSpeedScale {
+                        entity: entity(0),
+                        scale,
+                    },
+                );
+                send(
+                    out,
                     Command::CutsceneBind {
                         role: name_id("hero"),
                         entity: entity(0),
                     },
                 );
-                send(out, play("dash"));
-                if skip {
-                    send(out, Command::CutsceneSkip {});
-                }
+                send(out, play(&name));
             }
             _ => {}
         }
+        if skip == Some(step) {
+            send(out, Command::CutsceneSkip {});
+        }
+        extra(step, out);
     });
     let mut settings = Settings::default();
     settings.motion.builtin = builtin;
     let actions = Actions::for_settings(&settings.input);
-    let cutscenes = vec![compile_json(DASH).unwrap().0];
-    let mut sim = Simulation::new(settings, cutscenes, logic, 1);
-    for _ in 0..120 {
+    let mut sim = Simulation::new(settings, vec![compiled], logic, 1);
+    for _ in 0..400 {
         sim.step(&actions);
     }
-    let x = sim
-        .state()
-        .world
-        .current_pose(entity(0))
-        .unwrap()
-        .position
-        .x;
+    let at = sim.state().world.current_pose(entity(0)).unwrap().position;
     drop(sim);
-    (seen.take(), x)
+    (seen.take(), at)
 }
+
+fn nothing(_: u64, _: &mut Vec<u8>) {}
 
 #[test]
 fn a_walk_too_fast_to_be_seen_is_refused_and_ends_alike_played_or_skipped() {
     let mut wrong = Vec::new();
     for builtin in [true, false] {
         for skip in [false, true] {
-            let (events, x) = dash(builtin, skip);
+            let (events, end) = hero_plays(DASH, builtin, 1.0, skip.then_some(1), nothing);
+            let x = end.x;
             let case = format!("builtin {builtin}, skip {skip}");
             if at(&events, "E_TELEPORT_VISIBLE").is_empty() {
                 wrong.push(format!("{case}: not refused"));
@@ -514,6 +529,91 @@ fn a_walk_too_fast_to_be_seen_is_refused_and_ends_alike_played_or_skipped() {
             }
             if x != 0.0 {
                 wrong.push(format!("{case}: the role went to x {x}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+const BRISK: &str = r#"{ "name": "brisk", "roles": { "hero": { "start": { "position": [0, 0, 0] } } },
+    "steps": [ { "walk": { "role": "hero", "to": [10, 0, 0], "speed": 15 } }, { "call": "after" } ] }"#;
+
+#[test]
+fn a_walk_scaled_past_the_visible_speed_is_refused_alike_played_or_skipped() {
+    let mut wrong = Vec::new();
+    for builtin in [true, false] {
+        for skip in [None, Some(1)] {
+            let (events, end) = hero_plays(BRISK, builtin, 2.0, skip, nothing);
+            let case = format!("builtin {builtin}, skip {skip:?}");
+            if at(&events, "E_TELEPORT_VISIBLE").len() != 1 {
+                wrong.push(format!("{case}: not refused once"));
+            }
+            if at(&events, &call("after")).len() != 1 {
+                wrong.push(format!("{case}: the walk never ended"));
+            }
+            if end.x != 0.0 {
+                wrong.push(format!("{case}: the role went to x {}", end.x));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+#[test]
+fn a_start_walk_slows_to_what_may_be_seen_and_ends_alike_played_or_skipped() {
+    let mut wrong = Vec::new();
+    for skip in [None, Some(3)] {
+        let (events, end) = hero_plays(START_AWAY, true, 20.0, skip, nothing);
+        let case = format!("skip {skip:?}");
+        if !at(&events, "Rejected").is_empty() {
+            wrong.push(format!("{case}: refused at {:?}", at(&events, "Rejected")));
+        }
+        if at(&events, &call("began")).len() != 1 {
+            wrong.push(format!("{case}: the body never began"));
+        }
+        if end.distance(Vec3::new(3.0, 0.0, 0.0)) > 1e-5 {
+            wrong.push(format!("{case}: the hero ended at {end}, not at its start"));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+const STROLL: &str = r#"{ "name": "stroll", "roles": { "hero": { "start": { "position": [0, 0, 0] } } },
+    "steps": [ { "walk": { "role": "hero", "to": [3, 0, 0], "speed": 1 } }, { "call": "after" } ] }"#;
+
+/// Spins the hero at step 30, mid-walk, faster than it may be seen to turn.
+fn spin(step: u64, out: &mut Vec<u8>) {
+    if step == 30 {
+        send(
+            out,
+            Command::Spring {
+                tween: 9,
+                entity: entity(0),
+                property: Property::Yaw,
+                var: 0,
+                to: 170.0,
+                frequency: 40.0,
+                damping: 1.0,
+            },
+        );
+    }
+}
+
+#[test]
+fn a_role_put_back_mid_walk_ends_its_walk_in_both_modes() {
+    let mut wrong = Vec::new();
+    for builtin in [true, false] {
+        for skip in [None, Some(1)] {
+            let (events, _) = hero_plays(STROLL, builtin, 1.0, skip, spin);
+            let case = format!("builtin {builtin}, skip {skip:?}");
+            if at(&events, &call("after")).len() != 1 {
+                wrong.push(format!("{case}: the walk never ended"));
+            }
+            if at(&events, "CutsceneEnded").len() != 1 {
+                wrong.push(format!("{case}: the cutscene never ended"));
+            }
+            if skip.is_none() && at(&events, "Blocked").len() != 1 {
+                wrong.push(format!("{case}: blocked at {:?}", at(&events, "Blocked")));
             }
         }
     }
