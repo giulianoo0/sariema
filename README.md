@@ -23,6 +23,7 @@ the `sariema` command-line tool.
 - `crates/sariema-audio` — the mixer: buses, streamed music, ducking, loudness
   checks and offline rendering of cue lists ([docs/audio.md](docs/audio.md)).
 - `crates/sariema-ui` — in-engine UI: flexbox tree, distance-field text, animation, touch widgets and a batched draw list ([docs/ui.md](docs/ui.md)).
+- `crates/sariema-web` and `packages/sariema-web` — the engine in a web page or app WebView: WebAssembly on WebGPU or WebGL2, the typed `@sariema/web` package, browser tests and a probe page ([docs/web.md](docs/web.md)).
 - `crates/sariema-cli` — the `sariema` tool: `build`, `inspect`, `run`, `test`,
   `check`, `physics-map`, `bench`, `audio` and `ui`, each with `--json`.
   `examples/demo` is a project it can build.
@@ -35,6 +36,7 @@ Docs:
 - [docs/audio.md](docs/audio.md) — sound banks, the mixer and `sariema audio`.
 - [docs/ui.md](docs/ui.md) — the in-engine UI and `sariema ui render`.
 - [docs/performance.md](docs/performance.md) — `sariema bench` and what a frame costs.
+- [docs/web.md](docs/web.md) — browsers and WebViews: render paths, textures, audio, building, testing and serving.
 
 Agent skills, one per module, for an agent building a game with it:
 
@@ -42,6 +44,7 @@ Agent skills, one per module, for an agent building a game with it:
 - [skills/sariema-actors](skills/sariema-actors/SKILL.md)
 - [skills/sariema-audio](skills/sariema-audio/SKILL.md)
 - [skills/sariema-ui](skills/sariema-ui/SKILL.md)
+- [skills/sariema-web](skills/sariema-web/SKILL.md)
 
 ```sh
 cargo test --workspace
