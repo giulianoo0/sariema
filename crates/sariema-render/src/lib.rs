@@ -85,6 +85,9 @@ pub struct FrameStats {
     /// `Quality::max_shadowed_lights`, or left without a square of at least
     /// `Quality::shadow_min_slot_px` in the atlas.
     pub shadows_skipped: u32,
+    /// Full-screen passes after the scene, the composite included; effects
+    /// the look turns off draw none.
+    pub post_passes: u32,
 }
 
 /// The device and queue, counting what is created through them.
@@ -273,8 +276,10 @@ impl Renderer {
         if let Some(room) = &self.room {
             self.shadows.draw(&mut encoder, room);
         }
-        self.scene.draw(&mut encoder, self.room.as_ref(), camera);
-        self.post.draw(&self.gpu, &mut encoder, camera, target);
+        let keep_depth = self.post.reads_depth();
+        self.scene
+            .draw(&mut encoder, self.room.as_ref(), camera, keep_depth);
+        self.stats.post_passes = self.post.draw(&self.gpu, &mut encoder, camera, target);
         self.gpu.queue.submit([encoder.finish()]);
     }
 

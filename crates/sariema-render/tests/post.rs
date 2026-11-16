@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use glam::{Vec3, vec3};
+use glam::{Mat4, Vec3, vec3};
 use image::RgbaImage;
 use sariema_core::{Camera, room_camera};
 use sariema_format::demo::demo_room;
-use sariema_format::{Ambient, Background, Look, RoomCamera, RoomPack, Shading};
+use sariema_format::{Aabb, Ambient, Background, Look, RoomCamera, RoomPack, Shading};
 use sariema_render::{
     GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, compare_images, render_to_image,
 };
@@ -251,10 +251,9 @@ fn real_grade_desaturates_but_spares_drawn() {
     );
 }
 
-/// An unlit floor filling the frame, seen from straight above, whose radiance
-/// rises from left to right from the end of Hejl's toe at 0.004 to where the
-/// curve gives 0.02 on screen.
-fn dark_ramp_room() -> RoomPack {
+/// The demo floor alone, unlit and untextured, seen from straight above
+/// `distance` m away, with no light and a black background.
+fn unlit_floor_room(distance: f32) -> RoomPack {
     let mut room = demo_room();
     room.draws.truncate(1);
     room.lights.clear();
@@ -267,19 +266,10 @@ fn dark_ramp_room() -> RoomPack {
     let floor = &mut room.materials[0];
     floor.base_color_texture = None;
     floor.shading = Shading::Unlit;
-    floor.base_color = [0.002494, 0.002494, 0.002494, 1.0];
-    floor.emissive = [0.004; 3];
-    for v in &mut room.meshes[0].vertices {
-        let t = if v.pos[0] > 0.0 { 255 } else { 0 };
-        v.color = [t, t, t, 255];
-    }
-    let fov_y_deg: f32 = 40.0;
-    let aspect = W as f32 / H as f32;
     room.camera = RoomCamera {
-        fov_y_deg,
+        fov_y_deg: 40.0,
         pitch_deg: 90.0,
-        // The 10 m floor spans the frame's width exactly.
-        distance: 5.0 / ((fov_y_deg / 2.0).to_radians().tan() * aspect),
+        distance,
         focus: [0.0; 3],
     };
     room.look = Look {
@@ -289,6 +279,27 @@ fn dark_ramp_room() -> RoomPack {
         tilt: 0.0,
         ..room.look
     };
+    room
+}
+
+/// Half the width, in metres, that the room camera sees at `distance`.
+fn half_width_seen(distance: f32, aspect: f32) -> f32 {
+    distance * 20.0_f32.to_radians().tan() * aspect
+}
+
+/// An unlit floor filling the frame whose radiance rises from left to right
+/// from the end of Hejl's toe at 0.004 to where the curve gives 0.02 on screen.
+fn dark_ramp_room() -> RoomPack {
+    let aspect = W as f32 / H as f32;
+    // The 10 m floor spans the frame's width exactly.
+    let mut room = unlit_floor_room(5.0 / half_width_seen(1.0, aspect));
+    let floor = &mut room.materials[0];
+    floor.base_color = [0.002494, 0.002494, 0.002494, 1.0];
+    floor.emissive = [0.004; 3];
+    for v in &mut room.meshes[0].vertices {
+        let t = if v.pos[0] > 0.0 { 255 } else { 0 };
+        v.color = [t, t, t, 255];
+    }
     room
 }
 
@@ -317,6 +328,103 @@ fn dither_breaks_banding() {
         .unwrap();
     assert!(distinct.len() > 8, "{} distinct values", distinct.len());
     assert!(longest_run <= 160, "{longest_run} px of one value");
+}
+
+/// The composite's tone curve, in 0..255.
+fn hejl(c: f32) -> f32 {
+    let x = (c - 0.004).max(0.0);
+    255.0 * x * (6.2 * x + 0.5) / (x * (6.2 * x + 1.7) + 0.06)
+}
+
+/// Where the middle row of `img` first rises through `level`, in pixels with
+/// sub-pixel precision.
+fn rising_edge(img: &RgbaImage, level: f32) -> f32 {
+    let row: Vec<f32> = (0..img.width())
+        .map(|x| luma(img.get_pixel(x, img.height() / 2)))
+        .collect();
+    let x = row.iter().position(|&l| l >= level).unwrap();
+    x as f32 - 0.5 + (level - row[x - 1]) / (row[x] - row[x - 1])
+}
+
+fn edge_shift_at(width: u32, height: u32) -> (f32, f32) {
+    let aspect = width as f32 / height as f32;
+    let distance = 6.0;
+    let radiance = 0.2;
+    // Everything is 6 m away, so with focus 0 the whole frame blurs by `tilt`.
+    let mut room = unlit_floor_room(distance);
+    room.materials[0].base_color = [radiance, radiance, radiance, 1.0];
+    // The floor's left side, a sharp vertical edge, at 90% of the frame's width.
+    let left = 0.8 * half_width_seen(distance, aspect);
+    let floor = &mut room.draws[0];
+    floor.transform = Mat4::from_translation(vec3(left + 5.0, 0.0, 0.0)).to_cols_array();
+    floor.bounds = Aabb::around(&room.meshes[0], &floor.transform);
+    room.look.focus = 0.0;
+    let camera = room_camera(&room.camera, aspect);
+    let mut h = Headless::new(width, height, Quality::high()).unwrap();
+    h.renderer().load_room(&room).unwrap();
+    // Blurring mixes radiance, so the edge is where half the floor's radiance shows.
+    let level = hejl(radiance * 0.5 * room.look.exposure);
+    let sharp = rising_edge(&h.render(&camera, 0.0), level);
+    room.look.tilt = 1.0;
+    h.renderer().set_look(&room.look);
+    (sharp, rising_edge(&h.render(&camera, 0.0), level))
+}
+
+#[test]
+fn blurred_levels_line_up_with_the_scene_at_odd_sizes() {
+    let width = 961;
+    let (sharp, blurred) = edge_shift_at(width, 541);
+    assert!((sharp - 0.9 * width as f32).abs() < 1.0, "edge at {sharp}");
+    // Levels stretched by 960/961 would move this edge about 0.9 px.
+    assert!(
+        (blurred - sharp).abs() <= 0.5,
+        "edge moved from {sharp} to {blurred}"
+    );
+}
+
+/// Full-screen passes after the scene for a look of `tilt` and `bloom_strength`.
+fn post_passes(tilt: f32, bloom_strength: f32) -> u32 {
+    let room = demo_room();
+    let mut h = headless(&room);
+    h.renderer().set_look(&with(|l| {
+        l.tilt = tilt;
+        l.bloom_strength = bloom_strength;
+    }));
+    h.render(&camera_of(&room), 0.0);
+    h.renderer().last_frame_stats().post_passes
+}
+
+#[test]
+fn effects_turned_off_draw_no_passes() {
+    let levels = Quality::high().bloom_levels;
+    // Both effects start from the scene reduced to 1/2 and 1/4.
+    let reduce = 2;
+    // Bright and blurred at 1/4, then reduced and blurred at each smaller level.
+    let bloom = 2 + 3 * (levels - 1);
+    // The depth resolve and a two-pass blur at 1/2 and at 1/4.
+    let tilt = 1 + 2 + 2;
+    let composite = 1;
+    assert_eq!(post_passes(0.0, 0.0), composite);
+    assert_eq!(post_passes(0.0, 0.3), reduce + bloom + composite);
+    assert_eq!(post_passes(1.0, 0.0), reduce + tilt + composite);
+    assert_eq!(post_passes(1.0, 0.3), reduce + bloom + tilt + composite);
+}
+
+#[test]
+fn skipping_passes_does_not_change_the_image() {
+    let barely = 1e-6;
+    let pairs = [
+        (with(|l| l.tilt = 0.0), with(|l| l.tilt = barely)),
+        (
+            with(|l| l.bloom_strength = 0.0),
+            with(|l| l.bloom_strength = barely),
+        ),
+    ];
+    for (skipped, drawn) in pairs {
+        let [a, b] = renders(&[skipped, drawn]).try_into().unwrap();
+        let d = compare_images(&a, &b).unwrap();
+        assert!(d.max_channel_delta <= 1, "{d:?}");
+    }
 }
 
 fn golden_path(name: &str) -> String {

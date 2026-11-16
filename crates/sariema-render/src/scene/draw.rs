@@ -10,12 +10,24 @@ use super::{Kind, Scene, Targets};
 use crate::resources::Room;
 
 impl Scene {
-    pub fn draw(&self, encoder: &mut wgpu::CommandEncoder, room: Option<&Room>, camera: &Camera) {
+    /// `keep_depth` stores the depth for post-processing; otherwise it is
+    /// discarded, which spares tile-based GPUs writing it out.
+    pub fn draw(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        room: Option<&Room>,
+        camera: &Camera,
+        keep_depth: bool,
+    ) {
         let Targets {
             multisampled,
             resolved,
             depth,
         } = &self.targets;
+        let depth_store = match keep_depth {
+            true => wgpu::StoreOp::Store,
+            false => wgpu::StoreOp::Discard,
+        };
         let (view, resolve_target) = match multisampled {
             Some(samples) => (samples, Some(resolved)),
             None => (resolved, None),
@@ -35,7 +47,7 @@ impl Scene {
                     },
                 },
             })],
-            depth_stencil_attachment: Some(depth_attachment(depth, wgpu::StoreOp::Store)),
+            depth_stencil_attachment: Some(depth_attachment(depth, depth_store)),
             ..Default::default()
         });
         pass.set_bind_group(0, &self.frame_group, &[]);

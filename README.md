@@ -5,14 +5,16 @@ embedded in apps and to run games downloaded as data packages. The design is
 in [docs/design.md](docs/design.md).
 
 Status: early. A room can be imported and rendered headless on desktop with
-clustered forward lighting; shadows, post-processing and the CLI are next.
+clustered forward lighting, shadows and the post-processing chain; the CLI is
+next.
 
 - `crates/sariema-format` — the room pack (`SRMA`): types, encoding, validation.
 - `crates/sariema-import` — packaging-time import: compressed glTF kits and room
   assembly from placement and lighting files (`schemas/room.schema.json`).
 - `crates/sariema-core` — the room camera.
 - `crates/sariema-render` — the wgpu renderer: clustered forward scene pass,
-  quality tiers, headless rendering and image comparison.
+  shadow atlas, post-processing chain, quality tiers, headless rendering and
+  image comparison.
 
 ```sh
 cargo test --workspace

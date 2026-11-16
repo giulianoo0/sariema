@@ -15,27 +15,32 @@ struct Params {
 }
 
 @group(0) @binding(0) var scene: texture_2d<f32>;
-// View depth in metres.
+// View depth in metres, and the scene blurred at 1/2 and 1/4 of its size;
+// the three are read only when tilt > 0.
 @group(0) @binding(1) var view_depth: texture_2d<f32>;
-// The chain's 1/2 and 1/4 levels as mips 0 and 1.
-@group(0) @binding(2) var chain: texture_2d<f32>;
-// Blurred light past the threshold, from 1/4 of the size down, a level per mip.
-@group(0) @binding(3) var bloom: texture_2d<f32>;
-@group(0) @binding(4) var bilinear: sampler;
-@group(0) @binding(5) var<uniform> params: Params;
+@group(0) @binding(2) var half_size: texture_2d<f32>;
+@group(0) @binding(3) var quarter_size: texture_2d<f32>;
+// Blurred light past the threshold, from 1/4 of the size down, a level per
+// mip; one black texel when the bloom is off.
+@group(0) @binding(4) var bloom: texture_2d<f32>;
+@group(0) @binding(5) var bilinear: sampler;
+@group(0) @binding(6) var<uniform> params: Params;
 
 @fragment
 fn fs(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
     let p = vec2<i32>(pixel.xy);
     let uv = pixel.xy / vec2<f32>(textureDimensions(scene));
-    // The bottom 28% of the screen blurs over a ramp of 0.2 of its height,
-    // and the scene past `focus` over 4 m.
-    let band = smoothstep(0.72, 0.92, uv.y);
-    let beyond = saturate((textureLoad(view_depth, p, 0).r - params.focus) / 4.0);
-    let blur = saturate(params.tilt * max(band * band, beyond));
-    // Alpha, the drawn mask, blurs along with the colour.
-    var c = mix(textureLoad(scene, p, 0), textureSampleLevel(chain, bilinear, uv, 0.0), sqrt(blur));
-    c = mix(c, textureSampleLevel(chain, bilinear, uv, 1.0), blur * blur);
+    var c = textureLoad(scene, p, 0);
+    if params.tilt > 0.0 {
+        // The bottom 28% of the screen blurs over a ramp of 0.2 of its
+        // height, and the scene past `focus` over 4 m.
+        let band = smoothstep(0.72, 0.92, uv.y);
+        let beyond = saturate((textureLoad(view_depth, p, 0).r - params.focus) / 4.0);
+        let blur = saturate(params.tilt * max(band * band, beyond));
+        // Alpha, the drawn mask, blurs along with the colour.
+        c = mix(c, textureSampleLevel(half_size, bilinear, uv, 0.0), sqrt(blur));
+        c = mix(c, textureSampleLevel(quarter_size, bilinear, uv, 0.0), blur * blur);
+    }
     var glow = vec3(0.0);
     for (var i = 0u; i < textureNumLevels(bloom); i++) {
         glow += textureSampleLevel(bloom, bilinear, uv, f32(i)).rgb;

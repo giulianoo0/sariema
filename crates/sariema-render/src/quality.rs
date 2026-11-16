@@ -2,6 +2,7 @@
 
 use crate::cluster::{MAX_CLUSTER_LIGHTS, MAX_INDEX_ENTRIES};
 use crate::lights::GPU_LIGHT_SIZE;
+use crate::post::MAX_BLUR_TAPS;
 use crate::scene::{DEPTH_FORMAT, HDR_FORMAT};
 use crate::shadow::{GPU_SHADOW_SIZE, view_stride};
 
@@ -34,8 +35,8 @@ pub struct Quality {
     /// Blurred levels summed into the bloom, from 1/4 of the target's size
     /// down, each half the size of the one before.
     pub bloom_levels: u32,
-    /// Bilinear samples per direction of each post-processing blur, odd;
-    /// each one past the centre weighs two texels.
+    /// Bilinear samples per direction of each post-processing blur, odd and
+    /// at most 9; each one past the centre weighs two texels.
     pub blur_taps: u32,
 }
 
@@ -119,10 +120,7 @@ impl Quality {
         let shadow_min_slot_px = self.shadow_min_slot_px.max(1);
         let min_slots_per_side = (shadow_atlas_size / shadow_min_slot_px) as u64;
         let min_slots = (min_slots_per_side * min_slots_per_side).min(u32::MAX as u64) as u32;
-        // A blur wider than the largest level would only repeat its edge.
-        let blur_taps = self
-            .blur_taps
-            .clamp(1, limits.max_texture_dimension_2d / 2 + 1);
+        let blur_taps = self.blur_taps.clamp(1, MAX_BLUR_TAPS);
         Quality {
             max_visible_lights: self.max_visible_lights.min(entries(GPU_LIGHT_SIZE)),
             max_lights_per_cluster,
@@ -219,6 +217,6 @@ mod tests {
             ..Quality::high()
         }
         .clamped_to(&limits);
-        assert_eq!(wide.blur_taps, limits.max_texture_dimension_2d / 2 + 1);
+        assert_eq!(wide.blur_taps, MAX_BLUR_TAPS);
     }
 }

@@ -331,6 +331,7 @@ impl Scene {
             max_lights_overlapping_cluster: bins.max_overlapping,
             cluster_overflows: bins.overflows,
             shadows_skipped: shadows.skipped,
+            post_passes: 0,
         }
     }
 }
