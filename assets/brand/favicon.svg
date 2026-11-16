@@ -1,0 +1,9 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <circle cx="64" cy="64" r="64" fill="#E3A23B"/>
+  <g transform="translate(-4 3)">
+    <path d="M70 68L81 88L99 100M56 68L48 88L32 98" fill="none" stroke="#B4532A" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M44 53C54 45 66 42 74 45C79 40 82 33 85 27C87 21 92 18 97 19C102 20 104 25 102 30C99 35 96 38 94 42C92 48 90 55 87 62C82 72 72 77 60 77C52 77 46 75 41 73C33 74 24 75 17 75.5C11 76 8 72 9 67.5C10 63 14 61 19 60C27 58 36 56 44 53ZM89 22C89 15 92 10 97 7C96 12 96 16 97 21Z" fill="#1C1814"/>
+    <path d="M100 23.5C106 23.5 112 25 117 28.5C112 31 106 32.5 100 32.5Z" fill="#B4532A"/>
+  </g>
+</svg>
