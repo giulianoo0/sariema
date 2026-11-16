@@ -155,3 +155,22 @@ fn a_start_off_only_in_height_from_the_floor_begins_at_once() {
         );
     }
 }
+
+/// As the exported scenes had it: the role's start a few centimetres above
+/// the floor that holds the hero, then a 3 m walk at 1.5 m/s.
+#[test]
+fn a_scene_whose_start_sits_a_few_centimetres_up_takes_its_walk_and_no_more() {
+    let json = r#"{ "name": "stroll",
+        "roles": { "hero": { "start": { "position": [1.5, 0.06, -0.6], "yaw": -90 } } },
+        "steps": [
+          { "call": "go" },
+          { "walk": { "role": "hero", "to": [4.5, 0, -0.6], "speed": 1.5 } },
+          { "call": "after" } ] }"#;
+    let p = play(json, FROM, 1.0, 200);
+    let played = call(&p, "after") - 1;
+    let due = 1 + (3.0 / 1.5 / STEP_SECONDS).round() as u64;
+    assert!(
+        played.abs_diff(due) <= 2,
+        "the scene is its 120-step walk: it played {played} steps against {due}"
+    );
+}
