@@ -9,9 +9,13 @@ step aside.
 An actor lit only by the room reads badly wherever the room is dark, lit
 from the side or coloured: its back turns to the camera, a warm lamp turns
 skin orange. Each room pack carries a `CharacterLight` that only actors
-receive. It costs one directional term, one rim term and one comparison in
-the actor's fragment shader, on every path WebGL2 included; it casts no
-shadow and draws nothing extra.
+receive, in the actor pipelines alone, on every path WebGL2 included; it
+casts no shadow and draws nothing extra. On an actor's fragment it costs a
+directional term, a rim term (one `pow`) and the least brightness's test,
+and for every light reaching the fragment a luminance and a mix that pull
+the light's colour towards grey. Both are behind tests on the frame's
+values, the same for every fragment, so a room that keeps the defaults
+skips them without diverging.
 
 On an actor's lit colour, in this order:
 
@@ -62,8 +66,19 @@ the two rooms' character lights blend like their suns.
 dim room lit warm from the side, the test actor reads at least as bright as
 under a neutral light from the front; under a green light of the same
 luminance as a grey one, its hue moves less than half a degree with
-`room_tint` 0 and more with 0.5 and 1; and its rim leaves no pixel paler
-than its albedo, where the white material rim of the same strength does.
+`room_tint` 0 and more with 0.5 and 1; its rim leaves no pixel paler than
+its albedo, where the white material rim of the same strength does; and on
+a ball of flat facets, each drawn with its face's normal, the rim keeps the
+step from one facet to the next within half again of what it is without a
+rim, where the white rim multiplies it by five.
+
+Measured with `sariema bench --actor` ([performance.md](performance.md)) on
+an Apple M5 at 1920×1080, medium quality, in three furnished rooms with one
+or two actors and with an actor across a third of the frame: the draws are
+the same with the light on and off, the scene pass (0.8 to 1.8 ms) moves by
+less than the noise between runs (about 0.02 ms), and the frame's uniform
+and each room pack grow by 48 bytes; no texture, buffer or pipeline is
+added.
 
 ### Black hair, grey clothes, white lines
 
@@ -88,10 +103,10 @@ character light's rim.
   light only actors receive. The fill's wrap follows its
   `DIFFUSE_LAMBERT_WRAP`, with `wrap` in place of the roughness and one
   normalising factor of `1 + wrap`.
-- **Link's Awakening** (study `04-vfx-detalhes`, measured only): the rim
-  (`fresnel_effect`) is on characters alone, power 5.2, intensity 1; scenery
-  has it off. Its characters are smooth and their rim white; the facets of
-  stylised hair want it tinted.
+- **A stylised action game's character rim** (technique and numbers
+  only): the rim is on characters alone, power 5.2, intensity 1; scenery
+  has it off. Its characters are smooth and their rim white; the facets
+  of stylised hair want it tinted.
 - **Light masks** (Godot's `light_cull_mask`, Filament's light channels,
   Unity's light layers) are how those engines keep a light on characters
   alone: a real light more in the clustered loop, shading or testing every

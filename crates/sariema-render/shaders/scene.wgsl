@@ -121,7 +121,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     var color = base.rgb;
     if LIT {
         color = lit(in, n, v, base.rgb);
-        if ACTOR {
+        if ACTOR && character_on() {
             color = character_light(color, n, v, base.rgb * (1.0 - material.metallic));
         }
     }
@@ -166,11 +166,18 @@ fn luminance(c: vec3<f32>) -> f32 {
 
 // The colour of the room's light `c` as it reaches what is drawn: whole, or
 // on an actor mixed towards its luminance as far as the room tint is below 1.
+// The test is the same for every fragment of a frame, so a room that keeps
+// the default tint skips the mix without diverging.
 fn room_light(c: vec3<f32>) -> vec3<f32> {
-    if ACTOR {
+    if ACTOR && frame.character.w < 1.0 {
         return mix(vec3(luminance(c)), c, frame.character.w);
     }
     return c;
+}
+
+// Whether the room gives actors any fill, rim or least brightness.
+fn character_on() -> bool {
+    return frame.character_color.w > 0.0 || frame.character.x > 0.0 || frame.character.z > 0.0;
 }
 
 // An actor's lit `color` with the character light: a fill that casts no

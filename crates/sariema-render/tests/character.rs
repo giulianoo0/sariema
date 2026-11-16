@@ -8,10 +8,10 @@ use glam::{Mat4, Quat, Vec3};
 use image::RgbaImage;
 use sariema_anim::{Rig, Transform};
 use sariema_core::{Camera, room_camera};
-use sariema_format::actor::ActorPack;
 use sariema_format::actor::demo::demo_arm;
+use sariema_format::actor::{ActorPack, SkinnedMesh, SkinnedVertex};
 use sariema_format::demo::demo_room;
-use sariema_format::{CharacterLight, Mobility, RoomPack, Sun, hemisphere_sh9};
+use sariema_format::{Aabb, CharacterLight, Mobility, RoomPack, Sun, hemisphere_sh9};
 use sariema_render::{
     ActorState, GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, Headless, Quality, compare_images,
 };
@@ -41,6 +41,67 @@ fn orange_arm() -> ActorPack {
         m.base_color = [ORANGE[0], ORANGE[1], ORANGE[2], 1.0];
         m.rim = 0.0;
     }
+    pack
+}
+
+const HAIR: [f32; 3] = [0.35, 0.18, 0.08];
+
+/// The demo arm's rig and material holding, instead of its column, a
+/// 0.5 m ball of `rings` × `segments` flat facets, each drawn with its own
+/// face's normal as stylised hair is: every facet turns edge-on somewhere
+/// along the silhouette.
+fn faceted_ball(rings: u32, segments: u32) -> ActorPack {
+    let mut pack = orange_arm();
+    let at = |ring: u32, segment: u32| {
+        let (theta, phi) = (
+            std::f32::consts::PI * ring as f32 / rings as f32,
+            std::f32::consts::TAU * segment as f32 / segments as f32,
+        );
+        Vec3::new(
+            theta.sin() * phi.cos(),
+            theta.cos(),
+            theta.sin() * phi.sin(),
+        ) * 0.5
+            + Vec3::new(0.0, 0.6, 0.0)
+    };
+    let mut ball = SkinnedMesh {
+        vertices: Vec::new(),
+        indices: Vec::new(),
+    };
+    let mut facet = |corners: [Vec3; 3]| {
+        let normal = (corners[1] - corners[0]).cross(corners[2] - corners[0]);
+        if normal.length_squared() < 1e-12 {
+            return;
+        }
+        let normal = normal.normalize().to_array();
+        for corner in corners {
+            ball.indices.push(ball.vertices.len() as u32);
+            ball.vertices.push(SkinnedVertex {
+                pos: corner.to_array(),
+                normal,
+                uv: [0.0; 2],
+                color: [255; 4],
+                joints: [0; 4],
+                weights: [u16::MAX, 0, 0, 0],
+            });
+        }
+    };
+    for ring in 0..rings {
+        for segment in 0..segments {
+            let (a, b) = (at(ring, segment), at(ring, segment + 1));
+            let (c, d) = (at(ring + 1, segment), at(ring + 1, segment + 1));
+            facet([a, d, c]);
+            facet([a, b, d]);
+        }
+    }
+    pack.meshes = vec![ball];
+    pack.parts.truncate(1);
+    pack.materials.truncate(1);
+    pack.materials[0].base_color = [HAIR[0], HAIR[1], HAIR[2], 1.0];
+    pack.bounds = Aabb {
+        min: [-0.55, 0.05, -0.55],
+        max: [0.55, 1.15, 0.55],
+    };
     pack
 }
 
@@ -249,6 +310,78 @@ fn the_rim_draws_no_bright_lines() {
     assert!(lines(&white_rim) > 0.005, "the measure sees a white rim");
     let rimmed = lines(&orange_arm());
     assert!(rimmed < 0.0005, "{rimmed} of the arm is pale");
+}
+
+/// Inside the actor, how much of it is paler than its albedo, and the 99th
+/// percentile of the change in brightness between neighbouring pixels: on
+/// flat facets, the step from one facet to the next.
+fn facets(with: &RgbaImage, without: &RgbaImage) -> (f32, f32) {
+    let changed = |x: u32, y: u32| {
+        let (a, b) = (with.get_pixel(x, y), without.get_pixel(x, y));
+        (0..3).any(|c| a[c].abs_diff(b[c]) > 2)
+    };
+    let inside = |x: u32, y: u32| {
+        (-1i32..=1)
+            .flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy)))
+            .all(|(dx, dy)| changed((x as i32 + dx) as u32, (y as i32 + dy) as u32))
+    };
+    let at = |x: u32, y: u32| {
+        let p = with.get_pixel(x, y);
+        [0, 1, 2].map(|c| p[c] as f32 / 255.0)
+    };
+    let (mut pixels, mut pale, mut steps) = (0usize, 0usize, Vec::new());
+    for y in 1..H - 2 {
+        for x in 1..W - 2 {
+            if !inside(x, y) {
+                continue;
+            }
+            pixels += 1;
+            let p = at(x, y);
+            if p[2] > 0.6 * p[0] {
+                pale += 1;
+            }
+            for (nx, ny) in [(x + 1, y), (x, y + 1)] {
+                if inside(nx, ny) {
+                    steps.push((luma(at(nx, ny)) - luma(p)).abs());
+                }
+            }
+        }
+    }
+    assert!(pixels > 2000, "the ball covers {pixels} pixels");
+    steps.sort_by(f32::total_cmp);
+    (pale as f32 / pixels as f32, steps[steps.len() * 99 / 100])
+}
+
+/// On a ball of flat facets the white material rim lines every facet seen
+/// edge-on; the character light's rim may brighten a facet in its own
+/// colour, but keeps the step from one facet to the next (the 99th
+/// percentile of the change between neighbouring pixels) within half again
+/// of what the facets show without a rim.
+#[test]
+fn on_flat_facets_the_rim_draws_no_bright_lines_and_keeps_the_facets_steps() {
+    let measure = |pack: &ActorPack, character: CharacterLight| {
+        let (with, without) = frames(&side_lit(character), pack, Quality::high());
+        facets(&with, &without)
+    };
+    let ball = faceted_ball(6, 9);
+    let unrimmed = CharacterLight {
+        rim: 0.0,
+        ..legible()
+    };
+    let (_, plain) = measure(&ball, unrimmed.clone());
+    let (pale, tinted) = measure(&ball, legible());
+    let mut white = ball.clone();
+    white.materials[0].rim = 0.6;
+    let (white_pale, white_step) = measure(&white, unrimmed);
+    assert!(
+        white_pale > 0.005 && white_step > 3.0 * plain,
+        "the measure sees a white rim: {white_pale} pale, steps {white_step} against {plain}"
+    );
+    assert!(pale < 0.0005, "{pale} of the ball is pale");
+    assert!(
+        tinted < 1.5 * plain,
+        "the rim steps {tinted} between facets against {plain} without it"
+    );
 }
 
 #[test]

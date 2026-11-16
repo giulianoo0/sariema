@@ -484,7 +484,6 @@ fn frame_uniform(
     let (mut bottom, mut top) = ([0.0; 4], [0.0; 4]);
     let off = CharacterLight::default();
     let character = lighting.map_or(&off, |l| &l.character);
-    // The fill's direction is fixed to the camera, given in its frame.
     let towards = (camera.view.inverse())
         .transform_vector3(Vec3::from(character.direction))
         .normalize_or(Vec3::Z);

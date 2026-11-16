@@ -291,7 +291,7 @@ fn emissive_texture_is_kept() {
     assert_eq!(err.code(), "E_SCHEMA");
 }
 
-/// One piece, `cabelo`: a triangle whose UVs all fall on the left texel of a
+/// One piece, `hair`: a triangle whose UVs all fall on the left texel of a
 /// 2×1 metallic-roughness texture (roughness 0.25, not metal) whose right
 /// texel is rough metal; the material gives `pbr` and that texture.
 fn metal_rough_kit(name: &str, pbr: &str) -> PathBuf {
@@ -322,11 +322,11 @@ fn metal_rough_kit(name: &str, pbr: &str) -> PathBuf {
         "images": [{{ "bufferView": 2, "mimeType": "image/png" }}],
         "textures": [{{ "source": 0 }}],
         "materials": [{{
-            "name": "corpo",
+            "name": "body",
             "pbrMetallicRoughness": {{ {pbr} "metallicRoughnessTexture": {{ "index": 0 }} }}
         }}],
         "meshes": [{{ "primitives": [{{ "attributes": {{ "POSITION": 0, "TEXCOORD_0": 1 }}, "material": 0 }}] }}],
-        "nodes": [{{ "name": "cabelo", "mesh": 0 }}],
+        "nodes": [{{ "name": "hair", "mesh": 0 }}],
         "scenes": [{{ "nodes": [0] }}]
     }}"#,
         total = 60 + png.len(),
@@ -338,22 +338,22 @@ fn metal_rough_kit(name: &str, pbr: &str) -> PathBuf {
 #[test]
 fn a_metallic_roughness_texture_scales_the_factors_where_the_mesh_samples_it() {
     let kit = load_kit(&metal_rough_kit("orm.glb", "")).unwrap();
-    let corpo = &kit.materials[0];
-    assert_eq!(corpo.metallic, 0.0);
+    let body = &kit.materials[0];
+    assert_eq!(body.metallic, 0.0);
     assert!(
-        (corpo.roughness - 64.0 / 255.0).abs() < 1e-6,
+        (body.roughness - 64.0 / 255.0).abs() < 1e-6,
         "{}",
-        corpo.roughness
+        body.roughness
     );
 
     let factors = r#""metallicFactor": 0.5, "roughnessFactor": 0.5,"#;
     let kit = load_kit(&metal_rough_kit("orm_factors.glb", factors)).unwrap();
-    let corpo = &kit.materials[0];
-    assert_eq!(corpo.metallic, 0.0);
+    let body = &kit.materials[0];
+    assert_eq!(body.metallic, 0.0);
     assert!(
-        (corpo.roughness - 32.0 / 255.0).abs() < 1e-6,
+        (body.roughness - 32.0 / 255.0).abs() < 1e-6,
         "{}",
-        corpo.roughness
+        body.roughness
     );
 }
 
