@@ -49,7 +49,7 @@ step, in id order, and appends events to a buffer the caller owns.
 | `Knockback { push, steps }` | Push over `steps` steps, fastest first; input ignored meanwhile. |
 | `Teleport { position, yaw }` | Place, then push out of overlaps; rejected if that fails. |
 | `Pose { position, yaw }` | Place exactly, collider off, for a traversal: no collision, gravity or pushing until the next `Move`, `MoveTo`, `Stop`, `Knockback` or `Teleport`. |
-| `SetColliderEnabled` | Enable or disable a collider. |
+| `SetColliderEnabled` | Enable or disable a collider. Actors inside a collider being enabled are pushed out of it at the next step, or it stays disabled. |
 | `SetSpeedScale` | Multiply the walk speed. |
 
 | Event | When |
@@ -61,6 +61,8 @@ step, in id order, and appends events to a buffer the caller owns.
 | `Blocked(NoPath)` | A scripted move has no path; the actor does not move. |
 | `Blocked(Stuck)` | A scripted move stopped making progress (a door closed on it). |
 | `TeleportRejected` | The push-out failed; the actor stays where it was. |
+| `PushedOut { collider }` | A collider enabled where the actor stood (a door closing on it) pushed it out. |
+| `EnableRefused { collider }` | The actor stood where the collider was being enabled and could not be pushed out; the collider stays disabled. |
 
 Per actor, a step: carries it with the platform it stands on; applies a
 teleport; turns the stick into a wanted velocity (dead zone, full-deflection
@@ -103,6 +105,16 @@ times.
 - **Teleports.** After a teleport the actor is pushed out of overlaps in up to
   `depenetration_iterations` passes and `max_depenetration` metres in total;
   otherwise the teleport is rejected.
+- **Turning.** A head sphere ahead of the body's axis swings when the actor
+  turns. If the turned head would overlap the room (turning to face a wall
+  the actor stands close to), the actor is pushed level out of it by a sweep,
+  so the body never passes through anything. If that does not clear it within
+  `max_depenetration`, the actor keeps its facing for that step.
+- **Colliders enabled over an actor.** A door closing onto an actor pushes it
+  out at the next step, by sweeps within the same depenetration limits, and
+  the actor gets `PushedOut`. If the actor cannot be pushed out, the collider
+  is disabled again and the actor gets `EnableRefused`: the door stays open,
+  and the game decides what happens next.
 
 ### Paths and scripted moves
 
@@ -172,7 +184,7 @@ resting on the sill on the way.
   {
     "name": "window",
     "from": "start",
-    "points": [[3.5, 0.9, -2.7], [3.5, 0.0, -4.2]],
+    "points": [[3.5, 0.9, -3.0], [3.5, 0.0, -4.2]],
     "yaw_deg": 180.0,
     "contacts": [{ "name": "foot", "at": [3.5, 0.9, -3.2] }]
   }
@@ -186,9 +198,17 @@ resting on the sill on the way.
 - `contacts`: the declared points where the pose touches the room on
   purpose.
 
-`check` reports `E_TRAVERSAL_END` when the end is not free floor, and
-`E_CONTACT_OFF_SURFACE` when a contact lies farther than
-`--contact-tolerance` from every surface, or deeper than that inside one.
+`check` reports three problems:
+
+- `E_TRAVERSAL_END` when the end is not free floor.
+- `E_CONTACT_OFF_SURFACE` when a contact lies farther than
+  `--contact-tolerance` from every surface, or deeper than that inside one.
+- `E_CONTACT_OUT_OF_REACH` when a contact lies outside the carried actor's
+  visual bounds (its collider bounds when it has none) at every point of the
+  traversal, the start spot included. The traversal does not say which way
+  the actor faces between points, so the bounds count turned to any facing.
+
+A contact passes only where the pose can really touch the room.
 
 ### Queries and the camera
 
@@ -201,17 +221,23 @@ without touching anything, so camera code can fade occluders or pull in.
 ### Determinism
 
 The same intents in the same order give the same state, bit for bit, on
-every platform and whatever the number of steps run per frame:
+every platform, whatever the number of steps run per frame, and whatever
+queries and path searches the game runs between them:
 
 - one fixed step (`step_seconds`), no clock, seeded randomness only in tests;
 - scalar `f32` arithmetic through `glam`'s `Vec3` and `Mat3` (no SIMD types,
   whose results can differ between targets) and `libm` for every
   transcendental function;
+- no Rust float method whose precision the language leaves unspecified
+  (`powi`, `powf`, `sin` and the like); squares are written as products;
 - actors, colliders and contacts processed in id order; the hierarchy and
   the grid built deterministically; no hash-map iteration.
 
 `World::state_hash` (FNV-1a over every actor's state) makes a replay
-comparable; `tests/determinism.rs` pins one replay's hash.
+comparable; `tests/determinism.rs` pins one replay's hash, and checks that
+runs batching 2 or 5 steps per frame, with path searches, walkable-cell
+listings, ray casts and overlap queries between steps, give the same hash at
+every step as the plain run.
 
 A step allocates nothing once warm: buffers are kept between steps. The walkable
 grid allocates when built or rebuilt after a collider changes.
@@ -292,6 +318,7 @@ failure, naming the room and the spot or traversal:
 | `E_PATH_NONE` | A route's two spots have no path for the first spot's actor. |
 | `E_TRAVERSAL_END` | A traversal's last point is not free floor: the collider is inside the room, or there is no walkable ground under it, under the same rules as a spot. |
 | `E_CONTACT_OFF_SURFACE` | A traversal's declared contact point is farther than `--contact-tolerance` from every surface, or deeper than that inside one. |
+| `E_CONTACT_OUT_OF_REACH` | A traversal's declared contact point lies outside the carried actor's visual bounds, turned to any facing, at every point of the traversal. |
 | `W_ACTOR_BOUNDS` (warning) | An actor's `visual_bounds` reach past its collider by more than `--bounds-margin`. |
 
 The failure's code is the first error's; the message lists every error.
@@ -438,8 +465,9 @@ room with 135 colliders in 0.2 s.
   capsule, overlapping heights); head spheres do not push.
 - `check` uses the default controller settings; a game that tunes them should
   check with its own (not yet exposed on the command line).
-- Determinism has been verified on aarch64 macOS; the pinned replay hash is
-  the check for other platforms.
+- The pinned replay hash was produced on aarch64 macOS and reproduced on
+  x86_64-apple-darwin and on wasm32 under node, in debug and release builds.
+  Other targets are untested.
 
 ## What we took from other engines
 

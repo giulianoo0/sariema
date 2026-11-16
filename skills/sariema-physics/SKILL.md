@@ -1,6 +1,6 @@
 ---
 name: sariema-physics
-description: Use when making a Sariema room walkable, placing action spots, scripted routes or traversals (climbing through a window, over a sill) for a scene, when `sariema check` fails with E_SPOT_BLOCKED, E_SPOT_NO_GROUND, E_PATH_NONE, E_TRAVERSAL_END or E_CONTACT_OFF_SURFACE or warns W_ACTOR_BOUNDS, when a character clips into a door, gets stuck, floats or cannot reach a spot, or when tuning how the character moves.
+description: Use when making a Sariema room walkable, placing action spots, scripted routes or traversals (climbing through a window, over a sill) for a scene, when `sariema check` fails with E_SPOT_BLOCKED, E_SPOT_NO_GROUND, E_PATH_NONE, E_TRAVERSAL_END, E_CONTACT_OFF_SURFACE or E_CONTACT_OUT_OF_REACH or warns W_ACTOR_BOUNDS, when a character clips into a door, gets stuck, floats or cannot reach a spot, or when tuning how the character moves.
 ---
 
 # Sariema physics
@@ -97,7 +97,11 @@ events.clear();
 ```
 
 A piece that appears or disappears (a door closing, a crate put down) turns
-its collider on or off; paths are searched again around it:
+its collider on or off, and paths are searched again around it. If the
+collider is enabled where an actor stands, the next step pushes the actor
+out (`PushedOut`). When the actor cannot be pushed out, the collider stays
+disabled (`EnableRefused`): the door stays open, and the script decides
+what happens next.
 
 ```rust
 let lamp = world.collider_by_name("a.lampada").unwrap();
@@ -138,7 +142,7 @@ its actor is the one carried. The last of `points` is the end, facing
   {
     "name": "window",
     "from": "start",
-    "points": [[3.5, 0.9, -2.7], [3.5, 0.0, -4.2]],
+    "points": [[3.5, 0.9, -3.0], [3.5, 0.0, -4.2]],
     "yaw_deg": 180.0,
     "contacts": [{ "name": "foot", "at": [3.5, 0.9, -3.2] }]
   }
@@ -175,6 +179,7 @@ separated by `; `. A blocked spot also fails every route that starts there.
 | `E_TRAVERSAL_END` `... at the end, hero stands on nothing within 0.05 m` | The traversal ends in the air. | Put the last point's y on the floor. |
 | `E_CONTACT_OFF_SURFACE` `traversal window: contact foot is not within 0.02 m of a surface` | The declared contact floats: pose and set do not meet. | Put the contact on the sill, and the traversal's point where the pose's foot lands on it. `--contact-tolerance` sets the distance. |
 | `E_CONTACT_OFF_SURFACE` `... contact foot is 0.400 m inside sill` | The contact is buried in the set. | Move it to the surface. |
+| `E_CONTACT_OUT_OF_REACH` `... contact foot lies outside hero's visual bounds at every point of the traversal` | No point of the traversal puts the actor where it could touch that contact. | Add the point where the pose touches it, such as the feet on the sill, or fix the contact. |
 | `W_ACTOR_BOUNDS` `... reaches 0.16 m past its collider at the left` | The model is wider than its collider, so it visibly enters walls. | Widen the collider or add a `head` sphere; `--bounds-margin` sets the threshold. |
 | `E_SCHEMA` `exclude lists sofa, which no room in show places` | A piece name that is not placed, a piece in two shape lists, a spot naming an unknown actor, a bad bake setting. | Fix the name or the value the message gives. |
 
