@@ -193,6 +193,15 @@ batch_table! {
         /// over, so the seam shows no still frame. Plays at once when the
         /// actor plays no clip. A `play_clip` or `clip_path` drops the queue.
         0x0023 ClipNext clip_next { entity: Entity, clip: u32, mode: ClipMode, blend: f32, speed: f32, after: f32 }
+        /// Plays the clip `entity` plays at `rate` from this step, going on
+        /// from where it is: no restart and no crossfade, so a walk cycle
+        /// follows the actor's pace without its feet sliding. 0 holds it
+        /// where it is. Within a `clip_path` span, the next span's rate
+        /// replaces it when that span begins; the clips queued after it keep
+        /// their own. Refused with E_CLIP_NOT_PLAYING when the actor plays
+        /// another clip or none, and with E_CLIP_RATE for a rate below 0 or
+        /// not finite.
+        0x0022 ClipRate clip_rate { entity: Entity, clip: u32, rate: f32 }
     }
     events {
         /// The first event of the first tick.

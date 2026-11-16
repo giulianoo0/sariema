@@ -38,6 +38,12 @@ pub struct Refusal {
 /// The code of a `clip_path` refused for its spans.
 pub const CLIP_SPANS: &str = "E_CLIP_SPANS";
 
+/// The code of a `clip_rate` for a clip the actor does not play.
+pub const CLIP_NOT_PLAYING: &str = "E_CLIP_NOT_PLAYING";
+
+/// The code of a `clip_rate` below 0 or not finite.
+pub const CLIP_RATE: &str = "E_CLIP_RATE";
+
 fn refuse(entity: Entity) -> impl Fn(Reject) -> Refusal {
     move |r| Refusal {
         code: r.code(),
@@ -337,6 +343,19 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
                     },
                     source,
                 )?;
+            }
+        }
+        C::ClipRate { entity, clip, rate } => {
+            actor(s, entity)?;
+            let code = if !(rate.is_finite() && rate >= 0.0) {
+                Some(CLIP_RATE)
+            } else if !s.clips.set_rate(entity, clip, rate) {
+                Some(CLIP_NOT_PLAYING)
+            } else {
+                None
+            };
+            if let Some(code) = code {
+                return Err(Refusal { code, entity });
             }
         }
         C::PlaySound {

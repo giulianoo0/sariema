@@ -266,6 +266,16 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "clip_path spans out of order, past the clip's end, at a rate of 0 or not finite",
     ),
     (
+        "E_CLIP_NOT_PLAYING",
+        Kind::Rejected,
+        "clip_rate names a clip the actor does not play",
+    ),
+    (
+        "E_CLIP_RATE",
+        Kind::Rejected,
+        "clip_rate below 0 or not finite",
+    ),
+    (
         "E_ROOM_UNKNOWN",
         Kind::Rejected,
         "room_preload or room_switch names a room the pack lacks",
