@@ -16,6 +16,7 @@ use sariema_format::script::{GAME_MAGIC, decode_game};
 use sariema_render::{
     FrameTimings, PassTime, Quality, RenderConfig, RenderError, Renderer, request_device,
 };
+use sariema_view::ViewSettings;
 use serde_json::{Value, json};
 
 use crate::Tier;
@@ -62,6 +63,18 @@ pub struct BenchArgs {
     /// No ambient occlusion.
     #[arg(long)]
     no_ao: bool,
+    /// A game's rooms are decoded and its collision worlds built a share a
+    /// frame, as on the web, instead of on threads. The frames run faster
+    /// than real time, so a thread may not be done by a switch that would
+    /// find its work done in play.
+    #[arg(long)]
+    no_threads: bool,
+    /// Adds a game's timed frames one by one under `rooms.timeline`: the
+    /// steps run, the frame's CPU, and the step, the audio feed, decoding,
+    /// uploading and collision worlds inside it, then the CPU time of the
+    /// frame's thread (null where there is no clock for it), in ms.
+    #[arg(long)]
+    timeline: bool,
 }
 
 impl BenchArgs {
@@ -86,6 +99,91 @@ struct Samples {
     stages: Vec<FrameTimings>,
     allocations: Vec<u64>,
     allocated_bytes: Vec<u64>,
+    rooms: RoomSamples,
+}
+
+/// A game's frames by what its rooms did in them.
+#[derive(Default)]
+struct RoomSamples {
+    /// Decoding or uploading a room or building its collision world, or
+    /// finishing either.
+    loading: Vec<f64>,
+    /// While a switch lasts, its first frame included.
+    switching: Vec<f64>,
+    /// The frame of each switch's step.
+    switched: Vec<f64>,
+    /// Neither loading nor switching.
+    steady: Vec<f64>,
+    bytes_decoded: u64,
+    bytes_uploaded: u64,
+    rooms_loaded: u32,
+    loaded_at_once: u32,
+    world_shares: u32,
+    worlds_built: u32,
+    /// The most a frame spent on each loading stage.
+    decode_max: f64,
+    upload_max: f64,
+    world_max: f64,
+    timeline: Option<Vec<Vec<Value>>>,
+}
+
+impl RoomSamples {
+    fn push(&mut self, cpu: f64, thread: Option<f64>, parts: &game::Parts) {
+        let r = parts.rooms;
+        let (decode, upload, world) = (ms(r.decode), ms(r.upload), ms(r.world));
+        self.decode_max = self.decode_max.max(decode);
+        self.upload_max = self.upload_max.max(upload);
+        self.world_max = self.world_max.max(world);
+        if let Some(rows) = &mut self.timeline {
+            let (step, feed) = (ms(parts.step), ms(parts.feed));
+            let thread = thread.map_or(json!(null), |t| json!(t));
+            let row = [parts.steps as f64, cpu, step, feed, decode, upload, world];
+            rows.push(row.iter().map(|&v| json!(v)).chain([thread]).collect());
+        }
+        let loading = r.bytes_decoded > 0
+            || r.bytes_uploaded > 0
+            || r.rooms_loaded > 0
+            || r.world_share
+            || r.worlds_built > 0;
+        if loading {
+            self.loading.push(cpu);
+        }
+        if parts.switching || parts.switched {
+            self.switching.push(cpu);
+        }
+        if parts.switched {
+            self.switched.push(cpu);
+        }
+        if !loading && !parts.switching && !parts.switched {
+            self.steady.push(cpu);
+        }
+        self.bytes_decoded += r.bytes_decoded;
+        self.bytes_uploaded += r.bytes_uploaded;
+        self.rooms_loaded += r.rooms_loaded;
+        self.loaded_at_once += r.loaded_at_once as u32;
+        self.world_shares += r.world_share as u32;
+        self.worlds_built += r.worlds_built;
+    }
+
+    fn json(&self) -> Value {
+        json!({
+            "steady_cpu_ms": counted(&self.steady),
+            "loading_cpu_ms": counted(&self.loading),
+            "switching_cpu_ms": counted(&self.switching),
+            "switch_step_cpu_ms": self.switched,
+            "bytes_decoded": self.bytes_decoded,
+            "bytes_uploaded": self.bytes_uploaded,
+            "rooms_loaded": self.rooms_loaded,
+            "loaded_at_once": self.loaded_at_once,
+            "world_shares": self.world_shares,
+            "worlds_built": self.worlds_built,
+            "stage_max_ms": { "decode": self.decode_max, "upload": self.upload_max, "world": self.world_max },
+            "timeline": self.timeline.as_ref().map(|rows| json!({
+                "columns": ["steps", "cpu_ms", "step_ms", "feed_ms", "decode_ms", "upload_ms", "world_ms", "thread_ms"],
+                "frames": rows,
+            })),
+        })
+    }
 }
 
 impl Samples {
@@ -145,7 +243,11 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     let mut game = match game {
         Some(pack) => Some(GameFrame::load(
             &mut renderer,
-            &room,
+            ViewSettings {
+                shadows: !args.no_shadows,
+                threads: !args.no_threads,
+                ..ViewSettings::default()
+            },
             pack,
             args.input.as_deref(),
             size,
@@ -198,20 +300,26 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     wait(&device)?;
 
     let mut samples = Samples::default();
+    if args.timeline {
+        samples.rooms.timeline = Some(Vec::new());
+    }
     let mut walls = Vec::new();
     for _ in 0..args.runs {
         let run = Instant::now();
         for _ in 0..args.frames {
             let before = allocations_so_far();
             let start = Instant::now();
+            let thread = thread_time();
             let parts = draw(&mut renderer)?;
             let cpu = start.elapsed();
+            let thread = thread.zip(thread_time()).map(|(a, b)| ms(b - a));
             let after = allocations_so_far();
             samples.frame.push(ms(cpu));
             if let Some(parts) = parts {
                 samples.step.push(ms(parts.step));
                 samples.feed.push(ms(parts.feed));
                 samples.hud.push(ms(parts.hud));
+                samples.rooms.push(ms(cpu), thread, &parts);
             }
             samples.stages.push(renderer.last_frame_timings());
             if let (Some((count, bytes)), Some((count_after, bytes_after))) = (before, after) {
@@ -268,6 +376,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
                 "quality": args.quality.to_possible_value().map(|v| v.get_name().to_owned()),
                 "msaa": effective.msaa,
                 "shadows": !args.no_shadows,
+                "threads": !args.no_threads,
                 "ao": effective.ao_samples > 0,
                 "frames": args.frames,
                 "warmup": args.warmup,
@@ -294,6 +403,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
                 "finish": samples.stage(|t| t.finish),
                 "submit": samples.stage(|t| t.submit),
             },
+            "rooms": game.is_some().then(|| samples.rooms.json()),
             "wall_ms_per_frame": { "runs": walls, "median": wall_median },
             "per_frame": {
                 "passes": frame_stats.passes,
@@ -420,5 +530,29 @@ fn load_average() -> Option<[f64; 3]> {
 
 #[cfg(not(unix))]
 fn load_average() -> Option<[f64; 3]> {
+    None
+}
+
+/// The CPU time of the calling thread: a frame's work without the time
+/// other processes held its core.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn thread_time() -> Option<Duration> {
+    #[repr(C)]
+    struct Timespec {
+        sec: std::ffi::c_long,
+        nsec: std::ffi::c_long,
+    }
+    unsafe extern "C" {
+        fn clock_gettime(clock: std::ffi::c_int, time: *mut Timespec) -> std::ffi::c_int;
+    }
+    const THREAD_CPUTIME: std::ffi::c_int = if cfg!(target_os = "macos") { 16 } else { 3 };
+    let mut time = Timespec { sec: 0, nsec: 0 };
+    // SAFETY: the pointer is to a writable timespec, as the call fills.
+    (unsafe { clock_gettime(THREAD_CPUTIME, &mut time) } == 0)
+        .then(|| Duration::new(time.sec as u64, time.nsec as u32))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn thread_time() -> Option<Duration> {
     None
 }

@@ -2493,12 +2493,15 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "glam",
+ "image",
  "sariema-core",
  "sariema-engine",
  "sariema-format",
+ "sariema-import",
  "sariema-render",
  "sariema-runtime",
  "sariema-ui",
+ "web-time",
  "wgpu",
 ]
 

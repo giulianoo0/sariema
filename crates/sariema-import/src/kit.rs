@@ -45,6 +45,23 @@ pub struct KitPiece {
     pub hidden_at_start: bool,
     /// The piece in each state of the root's `extras.estados`, sorted by state name.
     pub states: Vec<(String, Vec<KitPrimitive>)>,
+    /// Nodes below the root with `extras.giro`, left out of `primitives`
+    /// and `states`.
+    pub hinges: Vec<KitHinge>,
+}
+
+/// A node `<piece>_<hinge>` of a piece that turns about an axis through
+/// its origin.
+#[derive(Debug)]
+pub struct KitHinge {
+    /// The node's name without the `<piece>_` prefix.
+    pub name: String,
+    /// In the node's own frame: +Y for `"eixo": "vertical"`, +X otherwise.
+    pub axis: Vec3,
+    /// The node's origin in the piece's root space.
+    pub pivot: Mat4,
+    /// The node and its shown descendants at rest, in the piece's root space.
+    pub primitives: Vec<KitPrimitive>,
 }
 
 #[derive(Debug)]
@@ -267,6 +284,8 @@ impl Reader<'_> {
             self.collect(root, Mat4::IDENTITY, &look, &mut primitives)?;
             Ok::<_, ImportError>(primitives)
         };
+        let mut hinges = Vec::new();
+        self.hinges(root, Mat4::IDENTITY, &name, &state_nodes, &mut hinges)?;
         Ok(KitPiece {
             primitives: gather(None)?,
             hidden_at_start: truthy(extra(&node.extras, "oculto_no_inicio")),
@@ -274,8 +293,47 @@ impl Reader<'_> {
                 .iter()
                 .map(|(state, nodes)| Ok((state.clone(), gather(Some(nodes.as_slice()))?)))
                 .collect::<Result<_, ImportError>>()?,
+            hinges,
             name,
         })
+    }
+
+    /// The hinged nodes below `index`, whose chain of transforms from the
+    /// root is `transform`.
+    fn hinges(
+        &self,
+        index: usize,
+        transform: Mat4,
+        piece: &str,
+        state_nodes: &HashSet<&str>,
+        out: &mut Vec<KitHinge>,
+    ) -> Result<(), ImportError> {
+        for &child in &self.gltf.node(index)?.children {
+            let node = self.gltf.node(child)?;
+            let pivot = transform * node.transform();
+            let Some(giro) = extra(&node.extras, "giro").filter(|g| truthy(Some(g))) else {
+                self.hinges(child, pivot, piece, state_nodes, out)?;
+                continue;
+            };
+            let full = node.name.clone().unwrap_or_default();
+            let vertical = giro.get("eixo").and_then(Value::as_str) == Some("vertical");
+            let mut primitives = Vec::new();
+            let look = Look {
+                state: None,
+                state_nodes,
+            };
+            self.collect(child, pivot, &look, &mut primitives)?;
+            out.push(KitHinge {
+                name: (full.strip_prefix(piece))
+                    .and_then(|rest| rest.strip_prefix('_'))
+                    .unwrap_or(&full)
+                    .to_owned(),
+                axis: if vertical { Vec3::Y } else { Vec3::X },
+                pivot,
+                primitives,
+            });
+        }
+        Ok(())
     }
 
     /// Appends the primitives of `index` and of its shown descendants.
@@ -300,7 +358,8 @@ impl Reader<'_> {
         }
         for &child in &node.children {
             let child_node = self.gltf.node(child)?;
-            if look.shows(child_node) {
+            let hinged = truthy(extra(&child_node.extras, "giro"));
+            if !hinged && look.shows(child_node) {
                 self.collect(child, transform * child_node.transform(), look, out)?;
             }
         }

@@ -90,6 +90,14 @@ fn names(r: &RoomPack) -> Vec<&str> {
     r.draws.iter().filter_map(|d| d.name.as_deref()).collect()
 }
 
+/// Whether the draw called `name` shows when the room loads.
+fn shown(r: &RoomPack, name: &str) -> bool {
+    let i = (r.draws.iter())
+        .position(|d| d.name.as_deref() == Some(name))
+        .unwrap_or_else(|| panic!("no draw {name} in {:?}", names(r)));
+    r.shown_at_load()[i]
+}
+
 fn draw<'a>(r: &'a RoomPack, name: &str) -> &'a Draw {
     r.draws
         .iter()
@@ -204,7 +212,7 @@ fn hidden_piece_is_invisible() {
         sala_min(),
         json!({ "show": ["b"], "loose": ["lampada"] }),
     ));
-    assert!(!draw(&r, "b.lampada").visible);
+    assert!(!shown(&r, "b.lampada"));
     assert_eq!((r.stats.triangles, r.stats.draws), (0, 0));
 }
 
@@ -214,7 +222,7 @@ fn listed_pieces_start_hidden() {
         sala_min(),
         json!({ "hidden": ["mesa"], "loose": ["mesa"] }),
     ));
-    assert!(!draw(&r, "a.mesa").visible);
+    assert!(!shown(&r, "a.mesa"));
     assert_eq!(triangles(&r, draw(&r, "a/mat0")), 24);
 
     // Merged pieces have no draw of their own to show later, so they are left out.
@@ -281,15 +289,16 @@ fn candles(loose: &[&str]) -> Value {
 #[test]
 fn hidden_piece_shows_in_its_state() {
     // casa.ts hides a node flagged oculto_no_inicio only while no estado is set.
+    // Loose, the copy without a state starts in a look with no draws.
     let r = build(candles(&["vela"]));
-    assert!(!draw(&r, "a.vela").visible);
-    let lit: Vec<_> = r
-        .draws
-        .iter()
-        .filter(|d| d.name.as_deref() == Some("a.vela.2"))
-        .collect();
-    assert_eq!(lit.len(), 2);
-    assert!(lit.iter().all(|d| d.visible));
+    let piece = |name: &str| r.pieces.iter().find(|p| p.name == name).unwrap();
+    let unlit = piece("a.vela");
+    assert!(unlit.states[unlit.state as usize].draws.is_empty());
+    let lit = piece("a.vela.2");
+    let lit_draws = &lit.states[lit.state as usize].draws;
+    assert_eq!(lit.states[lit.state as usize].name, "acesa");
+    assert_eq!(lit_draws.len(), 2);
+    assert!(lit_draws.iter().all(|&d| r.draws[d as usize].visible));
 
     let merged = build(candles(&[]));
     assert_eq!(triangles(&merged, draw(&merged, "a/cera")), 2);

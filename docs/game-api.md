@@ -52,15 +52,17 @@ One step, in order:
    tick, then this step's input changes.
 3. Its commands are applied in the order sent, then its bulk regions.
 4. The cutscene sequencer runs.
-5. The hero is driven by the move axis (when the player has control),
-   actors move and turn, followers, tweens, springs and timers advance, the
-   fade, cinema bars and dialogue advance.
+5. The hero is driven by the move axis (when the player has control), the
+   room's hinged leaves turn to the angle their tween or the game gives
+   them unless an actor is in the way, actors move and turn, followers,
+   tweens, springs and timers advance, the fade, cinema bars and dialogue
+   advance.
 6. World placement is resolved and measured, putting back a visible actor
    that went too far ([Entities](#a-visible-actor-never-jumps)), the camera
    rig steps, trigger zones report.
 
-Events produced in step 5 and 6 (`arrived`, `tween_done`, `trigger_enter`…)
-reach the game at its next tick.
+Events produced in step 5 and 6 (`arrived`, `tween_done`, `trigger_enter`,
+`hinge_blocked`…) reach the game at its next tick.
 
 ## The batch
 
@@ -353,6 +355,14 @@ without `--headless` the pack plays in a window.
   collision pack). `traverse` carries an actor along one of the room's
   declared traversals, collider off, and ends with `arrived`; without a
   collision module it ends at once with `blocked`.
+- **Hinged leaves**: a door or window leaf of the room turns with its
+  scene parameter `hinge.<node>` (degrees from closed), and its collider
+  with it. A `tween` of it that would turn the leaf into an actor stops
+  for that step instead, and the game gets `hinge_blocked { hinge, entity }`
+  (the parameter's id and the actor) once, until the leaf moves again; the
+  tween goes on once the way is clear, and the game may open the door
+  again or cancel it. `examples/door` opens a door when the hero comes
+  near and reopens it when it stops on the hero.
 - **Tweens and springs** on position, yaw, pitch, roll, scale or a world
   variable, with 20 easings (Penner's, plus smoothstep). A new animation of a
   property starts from its current value, and a spring keeps its velocity, so
@@ -455,6 +465,7 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `cutscene.advance_action` | `confirm` | Button that ends a tap dialogue line. |
 | `cutscene.end_blend` | 0.6 | Seconds of the camera blend back to the game's rig when a cutscene ends. |
 | `cutscene.end_ease` | `in_out_cubic` | Easing of that blend. |
+| `cutscene.hinge_clip_wait` | 2 | Seconds a hinge step waits for its role to play its clip; then it ends, the leaf where it was, with a rejected E_CUTSCENE_HINGE_WAIT. |
 | `cutscene.skip_action` | `skip` | Button that skips a skippable cutscene. |
 | `cutscene.skip_fade` | 0.3 | Seconds of the fade a skip runs under, out and back in. |
 | `cutscene.start_blend` | 0.25 | Seconds of that easing. |

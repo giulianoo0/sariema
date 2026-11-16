@@ -13,6 +13,7 @@ use crate::no_jump;
 use crate::outbox::{
     ClipRequest, HostOut, LookAt, MusicRequest, PhysicsIntent, SoundRequest, UiOp,
 };
+use crate::scenery::SceneReject;
 use crate::state::{CutsceneRequest, State};
 use crate::tween::Target;
 use crate::world::Reject;
@@ -80,7 +81,12 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             entity,
             kind,
             asset,
-        } => s.world.spawn(entity, kind, asset).map_err(refuse(entity))?,
+        } => {
+            s.world.spawn(entity, kind, asset).map_err(refuse(entity))?;
+            if matches!(kind, Kind::RoomNode | Kind::Light) {
+                s.scenery.bind(&mut s.world, entity, kind, asset);
+            }
+        }
         C::Despawn { entity } => {
             s.world.despawn(entity).map_err(refuse(entity))?;
             forget(s, entity);
@@ -332,7 +338,14 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             tweenable(s, &target)?;
             no_jump::may_tween(s, &target, to, duration, ease)?;
             s.tweens
-                .tween(&s.world, &s.store, tween, target, to, duration, ease)
+                .tween(
+                    (&s.world, &s.store, &s.scenery),
+                    tween,
+                    target,
+                    to,
+                    duration,
+                    ease,
+                )
                 .map_err(refuse(entity))?;
         }
         C::Spring {
@@ -351,7 +364,14 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             };
             tweenable(s, &target)?;
             s.tweens
-                .spring(&s.world, &s.store, tween, target, to, frequency, damping)
+                .spring(
+                    (&s.world, &s.store, &s.scenery),
+                    tween,
+                    target,
+                    to,
+                    frequency,
+                    damping,
+                )
                 .map_err(refuse(entity))?;
         }
         C::CancelTween { tween } => s.tweens.cancel(tween),
@@ -507,6 +527,21 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
         C::Consume { action } => {
             s.input.consume(action);
         }
+        C::RoomPreload { room } => s.scenery.preload(room).map_err(scene)?,
+        C::RoomSwitch {
+            room,
+            transition,
+            duration,
+        } => {
+            if s.scenery
+                .switch_to(room, transition, duration)
+                .map_err(scene)?
+            {
+                s.events.push(Event::RoomSwitched { room });
+            }
+        }
+        C::RoomGroup { group, on } => s.scenery.set_group(group, on).map_err(scene)?,
+        C::PieceState { piece, state } => s.scenery.set_piece(piece, state).map_err(scene)?,
         C::HostReady {} => s.outbox.host.push(HostOut::Ready),
         C::HostExit {} => s.outbox.host.push(HostOut::Exit),
         C::HostOrientation { orientation } => s.outbox.host.push(HostOut::Orientation(orientation)),
@@ -532,8 +567,16 @@ fn actor(s: &State, e: Entity) -> Result<(), Refusal> {
 }
 
 fn tweenable(s: &State, t: &Target) -> Result<(), Refusal> {
-    if t.property == Property::Var {
-        return Ok(());
+    match t.property {
+        Property::Var => Ok(()),
+        Property::Scene => s.scenery.param(t.var).map(drop).map_err(scene),
+        _ => s.world.check(t.entity).map_err(refuse(t.entity)),
     }
-    s.world.check(t.entity).map_err(refuse(t.entity))
+}
+
+fn scene(r: SceneReject) -> Refusal {
+    Refusal {
+        code: r.code(),
+        entity: Entity::NONE,
+    }
 }

@@ -66,8 +66,8 @@ const STEPS: u64 = 1200;
 /// the climb that allocates, with its count (the others allocate nothing),
 /// and the feed's allocations in each second.
 ///
-/// Step 0 spawns the hero, whose body builds its walkable grid; 186 starts
-/// the cutscene, which plans the hero's walk; 340 shows its line, which
+/// Step 0 spawns the hero, whose walkable grid the world built at load; 186
+/// starts the cutscene, which plans the hero's walk; 340 shows its line, which
 /// lays the HUD out again. The rest grow a step buffer to a size it had not
 /// reached. The feed's first and sixth seconds open the music stream and
 /// decode the sounds loaded on demand; in every second the music decoder
@@ -120,4 +120,4 @@ fn the_climbs_steps_allocate_only_where_pinned() {
     assert_eq!(seconds, pins.feed_per_second);
 }
 
-const ENGINE_HASH_1200: &str = "6089a9215eee7875";
+const ENGINE_HASH_1200: &str = "be38117baad89769";

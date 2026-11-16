@@ -22,7 +22,7 @@ use sariema_runtime::game::WasmLogic;
 use sariema_runtime::input::{InputLog, RawInput, Replay};
 use sariema_runtime::outbox::HostOut;
 use sariema_ui::SafeArea;
-use sariema_view::GameView;
+use sariema_view::{GameView, ViewSettings};
 use serde_json::{Value, json};
 
 use crate::feed::{Feed, FeedSettings};
@@ -69,14 +69,12 @@ fn allocations() -> u64 {
     0
 }
 
-/// The room and actors of `pack` the view draws; the engine takes the rest.
+/// The actors of `pack` the view draws; the engine takes the rest, the
+/// rooms included, which the view draws from it.
 fn drawn(pack: &GamePack) -> GameAssets {
     GameAssets {
-        room: pack.assets.room.clone(),
-        collision: None,
         actors: pack.assets.actors.clone(),
-        sounds: None,
-        hud: None,
+        ..GameAssets::default()
     }
 }
 
@@ -93,13 +91,12 @@ impl GameHost {
         size: (u32, u32),
         shadows: bool,
     ) -> Result<GameHost, StageError> {
-        let mut pack = decode_game(bytes).map_err(|e| StageError::new(e.code(), e.to_string()))?;
+        let pack = decode_game(bytes).map_err(|e| StageError::new(e.code(), e.to_string()))?;
         let drawn = drawn(&pack);
         let mut settings = EngineSettings::default();
         if let Some(rate) = sample_rate {
             settings.mixer.sample_rate = rate;
         }
-        pack.assets.room = None;
         let mut engine =
             Engine::load(pack, seed, settings).map_err(|e| StageError::new(e.code, e.message))?;
         let live = match sample_rate {
@@ -326,9 +323,9 @@ fn view(
     engine: &Engine<WasmLogic>,
     shadows: bool,
 ) -> Result<GameView, StageError> {
-    let mut room = sariema_view::room(assets)?;
-    if !shadows {
-        crate::stage::without_shadows(&mut room);
-    }
-    Ok(GameView::load_room(renderer, &room, assets, engine)?)
+    let settings = ViewSettings {
+        shadows,
+        ..ViewSettings::default()
+    };
+    Ok(GameView::load_with(renderer, assets, engine, settings)?)
 }

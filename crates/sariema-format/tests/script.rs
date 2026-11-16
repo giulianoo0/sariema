@@ -5,7 +5,7 @@ use std::collections::{BTreeSet, HashMap};
 use sariema_format::script::cutscene::{Block, Cutscene, Place, Role};
 use sariema_format::script::{
     BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Entity, Event, GAME_VERSION, GameAssets,
-    GameFormatError, GamePack, Hud, Message, MessageSpec, Sink, WireError, decode_game,
+    GameFormatError, GamePack, GameRoom, Hud, Message, MessageSpec, Sink, WireError, decode_game,
     encode_game, name_id, records,
 };
 
@@ -251,8 +251,21 @@ fn game() -> GamePack {
         names: vec!["meet".into(), "hero".into()],
         settings: "{}".into(),
         assets: GameAssets {
-            room: Some(b"SRMA room".to_vec()),
-            collision: None,
+            rooms: vec![
+                GameRoom {
+                    name: "porch".into(),
+                    room: Some(b"SRMA room".to_vec()),
+                    neighbours: vec![1],
+                    ambience: Some("crickets".into()),
+                    ..GameRoom::default()
+                },
+                GameRoom {
+                    name: "hall".into(),
+                    room: Some(b"SRMA hall".to_vec()),
+                    neighbours: vec![0],
+                    ..GameRoom::default()
+                },
+            ],
             actors: vec![("hero".into(), b"SRMK hero".to_vec())],
             sounds: None,
             hud: Some(Hud {
@@ -273,6 +286,26 @@ fn game_pack_round_trips() {
         GAME_VERSION
     );
     assert_eq!(decode_game(&bytes).unwrap(), g);
+}
+
+#[test]
+fn a_game_packs_rooms_must_be_distinct_with_neighbours_in_range() {
+    let invalid = |g: &GamePack| match decode_game(&encode_game(g)) {
+        Err(GameFormatError::Invalid(why)) => why,
+        other => panic!("expected an invalid pack, got {other:?}"),
+    };
+    let mut g = game();
+    g.assets.rooms[1].name = "porch".into();
+    assert!(invalid(&g).contains("rooms \"porch\" and \"porch\""));
+    let mut g = game();
+    g.assets.rooms[0].neighbours = vec![2];
+    assert!(invalid(&g).contains("room porch has neighbour 2 of 2 rooms"));
+    let mut g = game();
+    g.assets.rooms[1].neighbours = vec![1];
+    assert!(invalid(&g).contains("room hall has neighbour 1"));
+    let mut g = game();
+    g.assets.rooms[1].collision = Some(b"SRMC".to_vec());
+    assert!(invalid(&g).contains("room hall has a collision pack and room porch has none"));
 }
 
 #[test]

@@ -3,6 +3,7 @@
 //! A project's game: its logic crate, cutscenes and runtime settings, built
 //! into a game pack by `build`; and the cutscene rules `check` enforces.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -11,7 +12,7 @@ use sariema_format::script::cutscene::Cutscene;
 use sariema_format::script::{BATCH_VERSION, GamePack, encode_game};
 use sariema_import::TextureMode;
 use sariema_runtime::cutscene::author::{Source, compile};
-use sariema_runtime::cutscene::check::check as check_rules;
+use sariema_runtime::cutscene::check::{CheckError, check as check_rules, check_hinges};
 use sariema_runtime::game::{parse_settings, start};
 use sariema_runtime::settings::Settings;
 use serde::Deserialize;
@@ -41,9 +42,13 @@ struct GameSection {
     settings: Option<Value>,
     #[serde(default)]
     toolchain: Option<String>,
-    /// The room the game plays in; the project's first without it.
+    /// The room the game starts in; the project's first without it.
     #[serde(default)]
     room: Option<String>,
+    /// The other rooms the game plays in, with their neighbours and
+    /// ambience.
+    #[serde(default)]
+    rooms: BTreeMap<String, crate::bundle::RoomEntry>,
     /// The HUD's UI description.
     #[serde(default)]
     hud: Option<PathBuf>,
@@ -136,6 +141,33 @@ fn enforce_rules(compiled: &Compiled, settings: &Settings) -> Result<(), Failure
     Err(Failure::new(code, lines.join("\n")))
 }
 
+/// Fails when a `hinge` step names a node no room of the project has; the
+/// rooms are built only when some cutscene has such a step.
+fn enforce_hinges(dir: &Path, compiled: &Compiled) -> Result<(), Failure> {
+    let none = |_: u32| false;
+    let turning =
+        (compiled.cutscenes.iter()).any(|c| !check_hinges(c, &none, &compiled.names).is_empty());
+    if !turning {
+        return Ok(());
+    }
+    let mut known = std::collections::BTreeSet::new();
+    for id in project::room_ids(dir)? {
+        let (source, root) = project::room_source(dir, &id)?;
+        let pack = sariema_import::build_room(&source, &root)?;
+        let index = sariema_format::scenery::RoomIndex::of(&pack);
+        known.extend((index.params.iter()).map(|p| sariema_format::script::name_id(&p.name)));
+    }
+    let has = |id: u32| known.contains(&id);
+    let broken: Vec<CheckError> = (compiled.cutscenes.iter())
+        .flat_map(|c| check_hinges(c, &has, &compiled.names))
+        .collect();
+    let Some(first) = broken.first() else {
+        return Ok(());
+    };
+    let lines: Vec<String> = broken.iter().map(|e| format!("{e} ({})", e.code)).collect();
+    Err(Failure::new(first.code, lines.join("\n")))
+}
+
 fn read_project(dir: &Path) -> Result<(String, Option<GameSection>), Failure> {
     let project: GameProject = project::load(dir)?;
     Ok((project.name, project.game))
@@ -167,6 +199,7 @@ pub fn check(dir: &Path) -> Result<Vec<String>, Failure> {
     let (_, settings) = game_settings(dir, &game)?;
     let compiled = compile_cutscenes(&dir.join(&game.cutscenes))?;
     enforce_rules(&compiled, &settings)?;
+    enforce_hinges(dir, &compiled)?;
     Ok(compiled.cutscenes.into_iter().map(|c| c.name).collect())
 }
 
@@ -185,6 +218,7 @@ pub fn build(dir: &Path, output: &Path, textures: Option<TextureMode>) -> Result
     let (text, settings) = game_settings(dir, &game)?;
     let compiled = compile_cutscenes(&dir.join(&game.cutscenes))?;
     enforce_rules(&compiled, &settings)?;
+    enforce_hinges(dir, &compiled)?;
     let mut pack = GamePack {
         name,
         batch_version: BATCH_VERSION,
@@ -192,7 +226,13 @@ pub fn build(dir: &Path, output: &Path, textures: Option<TextureMode>) -> Result
         cutscenes: compiled.cutscenes,
         names: compiled.names,
         settings: text,
-        assets: crate::bundle::assets(dir, game.room.as_deref(), game.hud.as_deref(), textures)?,
+        assets: crate::bundle::assets(
+            dir,
+            game.room.as_deref(),
+            &game.rooms,
+            game.hud.as_deref(),
+            textures,
+        )?,
     };
     pack.wasm = compile_logic(&dir.join(&game.logic), game.toolchain.as_deref())?;
     start(pack.clone(), 0).map_err(|e| Failure::new(e.code, format!("{}: {e}", dir.display())))?;
@@ -207,8 +247,9 @@ pub fn build(dir: &Path, output: &Path, textures: Option<TextureMode>) -> Result
             "wasm_bytes": pack.wasm.len(),
             "batch_version": pack.batch_version,
             "cutscenes": cutscenes,
-            "room": pack.assets.room.is_some(),
-            "collision": pack.assets.collision.is_some(),
+            "room": !pack.assets.rooms.is_empty(),
+            "rooms": pack.assets.rooms.iter().map(|r| &r.name).collect::<Vec<_>>(),
+            "collision": pack.assets.rooms.first().is_some_and(|r| r.collision.is_some()),
             "actors": pack.assets.actors.iter().map(|(n, _)| n).collect::<Vec<_>>(),
             "sounds": pack.assets.sounds.is_some(),
             "hud": pack.assets.hud.is_some(),

@@ -17,13 +17,15 @@ pub mod actor;
 pub mod collision;
 #[cfg(feature = "demo")]
 pub mod demo;
+pub mod scenery;
 pub mod script;
 pub mod sound;
+pub mod stream;
 
 pub const MAGIC: [u8; 4] = *b"SRMA";
-pub const VERSION: u32 = 5;
+pub const VERSION: u32 = 6;
 
-const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
+pub(crate) const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
 #[repr(C)]
 #[derive(
@@ -275,13 +277,117 @@ impl Stats {
     }
 }
 
+/// Draws and lights switched on and off together, such as one room of a
+/// house. A draw or light belongs to at most one group.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Group {
+    pub name: String,
+    /// Whether it is on when the room loads.
+    pub on: bool,
+    /// Indices into [`RoomPack::draws`].
+    pub draws: Vec<u32>,
+    /// Indices into [`RoomPack::lights`].
+    pub lights: Vec<u32>,
+}
+
+/// A named part of the room a game can show, hide, move or turn, drawn by
+/// its draws. A draw belongs to at most one node.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Node {
+    pub name: String,
+    /// The node's origin, column-major: moving or turning the node moves or
+    /// turns its draws about it.
+    pub pivot: [f32; 16],
+    /// Indices into [`RoomPack::draws`].
+    pub draws: Vec<u32>,
+    /// Whether it shows when the room loads; showing or hiding the node at
+    /// run time stands in for its draws' own `visible`.
+    pub visible: bool,
+    pub hinge: Option<Hinge>,
+}
+
+/// A node that turns about an axis through its pivot, such as a door leaf.
+/// Its draws are stored turned to `angle_deg`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Hinge {
+    /// Unit axis in the pivot's own frame.
+    pub axis: [f32; 3],
+    /// Degrees it is turned when the room loads, from its rest pose.
+    pub angle_deg: f32,
+}
+
+/// A piece of scenery with several looks, only one shown at a time.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Piece {
+    pub name: String,
+    /// The first is the look before any state is set, named `""`.
+    pub states: Vec<PieceState>,
+    /// Index into `states` of the look shown when the room loads.
+    pub state: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PieceState {
+    pub name: String,
+    /// Indices into [`RoomPack::draws`]; a draw is in at most one state of
+    /// one piece.
+    pub draws: Vec<u32>,
+}
+
+impl Stats {
+    /// [`Stats::of`] counting the draws shown when the room loads.
+    pub fn of_room(room: &RoomPack) -> Stats {
+        let shown = room.shown_at_load();
+        let draws: Vec<Draw> = (room.draws.iter().zip(shown))
+            .map(|(d, shown)| Draw {
+                visible: shown,
+                name: None,
+                ..d.clone()
+            })
+            .collect();
+        Stats::of(&room.meshes, &room.textures, &draws)
+    }
+}
+
+impl RoomPack {
+    /// Whether each draw shows when the room loads: its own `visible`, its
+    /// node's, its group on and its piece in the state holding it.
+    pub fn shown_at_load(&self) -> Vec<bool> {
+        let mut shown: Vec<bool> = self.draws.iter().map(|d| d.visible).collect();
+        for n in self.nodes.iter().filter(|n| !n.visible) {
+            for &d in &n.draws {
+                shown[d as usize] = false;
+            }
+        }
+        for g in self.groups.iter().filter(|g| !g.on) {
+            for &d in &g.draws {
+                shown[d as usize] = false;
+            }
+        }
+        for p in &self.pieces {
+            for (k, state) in p.states.iter().enumerate() {
+                if k != p.state as usize {
+                    for &d in &state.draws {
+                        shown[d as usize] = false;
+                    }
+                }
+            }
+        }
+        shown
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RoomPack {
     pub name: String,
     pub meshes: Vec<Mesh>,
     pub materials: Vec<Material>,
     pub textures: Vec<Texture>,
+    /// A draw is shown when its own `visible` is set, the node holding it,
+    /// if any, is visible, the group holding it is on, and the piece state
+    /// holding it, if any, is its piece's.
     pub draws: Vec<Draw>,
+    /// A light shines when the group holding it, if any, is on.
     pub lights: Vec<Light>,
     pub ambient: Ambient,
     pub sun: Option<Sun>,
@@ -289,6 +395,9 @@ pub struct RoomPack {
     pub look: Look,
     pub camera: RoomCamera,
     pub stats: Stats,
+    pub groups: Vec<Group>,
+    pub nodes: Vec<Node>,
+    pub pieces: Vec<Piece>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -375,15 +484,25 @@ pub fn decode(bytes: &[u8]) -> Result<RoomPack, FormatError> {
 }
 
 fn validate(room: &RoomPack) -> Result<(), FormatError> {
-    let invalid = |why: String| Err(FormatError::Invalid(why));
     for (i, mesh) in room.meshes.iter().enumerate() {
-        let vertices = mesh.vertices.len();
-        if let Some(&index) = mesh.indices.iter().find(|&&ix| ix as usize >= vertices) {
-            return invalid(format!(
-                "mesh {i} uses vertex {index} but has {vertices} vertices"
-            ));
-        }
+        validate_mesh(i, mesh)?;
     }
+    validate_rest(room)
+}
+
+pub(crate) fn validate_mesh(i: usize, mesh: &Mesh) -> Result<(), FormatError> {
+    let vertices = mesh.vertices.len();
+    match mesh.indices.iter().find(|&&ix| ix as usize >= vertices) {
+        Some(&index) => Err(FormatError::Invalid(format!(
+            "mesh {i} uses vertex {index} but has {vertices} vertices"
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// Everything [`validate`] checks but the meshes' own indices.
+pub(crate) fn validate_rest(room: &RoomPack) -> Result<(), FormatError> {
+    let invalid = |why: String| Err(FormatError::Invalid(why));
     for (i, material) in room.materials.iter().enumerate() {
         let textures = [material.base_color_texture, material.emissive_texture];
         if let Some(texture) = textures
@@ -440,7 +559,92 @@ fn validate(room: &RoomPack) -> Result<(), FormatError> {
             ));
         }
     }
+    validate_scenery(room).map_err(FormatError::Invalid)
+}
+
+/// Every index of the groups, nodes and pieces in range, each draw and
+/// light in at most one of each kind, names distinct within each table,
+/// pivots finite and hinge axes of unit length.
+fn validate_scenery(room: &RoomPack) -> Result<(), String> {
+    distinct("group", room.groups.iter().map(|g| g.name.as_str()))?;
+    distinct("node", room.nodes.iter().map(|n| n.name.as_str()))?;
+    distinct("piece", room.pieces.iter().map(|p| p.name.as_str()))?;
+    let groups = room
+        .groups
+        .iter()
+        .map(|g| (format!("group {}", g.name), &g.draws[..]));
+    once_each("draw", room.draws.len(), groups)?;
+    let lights = room
+        .groups
+        .iter()
+        .map(|g| (format!("group {}", g.name), &g.lights[..]));
+    once_each("light", room.lights.len(), lights)?;
+    let nodes = room
+        .nodes
+        .iter()
+        .map(|n| (format!("node {}", n.name), &n.draws[..]));
+    once_each("draw", room.draws.len(), nodes)?;
+    let states = room.pieces.iter().flat_map(|p| {
+        (p.states.iter())
+            .map(move |s| (format!("piece {} state {:?}", p.name, s.name), &s.draws[..]))
+    });
+    once_each("draw", room.draws.len(), states)?;
+    for n in &room.nodes {
+        if !n.pivot.iter().all(|v| v.is_finite()) {
+            return Err(format!("node {} has a pivot that is not finite", n.name));
+        }
+        if let Some(h) = &n.hinge {
+            let length2: f32 = h.axis.iter().map(|a| a * a).sum();
+            if !(h.angle_deg.is_finite() && (length2 - 1.0).abs() < 1e-3) {
+                return Err(format!(
+                    "node {} has hinge axis {:?} at {}°; the axis must be of unit length and the angle finite",
+                    n.name, h.axis, h.angle_deg
+                ));
+            }
+        }
+    }
+    for p in &room.pieces {
+        if p.state as usize >= p.states.len() {
+            return Err(format!(
+                "piece {} starts in state {} of {}",
+                p.name,
+                p.state,
+                p.states.len()
+            ));
+        }
+        let names = p.states.iter().map(|s| s.name.as_str());
+        distinct(&format!("state of piece {}", p.name), names)?;
+    }
     Ok(())
+}
+
+/// Each index of every list below `len`, and in at most one of the lists.
+fn once_each<'a>(
+    what: &str,
+    len: usize,
+    lists: impl Iterator<Item = (String, &'a [u32])>,
+) -> Result<(), String> {
+    let mut owner: Vec<Option<String>> = vec![None; len];
+    for (holder, list) in lists {
+        for &i in list {
+            let slot = (owner.get_mut(i as usize))
+                .ok_or_else(|| format!("{holder} holds {what} {i} but there are {len}"))?;
+            if let Some(first) = slot {
+                return Err(format!("{what} {i} is in both {first} and {holder}"));
+            }
+            *slot = Some(holder.clone());
+        }
+    }
+    Ok(())
+}
+
+fn distinct<'a>(what: &str, names: impl Iterator<Item = &'a str>) -> Result<(), String> {
+    let mut seen: Vec<&str> = names.collect();
+    seen.sort_unstable();
+    match seen.windows(2).find(|w| w[0] == w[1]) {
+        Some(w) => Err(format!("two {what}s are named {:?}", w[0])),
+        None => Ok(()),
+    }
 }
 
 // Real spherical harmonics up to band 2 in the order

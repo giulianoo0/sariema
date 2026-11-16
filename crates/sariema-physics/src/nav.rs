@@ -26,6 +26,8 @@ pub(crate) struct NavCtx<'a> {
     pub scene: &'a Scene,
     pub settings: &'a Settings,
     pub derived: &'a Derived,
+    /// Where across a grid is built, within the static bounds.
+    pub area: Option<Bounds>,
 }
 
 const STATIC: Filter = Filter {
@@ -68,6 +70,9 @@ pub(crate) struct NavGrid {
     /// Nodes joined by links, either way, share an island; a search between
     /// two islands has no path and is refused before it starts.
     island: Vec<u32>,
+    /// While the grid is built: columns whose nodes are joined to their
+    /// links, then, past the column count, given their island.
+    labelled: usize,
     dirty: Vec<Bounds>,
     g: Vec<f32>,
     parent: Vec<u32>,
@@ -92,7 +97,22 @@ const DIRS: [(i32, i32); 8] = [
 
 impl NavGrid {
     pub fn build(ctx: &NavCtx, collider: ActorCollider) -> NavGrid {
-        let bounds = ctx.scene.static_bounds();
+        let mut grid = NavGrid::start(ctx, collider);
+        let mut layers = Vec::new();
+        grid.grow(ctx, &mut layers, usize::MAX);
+        grid.finish();
+        grid
+    }
+
+    /// Where a grid starts across, and its columns along x and z.
+    pub fn extent(ctx: &NavCtx) -> ((f32, f32), usize, usize) {
+        let mut bounds = ctx.scene.static_bounds();
+        if let Some(area) = ctx.area {
+            bounds.min.x = bounds.min.x.max(area.min.x);
+            bounds.min.z = bounds.min.z.max(area.min.z);
+            bounds.max.x = bounds.max.x.min(area.max.x);
+            bounds.max.z = bounds.max.z.min(area.max.z);
+        }
         let cell = ctx.settings.nav.cell_size;
         let (nx, nz) = if bounds.is_empty() {
             (0, 0)
@@ -102,9 +122,16 @@ impl NavGrid {
                 ((bounds.max.z - bounds.min.z) / cell).ceil() as usize + 1,
             )
         };
+        ((bounds.min.x, bounds.min.z), nx, nz)
+    }
+
+    /// A grid none of whose columns is built yet.
+    pub fn start(ctx: &NavCtx, collider: ActorCollider) -> NavGrid {
+        let (origin, nx, nz) = NavGrid::extent(ctx);
+        let cell = ctx.settings.nav.cell_size;
         let mut grid = NavGrid {
             collider,
-            origin: (bounds.min.x, bounds.min.z),
+            origin,
             cell,
             nx,
             nz,
@@ -112,6 +139,7 @@ impl NavGrid {
             height: Vec::new(),
             node_column: Vec::new(),
             island: Vec::new(),
+            labelled: 0,
             dirty: Vec::new(),
             g: Vec::new(),
             parent: Vec::new(),
@@ -122,22 +150,29 @@ impl NavGrid {
             chain: Vec::new(),
             points: Vec::new(),
         };
-        let mut layers = Vec::new();
         grid.column.push(0);
-        for c in 0..nx * nz {
-            grid.floors(ctx, c, &mut layers);
-            grid.node_column
-                .extend(std::iter::repeat_n(c as u32, layers.len()));
-            grid.height.extend_from_slice(&layers);
-            grid.column.push(grid.height.len() as u32);
-        }
-        grid.scratch(ctx.settings.controller.step_height);
         grid
     }
 
-    fn scratch(&mut self, step: f32) {
+    /// Builds up to `columns` more columns, then labels the islands of as
+    /// many; true once every column is built and labelled.
+    pub fn grow(&mut self, ctx: &NavCtx, layers: &mut Vec<f32>, columns: usize) -> bool {
+        let built = self.column.len() - 1;
+        let end = (self.nx * self.nz).min(built.saturating_add(columns));
+        for c in built..end {
+            self.floors(ctx, c, layers);
+            self.node_column
+                .extend(std::iter::repeat_n(c as u32, layers.len()));
+            self.height.extend_from_slice(layers);
+            self.column.push(self.height.len() as u32);
+        }
+        end == self.nx * self.nz
+            && self.label(ctx.settings.controller.step_height, columns - (end - built))
+    }
+
+    /// Readies the search of a grid [`NavGrid::grow`] built.
+    pub fn finish(&mut self) {
         let n = self.height.len();
-        self.label_islands(step);
         self.g = vec![0.0; n];
         self.parent = vec![u32::MAX; n];
         self.seen = vec![0; n];
@@ -240,10 +275,15 @@ impl NavGrid {
         self.column = column;
         self.height = height;
         self.node_column = node_column;
-        self.scratch(ctx.settings.controller.step_height);
+        self.labelled = 0;
+        self.label(ctx.settings.controller.step_height, usize::MAX);
+        self.finish();
     }
 
-    fn label_islands(&mut self, step: f32) {
+    /// Joins the nodes of up to `columns` more columns to the nodes they
+    /// link to, then gives as many columns' nodes their island: the lowest
+    /// node joined to them, whatever the shares. True once all have one.
+    fn label(&mut self, step: f32, columns: usize) -> bool {
         fn root(of: &mut [u32], mut n: u32) -> u32 {
             while of[n as usize] != n {
                 of[n as usize] = of[of[n as usize] as usize];
@@ -251,20 +291,39 @@ impl NavGrid {
             }
             n
         }
-        let mut of: Vec<u32> = (0..self.height.len() as u32).collect();
-        for node in 0..self.height.len() as u32 {
-            let col = self.node_column[node as usize] as usize;
-            let (ix, iz) = ((col % self.nx) as i32, (col / self.nx) as i32);
-            for (dx, dz) in DIRS {
-                if let Some(next) = self.link(ix + dx, iz + dz, self.height[node as usize], step) {
-                    let (a, b) = (root(&mut of, node), root(&mut of, next));
-                    of[a.max(b) as usize] = a.min(b);
+        let total = self.nx * self.nz;
+        let end = (2 * total).min(self.labelled.saturating_add(columns));
+        if self.labelled == 0 && end > 0 {
+            self.island = (0..self.height.len() as u32).collect();
+        }
+        for k in self.labelled..end {
+            let c = k % total;
+            let nodes = self.column[c]..self.column[c + 1];
+            if k >= total {
+                for node in nodes {
+                    self.island[node as usize] = root(&mut self.island, node);
+                }
+                continue;
+            }
+            let (ix, iz) = ((c % self.nx) as i32, (c / self.nx) as i32);
+            for node in nodes {
+                for (dx, dz) in DIRS {
+                    let y = self.height[node as usize];
+                    if let Some(next) = self.link(ix + dx, iz + dz, y, step) {
+                        let a = root(&mut self.island, node);
+                        let b = root(&mut self.island, next);
+                        self.island[a.max(b) as usize] = a.min(b);
+                    }
                 }
             }
         }
-        self.island = (0..self.height.len() as u32)
-            .map(|n| root(&mut of, n))
-            .collect();
+        self.labelled = end;
+        end == 2 * total
+    }
+
+    #[cfg(test)]
+    pub fn islands(&self) -> Vec<u32> {
+        self.island.clone()
     }
 
     fn column_at(&self, x: f32, z: f32) -> Option<usize> {

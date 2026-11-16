@@ -6,14 +6,14 @@
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use sariema_core::Camera;
-use sariema_format::{AlphaMode, Shading};
+use sariema_format::{AlphaMode, Light, Shading};
 
 use crate::cluster::{self, Bins, Grid, Visible};
 use crate::lights::{GPU_LIGHT_SIZE, GpuLight, gpu_light};
-use crate::resources::{DrawUniform, Room};
+use crate::resources::DrawUniform;
 use crate::shadow::{self, Assigned, Shadows};
 use crate::table::{self, Table, Texel};
-use crate::{FrameStats, Gpu, Quality, RenderPath};
+use crate::{FrameStats, Gpu, Lighting, Quality, RenderPath, Stage};
 
 mod draw;
 
@@ -95,6 +95,11 @@ impl Kind {
         self.alpha == AlphaMode::Opaque
     }
 
+    /// Where an opaque kind's dithering pipeline is in `Scene::dithered`.
+    pub fn dither_index(self) -> usize {
+        self.lit as usize * 2 + self.double_sided as usize
+    }
+
     fn target(self) -> wgpu::ColorTargetState {
         let premultiplied = wgpu::BlendComponent {
             src_factor: wgpu::BlendFactor::One,
@@ -158,6 +163,8 @@ pub(crate) struct Scene {
     layouts: Layouts,
     /// Indexed by [`Kind::index`].
     pipelines: [wgpu::RenderPipeline; Kind::COUNT],
+    /// Opaque kinds that dither, indexed by [`Kind::dither_index`].
+    dithered: [wgpu::RenderPipeline; 4],
     background: wgpu::RenderPipeline,
     /// Indexed by `double_sided as usize`.
     depth_only: [wgpu::RenderPipeline; 2],
@@ -173,8 +180,9 @@ pub(crate) struct Scene {
     packed: Vec<GpuLight>,
     bins: Bins,
     sent: Uploads,
-    /// The room's draws in view, as [`Scene::order`] sorted them.
-    order: Vec<(u8, f32, u32)>,
+    /// The drawn rooms' draws in view, as [`Scene::order`] sorted them:
+    /// layer, distance, room slot and draw.
+    order: Vec<(u8, f32, u32, u32)>,
 }
 
 impl Scene {
@@ -201,14 +209,17 @@ impl Scene {
         let msaa = quality.msaa;
         let pipelines = std::array::from_fn(|i| {
             let vertex = ("vs_main", vertex_layout());
-            mesh_pipeline(
-                gpu,
-                &mesh_layout,
-                &module,
-                Kind::from_index(i),
-                quality,
-                vertex,
-            )
+            let kind = Kind::from_index(i);
+            mesh_pipeline(gpu, &mesh_layout, &module, kind, false, quality, vertex)
+        });
+        let dithered = std::array::from_fn(|i| {
+            let vertex = ("vs_main", vertex_layout());
+            let kind = Kind {
+                lit: i / 2 == 1,
+                alpha: AlphaMode::Opaque,
+                double_sided: i % 2 == 1,
+            };
+            mesh_pipeline(gpu, &mesh_layout, &module, kind, true, quality, vertex)
         });
         let background = gpu.pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("background"),
@@ -310,6 +321,7 @@ impl Scene {
             order: Vec::new(),
             layouts,
             pipelines,
+            dithered,
             background,
             depth_only,
             frame,
@@ -346,30 +358,25 @@ impl Scene {
         self.grid = Grid::new(width, height, quality);
     }
 
-    /// Orders the room's draws in view of `camera`; returns how many
+    /// Orders the drawn rooms' draws in view of `camera`; returns how many
     /// visible draws were left out as outside it.
-    pub fn cull(&mut self, room: Option<&Room>, camera: &Camera) -> u32 {
-        match room {
-            Some(room) => self.order(room, camera),
-            None => {
-                self.order.clear();
-                0
-            }
-        }
+    pub fn cull(&mut self, stage: &Stage, camera: &Camera) -> u32 {
+        self.order(stage, camera)
     }
 
     /// Bins the frame's `visible` lights, with their `shadows`, for `camera`
     /// and uploads what changed since the last frame.
+    #[allow(clippy::too_many_arguments)]
     pub fn prepare(
         &mut self,
         gpu: &Gpu,
-        room: Option<&Room>,
+        lights: &[Light],
+        lighting: Option<&Lighting>,
         camera: &Camera,
         time_s: f32,
         visible: &Visible,
         shadows: &Assigned,
     ) -> FrameStats {
-        let lights = room.map_or(&[][..], |r| &r.lights[..]);
         self.packed.clear();
         self.packed.extend(
             (visible.lights.iter().zip(&shadows.lights))
@@ -383,7 +390,7 @@ impl Scene {
             &visible.spheres,
             self.max_lights_per_cluster,
         );
-        let frame = frame_uniform(room, camera, &grid, shadows.sun);
+        let frame = frame_uniform(lighting, camera, &grid, shadows.sun);
         let sent = &mut self.sent;
         let tables = [
             (
@@ -448,7 +455,7 @@ struct Uploads {
 }
 
 fn frame_uniform(
-    room: Option<&Room>,
+    lighting: Option<&Lighting>,
     camera: &Camera,
     grid: &Grid,
     sun_shadow: Option<u32>,
@@ -456,19 +463,19 @@ fn frame_uniform(
     let mut sh = [[0.0; 4]; 9];
     let (mut sun_dir, mut sun_color) = ([0.0; 4], [0.0; 4]);
     let (mut bottom, mut top) = ([0.0; 4], [0.0; 4]);
-    if let Some(room) = room {
-        for (dst, src) in sh.iter_mut().zip(&room.ambient) {
+    if let Some(lighting) = lighting {
+        for (dst, src) in sh.iter_mut().zip(&lighting.ambient) {
             *dst = rgb_w(*src, 0.0);
         }
-        if let Some(sun) = &room.sun {
+        if let Some(sun) = &lighting.sun {
             let towards = Vec3::from(sun.direction).normalize_or_zero();
             sun_dir = towards
                 .extend(sun_shadow.map_or(-1.0, |slot| slot as f32))
                 .into();
             sun_color = rgb_w(sun.color.map(|c| c * sun.intensity), 0.0);
         }
-        bottom = rgb_w(room.background.bottom, 0.0);
-        top = rgb_w(room.background.top, 0.0);
+        bottom = rgb_w(lighting.background.bottom, 0.0);
+        top = rgb_w(lighting.background.top, 0.0);
     }
     let (scale, bias) = grid.slicing();
     FrameUniform {
@@ -620,6 +627,7 @@ pub(crate) fn mesh_pipeline(
     layout: &wgpu::PipelineLayout,
     module: &wgpu::ShaderModule,
     kind: Kind,
+    dither: bool,
     quality: &Quality,
     (entry_point, buffer): (&str, wgpu::VertexBufferLayout<'_>),
 ) -> wgpu::RenderPipeline {
@@ -629,6 +637,7 @@ pub(crate) fn mesh_pipeline(
         ("LIT", kind.lit as u8 as f64),
         ("BLEND", !kind.is_opaque() as u8 as f64),
         ("PCF_SIDE", pcf_side as f64),
+        ("DITHER", dither as u8 as f64),
     ];
     let options = wgpu::PipelineCompilationOptions {
         constants: &constants,

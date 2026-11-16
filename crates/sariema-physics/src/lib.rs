@@ -32,9 +32,11 @@ pub use actor::{ActorCollider, ActorDesc, Head, LocalBounds};
 pub use hull::{Hull, convex_hull};
 pub use intent::{ActorId, BlockReason, ColliderId, Event, EventKind, Intent, TriggerId};
 pub use math::{Bounds, forward, wrap_angle, yaw_matrix, yaw_of};
-pub use pack::{OwnedShape, actor_collider, spot_actor, visual_bounds};
+pub use pack::{
+    OwnedShape, WorldBuild, actor_collider, hinge_pose, hinge_turned, spot_actor, visual_bounds,
+};
 pub use query::{ClosestPoint, Occluder, RayHit, ShapeHit};
 pub use scene::Pose;
 pub use settings::{CollisionSettings, ControllerSettings, MoveToSettings, NavSettings, Settings};
 pub use shape::{Shape, ShapeError};
-pub use world::{ActorState, BuildError, ColliderDesc, World};
+pub use world::{ActorState, BuildError, ColliderDesc, GridBuild, World};

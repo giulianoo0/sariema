@@ -46,7 +46,11 @@ faded over at least `declick_s`, so nothing clicks.
 can be `on_demand`: decoded on `Audio::preload`, released on
 `Audio::unload` once no voice plays them. Music and long ambience are
 `stream`: only the compressed bytes stay in memory and a decoder fills a
-ring of `buffer_s` seconds ahead of the mixer. Decoded audio is converted to
+ring of `buffer_s` seconds ahead of the mixer. Opening a stream (its decoder
+and resampler) and filling that first ring takes a few milliseconds;
+`Audio::prepare` does it ahead of the play, which then takes the stream
+opened and only starts a voice, and `Audio::release_prepared` closes the
+ones no longer coming. Decoded audio is converted to
 the mixer rate on the decoding side with a Kaiser-windowed sinc; the
 mixer only reads audio at its own rate.
 

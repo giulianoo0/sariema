@@ -116,7 +116,7 @@ fn ended(how: Option<Interrupt>, skip: Option<u64>, mover: Mover) -> Option<(u64
     let mut assets = common::assets();
     let settings = match mover {
         Mover::Builtin => {
-            assets.collision = None;
+            assets.rooms[0].collision = None;
             Settings::default()
         }
         Mover::Collision => wired(),

@@ -2,21 +2,48 @@
 
 //! What a game pack carries besides its logic, decoded for the modules.
 
+use std::sync::Arc;
+
 use sariema_format::actor::ActorPack;
 use sariema_format::collision::CollisionPack;
-use sariema_format::script::{GameAssets, Hud};
+use sariema_format::scenery::RoomIndex;
+use sariema_format::script::{GameAssets, GameRoom, Hud};
 use sariema_format::sound::SoundBank;
 use sariema_runtime::game::LoadError;
 
 #[derive(Clone, Debug, Default)]
 pub struct Assets {
-    /// The room pack, for the host to draw; the engine does not read it.
-    pub room: Option<Vec<u8>>,
-    pub collision: Option<CollisionPack>,
+    /// The first is where the game starts.
+    pub rooms: Vec<RoomAssets>,
     /// By the name the game spawns them with.
     pub actors: Vec<(String, ActorPack)>,
     pub sounds: Option<SoundBank>,
     pub hud: Option<Hud>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RoomAssets {
+    pub name: String,
+    /// The room pack, for the host to draw; the engine does not read it.
+    pub room: Option<Arc<[u8]>>,
+    pub collision: Option<Arc<CollisionPack>>,
+    pub index: RoomIndex,
+    /// Rooms by index, nearest first.
+    pub neighbours: Vec<u32>,
+    /// Rooms by index drawn with this one, their geometry continuing it.
+    pub beside: Vec<u32>,
+    pub ambience: Option<String>,
+}
+
+impl RoomAssets {
+    /// A room only collided with, as tests and benches make them.
+    pub fn collision(name: &str, pack: CollisionPack) -> RoomAssets {
+        RoomAssets {
+            name: name.into(),
+            collision: Some(Arc::new(pack)),
+            ..RoomAssets::default()
+        }
+    }
 }
 
 impl Assets {
@@ -25,13 +52,27 @@ impl Assets {
             code,
             message: format!("game pack {what}: {e}"),
         };
-        let collision = match &assets.collision {
-            Some(bytes) => Some(
-                sariema_format::collision::decode(bytes)
-                    .map_err(|e| failed("collision", e.code(), &e))?,
-            ),
-            None => None,
-        };
+        let rooms = (assets.rooms.into_iter())
+            .map(|r: GameRoom| {
+                let collision = match &r.collision {
+                    Some(bytes) => {
+                        Some(Arc::new(sariema_format::collision::decode(bytes).map_err(
+                            |e| failed(&format!("room {} collision", r.name), e.code(), &e),
+                        )?))
+                    }
+                    None => None,
+                };
+                Ok(RoomAssets {
+                    name: r.name,
+                    room: r.room.map(Arc::from),
+                    collision,
+                    index: r.index,
+                    neighbours: r.neighbours,
+                    beside: r.beside,
+                    ambience: r.ambience,
+                })
+            })
+            .collect::<Result<Vec<_>, LoadError>>()?;
         let actors = assets
             .actors
             .iter()
@@ -49,11 +90,14 @@ impl Assets {
             None => None,
         };
         Ok(Assets {
-            room: assets.room,
-            collision,
+            rooms,
             actors,
             sounds,
             hud: assets.hud,
         })
+    }
+
+    pub fn collides(&self) -> bool {
+        self.rooms.first().is_some_and(|r| r.collision.is_some())
     }
 }

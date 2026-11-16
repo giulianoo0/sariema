@@ -53,6 +53,10 @@ cargo test -p sariema-web
 # Frame time of a game or one room, WebGL2, phone-sized (--browser webkit for WebKit)
 (cd packages/sariema-web && node test/bench.mjs --game dist/demo --backend webgl2 --viewport 390,844,3 --reps 3)
 (cd packages/sariema-web && node test/bench.mjs --pack /abs/room.srma --backend webgl2 --viewport 844,390,3 --reps 3)
+# Each frame's step, CPU, time since the last frame, passes and draws from
+# the first frame on, to see what a moment (a room switch) costs
+sariema web examples/rooms -o packages/sariema-web/dist/rooms
+(cd packages/sariema-web && node test/bench.mjs --game dist/rooms --backend webgl2 --timeline 800 --reps 1)
 
 # Serve dist/ (and the probe) locally; see "A phone" below for HTTPS
 (cd packages/sariema-web && npm run serve)      # http://127.0.0.1:8787/dist/probe/

@@ -114,6 +114,15 @@ struct Actor {
     active: bool,
 }
 
+/// A walkable grid being built a share at a time, by
+/// [`World::start_grid`].
+pub struct GridBuild {
+    grid: NavGrid,
+    layers: Vec<f32>,
+    /// The world's collider changes when it started.
+    changes: u64,
+}
+
 pub struct World {
     settings: Settings,
     derived: Derived,
@@ -121,6 +130,9 @@ pub struct World {
     triggers: Vec<Trigger>,
     actors: Vec<Actor>,
     navs: Vec<NavGrid>,
+    nav_bounds: Option<Bounds>,
+    /// Colliders switched on or off since the world was built.
+    collider_changes: u64,
     steps: u64,
     geometry_changed: bool,
     /// Colliders enabled since the last step, whose actors are pushed out next step.
@@ -141,15 +153,19 @@ impl Actor {
     }
 }
 
+pub(crate) fn tolerance(settings: &Settings) -> Tolerance {
+    Tolerance {
+        contact: settings.collision.contact_tolerance,
+        sweep: settings.collision.sweep_tolerance,
+        iterations: settings.collision.sweep_iterations,
+        tangent: settings.collision.tangent_tolerance,
+        flat: libm::cosf(settings.collision.flat_edge_deg.to_radians()),
+    }
+}
+
 impl World {
     pub fn new(settings: Settings, colliders: &[ColliderDesc]) -> Result<World, BuildError> {
-        let tol = Tolerance {
-            contact: settings.collision.contact_tolerance,
-            sweep: settings.collision.sweep_tolerance,
-            iterations: settings.collision.sweep_iterations,
-            tangent: settings.collision.tangent_tolerance,
-            flat: libm::cosf(settings.collision.flat_edge_deg.to_radians()),
-        };
+        let tol = tolerance(&settings);
         let new: Vec<NewCollider> = colliders
             .iter()
             .map(|c| NewCollider {
@@ -163,24 +179,37 @@ impl World {
             name: colliders[i].name.to_owned(),
             error,
         })?;
-        Ok(World {
+        Ok(World::with_scene(settings, scene))
+    }
+
+    pub(crate) fn with_scene(settings: Settings, scene: Scene) -> World {
+        World {
             derived: Derived::new(&settings),
             settings,
             scene,
             triggers: Vec::new(),
             actors: Vec::new(),
             navs: Vec::new(),
+            nav_bounds: None,
+            collider_changes: 0,
             steps: 0,
             geometry_changed: false,
             enabled_now: Vec::new(),
             order: Vec::new(),
             pushes: Vec::new(),
             inside: Vec::new(),
-        })
+        }
     }
 
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// Limits the walkable grids built from now on to `bounds` across, for
+    /// a room whose geometry reaches far around where actors walk; `None`
+    /// covers the static colliders' bounds.
+    pub fn set_nav_bounds(&mut self, bounds: Option<Bounds>) {
+        self.nav_bounds = bounds;
     }
 
     pub(crate) fn scene(&self) -> &Scene {
@@ -276,13 +305,66 @@ impl World {
         if let Some(nav) = self.actors[i].nav {
             return nav;
         }
-        let collider = self.actors[i].desc.collider;
-        let nav = match self.navs.iter().position(|n| n.collider == collider) {
-            Some(n) => n,
-            None => self.build_nav(collider),
-        };
+        let nav = self.prepare_grid(self.actors[i].desc.collider);
         self.actors[i].nav = Some(nav);
         nav
+    }
+
+    /// Builds the walkable grid of actors with `collider` before any is
+    /// added, so the first one added, mid-play, finds it built.
+    pub fn prepare_grid(&mut self, collider: ActorCollider) -> usize {
+        match self.navs.iter().position(|n| n.collider == collider) {
+            Some(n) => n,
+            None => self.build_nav(collider),
+        }
+    }
+
+    /// Starts building the walkable grid of actors with `collider` a share
+    /// at a time ([`World::grow_grid`], then [`World::finish_grid`]), or
+    /// `None` when it is built.
+    pub fn start_grid(&self, collider: ActorCollider) -> Option<GridBuild> {
+        if self.navs.iter().any(|n| n.collider == collider) {
+            return None;
+        }
+        Some(GridBuild {
+            grid: NavGrid::start(&self.nav_ctx(), collider),
+            layers: Vec::new(),
+            changes: self.collider_changes,
+        })
+    }
+
+    /// Builds up to `columns` more columns of `build`, then labels the
+    /// islands of as many; true once all are.
+    pub fn grow_grid(&self, build: &mut GridBuild, columns: usize) -> bool {
+        build.grid.grow(&self.nav_ctx(), &mut build.layers, columns)
+    }
+
+    /// Takes a grid [`World::grow_grid`] built whole, as
+    /// [`World::prepare_grid`] would have built it. A collider switched
+    /// while it was built has it built again here, whole.
+    pub fn finish_grid(&mut self, build: GridBuild) -> usize {
+        let collider = build.grid.collider;
+        if let Some(n) = self.navs.iter().position(|n| n.collider == collider) {
+            return n;
+        }
+        if build.changes != self.collider_changes {
+            return self.build_nav(collider);
+        }
+        let mut grid = build.grid;
+        grid.finish();
+        self.navs.push(grid);
+        self.navs.len() - 1
+    }
+
+    /// Walkable grids built so far, one per collider.
+    pub fn grids(&self) -> usize {
+        self.navs.len()
+    }
+
+    /// The columns each walkable grid has to build.
+    pub fn grid_columns(&self) -> usize {
+        let (_, nx, nz) = NavGrid::extent(&self.nav_ctx());
+        nx * nz
     }
 
     /// Whether a scripted move of `actor` to `target` would find a path
@@ -293,19 +375,25 @@ impl World {
             scene: &self.scene,
             settings: &self.settings,
             derived: &self.derived,
+            area: self.nav_bounds,
         };
         let from = self.actors[actor.0 as usize].position;
         self.navs[nav].find(&ctx, from, target, &mut Vec::new())
     }
 
     fn build_nav(&mut self, collider: ActorCollider) -> usize {
-        let ctx = NavCtx {
+        let grid = NavGrid::build(&self.nav_ctx(), collider);
+        self.navs.push(grid);
+        self.navs.len() - 1
+    }
+
+    fn nav_ctx(&self) -> NavCtx<'_> {
+        NavCtx {
             scene: &self.scene,
             settings: &self.settings,
             derived: &self.derived,
-        };
-        self.navs.push(NavGrid::build(&ctx, collider));
-        self.navs.len() - 1
+            area: self.nav_bounds,
+        }
     }
 
     pub fn actor(&self, id: ActorId) -> ActorState {
@@ -319,6 +407,22 @@ impl World {
             ground: a.ground.map(|g| ColliderId(g.collider)),
             moving_to: a.route.is_some() || a.move_to.is_some(),
         }
+    }
+
+    /// The actor's horizontal velocity and vertical speed, m/s: what its
+    /// next step accelerates from.
+    pub fn actor_velocity(&self, id: ActorId) -> (Vec3, f32) {
+        let a = &self.actors[id.0 as usize];
+        (a.velocity, a.vertical)
+    }
+
+    /// Sets what [`World::actor_velocity`] gives, for an actor carried over
+    /// from another world without losing its speed.
+    pub fn set_actor_velocity(&mut self, id: ActorId, velocity: Vec3, vertical: f32) {
+        let a = &mut self.actors[id.0 as usize];
+        a.velocity = velocity;
+        a.vertical = vertical;
+        a.awake = true;
     }
 
     pub fn actor_collider(&self, id: ActorId) -> ActorCollider {
@@ -366,6 +470,60 @@ impl World {
     /// Moves a platform; actors standing on it are carried in the next step.
     pub fn set_platform_pose(&mut self, collider: ColliderId, pose: Pose) {
         self.scene.set_pose(collider.0, pose);
+    }
+
+    /// Moves a platform to `pose`, through the poses between (the yaw
+    /// turned the way it differs, not the shorter way), unless that would
+    /// bring it within the collision skin of an actor: then it stays where
+    /// it was and the first actor in the way is given. A posed or inactive
+    /// actor is in no one's way. Unlike [`World::set_platform_pose`], it
+    /// never pushes an actor.
+    pub fn try_platform_pose(&mut self, collider: ColliderId, pose: Pose) -> Result<(), ActorId> {
+        let Some((from, moved_from)) = self.scene.kinematic(collider.0) else {
+            return Ok(());
+        };
+        let thinnest = (self.actors.iter())
+            .filter(|a| a.active && !a.posed)
+            .map(|a| a.desc.collider.radius)
+            .fold(f32::INFINITY, f32::min);
+        let turn = pose.yaw - from.yaw;
+        let travel = self.scene.platform_reach(collider.0) * turn.abs()
+            + (pose.translation - from.translation).length();
+        let samples = if thinnest.is_finite() {
+            (travel / thinnest).ceil().max(1.0) as u32
+        } else {
+            1
+        };
+        let only = Filter {
+            only: Some(collider.0),
+            ..Filter::ALL
+        };
+        let skin = self.settings.collision.skin;
+        for k in 1..=samples {
+            let t = k as f32 / samples as f32;
+            let at = if k == samples {
+                pose
+            } else {
+                Pose {
+                    translation: from.translation.lerp(pose.translation, t),
+                    yaw: from.yaw + turn * t,
+                }
+            };
+            self.scene.set_pose(collider.0, at);
+            for (i, a) in self.actors.iter().enumerate() {
+                if a.posed || !a.active {
+                    continue;
+                }
+                let probe = a.desc.collider.probe(a.position, a.yaw, 0.0);
+                let mut near = false;
+                self.scene.contacts(&probe, skin, only, |_, _| near = true);
+                if near {
+                    self.scene.put_back(collider.0, from, moved_from);
+                    return Err(ActorId(i as u32));
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn platform_pose(&self, collider: ColliderId) -> Option<Pose> {
@@ -453,6 +611,7 @@ impl World {
         c.enabled = enabled;
         let bounds = c.bounds;
         self.geometry_changed = true;
+        self.collider_changes += 1;
         for nav in &mut self.navs {
             nav.mark_dirty(bounds);
         }
@@ -841,6 +1000,7 @@ impl World {
             scene: &self.scene,
             settings: &self.settings,
             derived: &self.derived,
+            area: self.nav_bounds,
         };
         let a = &mut self.actors[i];
         let found = self.navs[nav].find(&ctx, a.position, target, &mut a.path);
@@ -1058,6 +1218,7 @@ impl World {
             scene: &self.scene,
             settings: &self.settings,
             derived: &self.derived,
+            area: self.nav_bounds,
         };
         self.navs[nav].find(&ctx, from, to, out)
     }
@@ -1096,5 +1257,59 @@ impl Fnv {
         self.f32(v.x);
         self.f32(v.y);
         self.f32(v.z);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use glam::{Mat3, Vec3};
+
+    use super::*;
+
+    /// Two 6 m floors 1 m apart: two islands.
+    fn two_floors() -> World {
+        let floor = |name, x: f32| ColliderDesc {
+            name,
+            shape: Shape::Box {
+                center: Vec3::new(x, -0.1, 0.0),
+                half_extents: Vec3::new(3.0, 0.1, 3.0),
+                rotation: Mat3::IDENTITY,
+            },
+            enabled: true,
+            platform: None,
+        };
+        World::new(
+            Settings::default(),
+            &[floor("west", -3.5), floor("east", 3.5)],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_grid_is_labelled_into_islands_in_its_shares_not_when_finished() {
+        let whole = {
+            let mut world = two_floors();
+            let n = world.prepare_grid(ActorCollider::default());
+            world.navs[n].islands()
+        };
+        let world = two_floors();
+        let mut build = world.start_grid(ActorCollider::default()).unwrap();
+        let columns = world.grid_columns();
+        let mut shares = 0;
+        while !world.grow_grid(&mut build, 97) {
+            shares += 1;
+        }
+        assert!(
+            shares > columns / 97,
+            "{shares} shares of {columns} columns"
+        );
+        assert_eq!(build.grid.islands(), whole);
+        assert_eq!(
+            whole
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            2
+        );
     }
 }

@@ -3,22 +3,27 @@
 //! The collision stage of a step: the runtime's actors as the collision
 //! module's actors, its movement intents carried out with collision, and the
 //! poses and events that come back written into the world before the
-//! no-jump measurement judges them.
+//! no-jump measurement judges them. A hinged collider turns with its room's
+//! scene parameter `hinge.<node>`, to the value the parameter's tween is
+//! about to write, unless an actor stands in the way: then the tween waits
+//! a step and the game hears `hinge_blocked`.
 
 use std::f32::consts::PI;
+use std::sync::Arc;
 
 use glam::{Quat, Vec2, Vec3};
 use sariema_core::STEP_SECONDS;
 use sariema_format::collision::{CollisionPack, Traversal};
-use sariema_format::script::{Anchor, Command, Controller, Entity, Event, Kind, name_id};
+use sariema_format::script::{Anchor, Command, Controller, Entity, Event, Kind, Property, name_id};
 use sariema_physics::{
-    ActorCollider, ActorDesc, ActorId, ColliderId, EventKind, Intent, World, actor_collider,
-    wrap_angle,
+    ActorCollider, ActorDesc, ActorId, ColliderId, EventKind, Intent, World, WorldBuild,
+    actor_collider, hinge_turned, wrap_angle,
 };
 use sariema_runtime::events::Happening;
 use sariema_runtime::motion::Goal;
 use sariema_runtime::outbox::PhysicsIntent;
 use sariema_runtime::state::State;
+use sariema_runtime::tween::Target;
 
 use crate::anim::Animation;
 use crate::settings::EngineSettings;
@@ -75,8 +80,9 @@ impl Traversing {
 
 pub struct Physics {
     pub world: World,
-    pack: CollisionPack,
+    pack: Arc<CollisionPack>,
     bodies: Vec<(u32, ActorCollider)>,
+    colliders: Vec<ActorCollider>,
     /// By entity slot.
     actors: Vec<Option<Mapped>>,
     /// The entity each collision actor stands for; NONE while it waits in
@@ -91,22 +97,94 @@ pub struct Physics {
     spare: Vec<Traversing>,
     intents: Vec<PhysicsIntent>,
     events: Vec<sariema_physics::Event>,
+    swings: Vec<Swing>,
     knockback_s: f32,
     contact_blend: f32,
     /// Degrees per step.
     max_turn: f32,
 }
 
+/// A hinged collider and the scene parameter that turns it.
+struct Swing {
+    collider: ColliderId,
+    /// Index into the pack's hinges.
+    hinge: usize,
+    /// `hinge.<node>`, the node named like the collider.
+    param: u32,
+    /// Degrees from closed it is turned now.
+    angle: f32,
+    /// The entity it stopped short of, while it stays stopped.
+    blocked: Option<Entity>,
+}
+
+/// A room's collision built a share at a time ([`Physics::start`]).
+pub struct PhysicsBuild {
+    world: WorldBuild<Arc<CollisionPack>>,
+    pack: Arc<CollisionPack>,
+    knockback_s: f32,
+    contact_blend: f32,
+    turn_rate: f32,
+}
+
+impl PhysicsBuild {
+    /// Builds on until about `units` of the world's work are spent
+    /// ([`WorldBuild::advance`]); the collision once it is built.
+    pub fn advance(&mut self, units: usize) -> Result<Option<Physics>, String> {
+        let Some(world) = self.world.advance(units).map_err(|e| e.to_string())? else {
+            return Ok(None);
+        };
+        Ok(Some(Physics::with_world(world, self)))
+    }
+}
+
 impl Physics {
     pub fn new(
-        pack: CollisionPack,
+        pack: Arc<CollisionPack>,
         settings: &EngineSettings,
         turn_rate: f32,
     ) -> Result<Physics, String> {
+        let mut build = Physics::start(pack, settings, turn_rate);
+        loop {
+            if let Some(physics) = build.advance(usize::MAX)? {
+                return Ok(physics);
+            }
+        }
+    }
+
+    /// Starts building the collision of `pack` a share at a time: the
+    /// collision [`Physics::new`] gives.
+    pub fn start(
+        pack: Arc<CollisionPack>,
+        settings: &EngineSettings,
+        turn_rate: f32,
+    ) -> PhysicsBuild {
         let mut physics = settings.physics.clone();
         physics.step_seconds = STEP_SECONDS;
         physics.controller.max_yaw_speed = turn_rate.to_radians();
-        let world = World::from_pack(physics, &pack).map_err(|e| e.to_string())?;
+        PhysicsBuild {
+            world: World::build_from_pack(physics, pack.clone()),
+            pack,
+            knockback_s: settings.knockback_s,
+            contact_blend: settings.contact_blend,
+            turn_rate,
+        }
+    }
+
+    fn with_world(world: World, build: &PhysicsBuild) -> Physics {
+        let pack = build.pack.clone();
+        let turn_rate = build.turn_rate;
+        let bodies: Vec<(u32, ActorCollider)> = (pack.actors.iter())
+            .map(|b| (name_id(&b.name), actor_collider(b)))
+            .collect();
+        let mut colliders: Vec<ActorCollider> = Vec::new();
+        for (_, collider) in &bodies {
+            if !colliders.contains(collider) {
+                colliders.push(*collider);
+            }
+        }
+        if colliders.is_empty() {
+            colliders.push(ActorCollider::default());
+        }
         let longest = |n: fn(&Traversal) -> usize| pack.traversals.iter().map(n).max();
         let spare = match (
             longest(|t| t.points.len() + 1),
@@ -115,13 +193,22 @@ impl Physics {
             (Some(points), Some(contacts)) => vec![Traversing::with_capacity(points, contacts)],
             _ => Vec::new(),
         };
-        Ok(Physics {
+        let swings = (pack.hinges.iter().enumerate())
+            .map(|(k, h)| Swing {
+                collider: ColliderId(h.collider),
+                hinge: k,
+                param: name_id(&format!(
+                    "hinge.{}",
+                    pack.colliders[h.collider as usize].name
+                )),
+                angle: h.angle_deg,
+                blocked: None,
+            })
+            .collect();
+        Physics {
             world,
-            bodies: pack
-                .actors
-                .iter()
-                .map(|b| (name_id(&b.name), actor_collider(b)))
-                .collect(),
+            bodies,
+            colliders,
             triggers: pack.triggers.iter().map(|t| name_id(&t.name)).collect(),
             switched: vec![Entity::NONE; pack.colliders.len()],
             pack,
@@ -132,10 +219,17 @@ impl Physics {
             spare,
             intents: Vec::new(),
             events: Vec::new(),
-            knockback_s: settings.knockback_s,
-            contact_blend: settings.contact_blend,
+            swings,
+            knockback_s: build.knockback_s,
+            contact_blend: build.contact_blend,
             max_turn: turn_rate * STEP_SECONDS,
-        })
+        }
+    }
+
+    /// The colliders actors take in this world, each needing its walkable
+    /// grid: the bodies', or the default one when there is none.
+    pub fn colliders(&self) -> &[ActorCollider] {
+        &self.colliders
     }
 
     pub fn step(&mut self, s: &mut State, anim: &mut Animation) {
@@ -163,6 +257,7 @@ impl Physics {
         }
         self.drive_hero(s);
         self.traverse(s, anim);
+        self.swing(s);
         self.events.clear();
         self.world.step(&mut self.events);
         self.write_back(s);
@@ -192,6 +287,50 @@ impl Physics {
         }
     }
 
+    /// Turns each hinged collider to the angle its parameter is about to
+    /// take, or holds the parameter where the collider stays.
+    fn swing(&mut self, s: &mut State) {
+        let rest = s.settings.spring_rest;
+        for k in 0..self.swings.len() {
+            let w = &self.swings[k];
+            let target = Target {
+                entity: Entity::NONE,
+                property: Property::Scene,
+                var: w.param,
+            };
+            let wanted = match s.tweens.peek(&target, rest) {
+                Some(next) => next,
+                None => match s.scenery.param(w.param) {
+                    Ok(now) => now,
+                    Err(_) => continue,
+                },
+            };
+            if wanted == w.angle {
+                continue;
+            }
+            let pose = hinge_turned(&self.pack.hinges[w.hinge], wanted);
+            match self.world.try_platform_pose(w.collider, pose) {
+                Ok(()) => {
+                    self.swings[k].angle = wanted;
+                    self.swings[k].blocked = None;
+                }
+                Err(actor) => {
+                    let (param, angle) = (w.param, w.angle);
+                    s.tweens.hold(&target);
+                    let _ = s.scenery.set_param(param, angle);
+                    let entity = self.owners[actor.0 as usize];
+                    if self.swings[k].blocked != Some(entity) {
+                        self.swings[k].blocked = Some(entity);
+                        s.events.push(Event::HingeBlocked {
+                            hinge: param,
+                            entity,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     /// The teleports and stops the runtime gave after this step's collision
     /// stage, putting back a move that jumped, for the module to know before
     /// the next step.
@@ -202,6 +341,48 @@ impl Physics {
                 PhysicsIntent::Teleport { .. } | PhysicsIntent::Stop { .. }
             ) {
                 self.halt(s, intent);
+            }
+        }
+    }
+
+    /// Hands every actor to `next`, the world of the room switched to: it
+    /// leaves this one, whose triggers it exits as the game hears, and
+    /// enters `next` where the runtime has it, with its velocity, walking
+    /// on to its goal.
+    pub(crate) fn hand_over(&mut self, next: &mut Physics, s: &mut State) {
+        let carried: Vec<(Entity, (Vec3, f32))> = (self.actors.iter().flatten())
+            .map(|m| (m.entity, self.world.actor_velocity(m.id)))
+            .collect();
+        self.events.clear();
+        for m in self.actors.iter().flatten() {
+            self.world.set_actor_active(m.id, false, &mut self.events);
+        }
+        self.report(s);
+        self.events.clear();
+        for i in 0..self.actors.len() {
+            if let Some(m) = self.actors[i].take() {
+                self.retire(m);
+            }
+        }
+        next.track(s);
+        for &(entity, (velocity, vertical)) in &carried {
+            if let Some(m) = next.mapped(entity) {
+                let id = m.id;
+                next.world.set_actor_velocity(id, velocity, vertical);
+            }
+        }
+        for (entity, _) in carried {
+            match s.motion.get(entity).map(|m| m.goal) {
+                Some(Goal::To { target, speed }) => next.apply(
+                    s,
+                    PhysicsIntent::MoveTo {
+                        entity,
+                        target,
+                        speed,
+                    },
+                ),
+                Some(Goal::Velocity(v)) => next.velocity(s, entity, v),
+                Some(Goal::Idle) | None => {}
             }
         }
     }
@@ -298,7 +479,6 @@ impl Physics {
                 ..ActorDesc::default()
             })
             .expect("bodies from a valid collision pack are valid");
-        self.world.prepare_paths(id);
         self.owners.push(Entity::NONE);
         id
     }

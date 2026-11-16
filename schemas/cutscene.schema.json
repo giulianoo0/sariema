@@ -986,6 +986,56 @@
             "camera_shake"
           ],
           "description": "Shakes the camera, dying out over its duration: an impact. Ends at once."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hinge": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "node": {
+                  "$ref": "#/$defs/name",
+                  "description": "The hinged node as the room names it, <room>.<piece>_<hinge>; its scene parameter hinge.<node> is what turns."
+                },
+                "role": {
+                  "$ref": "#/$defs/name"
+                },
+                "clip": {
+                  "$ref": "#/$defs/name"
+                },
+                "span": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/seconds"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "description": "Seconds of the clip the turn starts and ends at."
+                },
+                "to": {
+                  "type": "number",
+                  "description": "Degrees from closed."
+                },
+                "ease": {
+                  "$ref": "#/$defs/ease",
+                  "default": "in_out_sine"
+                }
+              },
+              "required": [
+                "node",
+                "role",
+                "clip",
+                "span",
+                "to"
+              ]
+            }
+          },
+          "required": [
+            "hinge"
+          ],
+          "description": "Turns a hinged node (a door or window leaf) with the time of a role's clip, from the angle it holds when the step starts to `to` over `span`; the collider turns with it and stops short of an actor in its swing. Waits for the role to play the clip and ends once the clip is past the span's end. Put it in a parallel with the clip."
         }
       ]
     }

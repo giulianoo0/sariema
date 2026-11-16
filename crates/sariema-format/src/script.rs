@@ -23,14 +23,15 @@ mod wire;
 pub use table::{BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Event};
 pub use wire::{
     Advance, Anchor, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,
-    MessageSpec, Orientation, Property, Reader, Sink, Str, Value, VariantSpec, Vec3, Wire,
-    WireError, name_id,
+    MessageSpec, Orientation, Property, Reader, RoomTransition, Sink, Str, Value, VariantSpec,
+    Vec3, Wire, WireError, name_id,
 };
 
+use crate::scenery::RoomIndex;
 use cutscene::{Await, Block, Cutscene, Place, Point, Shot, Toward};
 
 pub const GAME_MAGIC: [u8; 4] = *b"SRMG";
-pub const GAME_VERSION: u32 = 2;
+pub const GAME_VERSION: u32 = 3;
 
 const HEADER_LEN: usize = GAME_MAGIC.len() + size_of::<u32>();
 
@@ -53,17 +54,52 @@ pub struct GamePack {
 /// file runs it on every host.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GameAssets {
-    /// The room it plays in, an encoded room pack (`SRMA`).
-    pub room: Option<Vec<u8>>,
-    /// That room's collision pack (`SRMC`); with it the engine moves actors
-    /// with collision instead of the runtime's built-in mover.
-    pub collision: Option<Vec<u8>>,
+    /// The rooms it plays in, the first where it starts. Every room has a
+    /// collision pack or none has.
+    pub rooms: Vec<GameRoom>,
     /// Encoded actor packs (`SRMK`) by name; an entity spawned with the
     /// name's id as its `asset` is drawn and animated with it.
     pub actors: Vec<(String, Vec<u8>)>,
     /// The sound bank (`SRMS`).
     pub sounds: Option<Vec<u8>>,
     pub hud: Option<Hud>,
+}
+
+/// A room of a game pack: what the host draws, what the engine collides
+/// with, and what the step addresses by name.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GameRoom {
+    pub name: String,
+    /// The encoded room pack (`SRMA`), which the engine never decodes: the
+    /// host does, off the step.
+    pub room: Option<Vec<u8>>,
+    /// The room's collision pack (`SRMC`); with it the engine moves actors
+    /// with collision instead of the runtime's built-in mover.
+    pub collision: Option<Vec<u8>>,
+    /// The room's groups, nodes, pieces, lights and scene parameters.
+    pub index: RoomIndex,
+    /// The rooms, by index, a host keeps loaded while this one is active,
+    /// nearest first.
+    pub neighbours: Vec<u32>,
+    /// The rooms, by index, whose geometry continues this one's, drawn with
+    /// it whole and lit by their own lights while loaded: walking from one
+    /// into the other shows no edge.
+    pub beside: Vec<u32>,
+    /// A sound of the bank looped while the room is active, crossfaded with
+    /// the next room's at a switch.
+    pub ambience: Option<String>,
+}
+
+impl GameRoom {
+    /// `room` encoded and indexed, with no collision, neighbour or ambience.
+    pub fn of(name: &str, room: &crate::RoomPack) -> GameRoom {
+        GameRoom {
+            name: name.into(),
+            room: Some(crate::encode(room)),
+            index: RoomIndex::of(room),
+            ..GameRoom::default()
+        }
+    }
 }
 
 /// The HUD: a UI description and the files it names.
@@ -162,12 +198,48 @@ pub fn decode_game(bytes: &[u8]) -> Result<GamePack, GameFormatError> {
         });
     }
     validate_names(&game.names)?;
+    validate_rooms(&game.assets.rooms).map_err(GameFormatError::Invalid)?;
     for cutscene in &game.cutscenes {
         validate_cutscene(cutscene).map_err(|why| {
             GameFormatError::Invalid(format!("cutscene {}: {why}", cutscene.name))
         })?;
     }
     Ok(game)
+}
+
+fn validate_rooms(rooms: &[GameRoom]) -> Result<(), String> {
+    let mut ids: Vec<(u32, &str)> = rooms
+        .iter()
+        .map(|r| (name_id(&r.name), r.name.as_str()))
+        .collect();
+    ids.sort_unstable();
+    if let Some(pair) = ids.windows(2).find(|p| p[0].0 == p[1].0) {
+        return Err(format!(
+            "rooms {:?} and {:?} have the same id",
+            pair[0].1, pair[1].1
+        ));
+    }
+    for (i, room) in rooms.iter().enumerate() {
+        if let Some(&n) = (room.neighbours.iter().chain(&room.beside))
+            .find(|&&n| n as usize >= rooms.len() || n as usize == i)
+        {
+            return Err(format!(
+                "room {} has neighbour {n} of {} rooms",
+                room.name,
+                rooms.len()
+            ));
+        }
+        if room.collision.is_some() != rooms[0].collision.is_some() {
+            let (with, without) = match room.collision {
+                Some(_) => (&room.name, &rooms[0].name),
+                None => (&rooms[0].name, &room.name),
+            };
+            return Err(format!(
+                "room {with} has a collision pack and room {without} has none; every room has one or none has"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn validate_names(names: &[String]) -> Result<(), GameFormatError> {
@@ -388,6 +460,22 @@ fn validate_block(block: &Block, roles: usize) -> Result<(), String> {
             finite("shake amplitude", *amplitude)?;
             finite("shake frequency", *frequency)?;
             seconds("shake duration", *duration)
+        }
+        Block::Hinge {
+            role: r,
+            span,
+            to,
+            ease,
+            ..
+        } => {
+            role(*r)?;
+            seconds("hinge span start", span[0])?;
+            seconds("hinge span end", span[1])?;
+            if span[1] <= span[0] {
+                return Err(format!("hinge span {span:?} ends before it starts"));
+            }
+            finite("hinge angle", *to)?;
+            known("ease", Ease::from_u8(*ease).is_some())
         }
     }
 }

@@ -21,7 +21,7 @@ use common::{native, send};
 
 fn bare<L: Logic>(logic: L, settings: EngineSettings) -> Engine<L> {
     let mut assets = common::assets();
-    assets.collision = None;
+    assets.rooms[0].collision = None;
     let sim = Simulation::new(Settings::default(), Vec::new(), logic, 1);
     Engine::new(sim, assets, settings).unwrap()
 }

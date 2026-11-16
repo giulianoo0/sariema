@@ -96,6 +96,9 @@ pub struct SoundSettings {
     /// open as a stream, any music request); one past it is refused with
     /// `E_AUDIO_QUEUE_FULL`.
     pub pending: usize,
+    /// Seconds over which a room's ambience fades into the next room's when
+    /// a switch has no duration of its own (a cut).
+    pub ambience_fade_s: f32,
 }
 
 impl Default for SoundSettings {
@@ -108,6 +111,7 @@ impl Default for SoundSettings {
             stream_thread: false,
             predecode_streams: false,
             pending: 16,
+            ambience_fade_s: 0.5,
         }
     }
 }

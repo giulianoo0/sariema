@@ -5,7 +5,7 @@ mod common;
 use common::{Owned, Room, actor, settle};
 use glam::{Mat3, Vec2, Vec3};
 use sariema_physics::{
-    ActorCollider, ActorId, BlockReason, EventKind, Intent, Settings, World, wrap_angle,
+    ActorCollider, ActorId, BlockReason, Bounds, EventKind, Intent, Settings, World, wrap_angle,
 };
 
 /// A 12 m square room cut in two by a wall along z = 0 with a 0.8 m door at
@@ -329,4 +329,77 @@ fn a_refused_teleport_leaves_the_walk_going() {
         Vec2::new(a.position.x - target.x, a.position.z - target.z).length() <= 0.02 + 1e-4,
         "{a:?}"
     );
+}
+
+#[test]
+fn a_grid_built_a_share_at_a_time_is_the_grid_built_whole() {
+    let start = Vec3::new(2.0, 0.0, -1.0);
+    let target = Vec3::new(-3.5, 0.16, -3.5);
+    let cells_and_path = |world: &mut World| {
+        let id = actor(world, start);
+        let cells: Vec<Vec3> = world.walkable_cells(id).collect();
+        let mut path = Vec::new();
+        assert!(world.find_path(id, start, target, &mut path));
+        (cells, path)
+    };
+    let whole = cells_and_path(&mut fixture().world(Settings::default()));
+
+    let mut world = fixture().world(Settings::default());
+    let mut build = world.start_grid(ActorCollider::default()).unwrap();
+    let mut shares = 1;
+    while !world.grow_grid(&mut build, 97) {
+        shares += 1;
+    }
+    world.finish_grid(build);
+    assert!(shares > 10, "{shares} shares");
+    assert!(world.start_grid(ActorCollider::default()).is_none());
+    assert_eq!(cells_and_path(&mut world), whole);
+    assert_eq!(world.grids(), 1, "the actor found the grid built");
+}
+
+#[test]
+fn a_grid_finished_after_a_collider_changed_sees_the_change() {
+    let open = |world: &mut World| {
+        let wall = world.collider_by_name("split_w").unwrap();
+        world.apply(Intent::SetColliderEnabled {
+            collider: wall,
+            enabled: false,
+        });
+    };
+    let start = Vec3::new(2.0, 0.0, -1.0);
+    let mut built = fixture().world(Settings::default());
+    open(&mut built);
+    let id = actor(&mut built, start);
+    let opened: Vec<Vec3> = built.walkable_cells(id).collect();
+
+    let mut world = fixture().world(Settings::default());
+    let mut build = world.start_grid(ActorCollider::default()).unwrap();
+    assert!(
+        !world.grow_grid(&mut build, 15_000),
+        "the columns of the wall built, not all"
+    );
+    open(&mut world);
+    while !world.grow_grid(&mut build, 97) {}
+    world.finish_grid(build);
+    let id = actor(&mut world, start);
+    assert_eq!(world.walkable_cells(id).collect::<Vec<_>>(), opened);
+}
+
+#[test]
+fn a_grid_covers_only_the_nav_bounds() {
+    let start = Vec3::new(3.0, 0.0, 3.0);
+    let mut world = fixture().world(Settings::default());
+    world.set_nav_bounds(Some(Bounds {
+        min: Vec3::new(-1.0, -1.0, 1.0),
+        max: Vec3::new(5.0, 3.0, 5.0),
+    }));
+    let id = actor(&mut world, start);
+    let cells: Vec<Vec3> = world.walkable_cells(id).collect();
+    assert!(cells.len() > 1000, "{} cells", cells.len());
+    let inside = |c: &Vec3| (-1.0..=5.0).contains(&c.x) && (1.0..=5.0).contains(&c.z);
+    let outside: Vec<&Vec3> = cells.iter().filter(|c| !inside(c)).take(5).collect();
+    assert!(outside.is_empty(), "cells out of the bounds: {outside:?}");
+    let mut path = Vec::new();
+    assert!(world.find_path(id, start, Vec3::new(4.5, 0.0, 4.5), &mut path));
+    assert!(!world.find_path(id, start, Vec3::new(-4.0, 0.0, 4.0), &mut path));
 }

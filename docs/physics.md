@@ -16,12 +16,16 @@ The public API takes and returns `glam` types and plain ids. It depends on
 ### World, colliders and triggers
 
 A `World` is built from colliders (`World::new`, or `World::from_pack` for a
-collision pack). A collider is a box, sphere, capsule, convex hull or
-two-sided triangle mesh, static or a platform whose pose the game sets each
-step. Colliders can be enabled and disabled (a door that opens, a piece that
-appears); a disabled one blocks nothing and the walkable grid around it is
-rebuilt on the next search. Triggers are named volumes of the same shapes that
-report actors entering and leaving.
+collision pack, which `World::build_from_pack` builds a share at a time:
+`WorldBuild::advance(units)` adds colliders, then folds, sorts and writes
+the tree over their parts, and gives the world `from_pack` would). A
+collider is a box, sphere, capsule, convex hull or two-sided triangle mesh,
+static or a platform whose pose the game sets each step; a collision pack's
+hinged collider (a door leaf) is a platform that turns about its hinge (see
+"Hinged leaves"). Colliders can be enabled and disabled (a door that opens,
+a piece that appears); a disabled one blocks nothing and the walkable grid
+around it is rebuilt on the next search. Triggers are named volumes of the
+same shapes that report actors entering and leaving.
 
 Shapes are decomposed at build time into triangles and rounded segments
 (sphere and capsule), plus the face planes of solid shapes so the inside of a
@@ -123,8 +127,16 @@ times.
 
 ### Paths and scripted moves
 
-Each actor collider shape gets a walkable grid, built on first use or by
-`World::prepare_paths` while loading. Like Recast's heightfield, each grid
+Each actor collider shape gets a walkable grid, built on first use, or ahead
+by `World::prepare_paths` (for an actor) or `World::prepare_grid` (for a
+collider no actor has yet). `World::start_grid`, `grow_grid` and
+`finish_grid` build one a share of its columns at a time, then join a share
+of its columns' floors into islands at a time, and give the grid
+`prepare_grid` would (an island is named by its lowest floor, whatever the
+shares); a collider switched on or off meanwhile has it built
+again, whole, when it is finished. The engine builds the grid of each body of
+a room's collision pack with the room's world, off the step
+(`docs/rooms.md`). Like Recast's heightfield, each grid
 column holds the floors where the actor stands (up to `max_layers`), found by
 casting down; unlike Recast, a floor is accepted by placing the actor's own
 collider there, raised by the step height so ledges it can step onto do not
@@ -132,6 +144,16 @@ block, instead of eroding voxels by a radius. A floor with anything right
 above it within the step height (the ground inside a dais) is no floor.
 Neighbouring floors within the step height are linked; linked floors are
 grouped into islands, so a search between islands is refused in constant time.
+
+A grid covers the static colliders' bounds, a column per `nav.cell_size`
+square: the cost of a room's grid grows with how far its geometry reaches,
+not with where actors walk. A room with scenery far around the walk (a
+ground plane, a backdrop) declares `collision.nav_bounds`, the box in x and
+z where its grids are built (`World::set_nav_bounds`); a path to a target
+outside it is refused. `sariema inspect <room>.srmc` prints the columns a
+grid has. A tree-house room whose ground reaches 470 m across has 22.2
+million columns, 17–32 s for one body; within its 40 × 25 m of walls,
+100,651 columns, 0.37 s.
 `World::reachable(actor, target)` runs the same search without moving the
 actor: the engine asks it when a skipped cutscene walk would have landed the
 actor somewhere no path leads.
@@ -175,9 +197,11 @@ body over geometry it could never walk through. They follow five rules.
    traversal or at rest.
 5. **Hinged set pieces are moving colliders.** A window leaf or a door that
    the actor opens is a platform collider, with its hinge at the origin of
-   its own frame. The game sets its `Pose` yaw each step from the same clip
-   time that drives the actor. The leaf swings over the clip's frames and
-   never pops open, and actors and queries see it where it is drawn.
+   its own frame, turned from the same value that turns the leaf drawn: a
+   game's tween, or a cutscene's `hinge` step on the clock of the actor's
+   clip. The leaf swings over the clip's frames and never pops open, actors
+   and queries see it where it is drawn, and it stops at an actor in its
+   way instead of pushing it (see "Hinged leaves").
 
 A room declares a traversal's geometry under `collision.traversals`, so
 `check` can prove it. The clip timing (which points the clip reaches at
@@ -220,6 +244,46 @@ The check is coarse: any point inside those turned bounds passes, including
 points the pose never touches. Sampling the clip's pose is the next step
 (see "Known limits").
 
+### Hinged leaves
+
+A collision pack's `hinges` turn some of its colliders: each names a
+collider, the pivot (a point on the hinge's axis, in the room), the axis
+(+Y or −Y) and the angle the collider is turned from closed, in degrees.
+The collider is stored closed; `World::from_pack` builds it as a platform
+whose origin is the pivot and whose yaw is the angle (negated for a −Y
+axis), and `hinge_turned` gives the pose for any other angle. The angle is
+always about the hinge from the closed pose, never a yaw in the room.
+
+`World::try_platform_pose(collider, pose)` moves a platform only where no
+actor is in the way. It sweeps from the current pose to the new one in
+samples no farther apart than the thinnest active actor's radius (at the
+collider's farthest point from its origin), and at each sample asks
+whether any active actor that is not placed by `Intent::Pose` lies within
+the collision skin of the collider. On the first one it finds, it puts the
+collider back where it was, as if it had not been asked, and names that
+actor; the actor is never moved. A leaf moving away from an actor leaning
+on it is free: the actor rests a skin away, so the leaf is only near it
+when the turn brings it closer.
+
+The engine turns every hinge of the active room from the scene parameter
+`hinge.<node>` that also turns the leaf drawn (the node is
+`<room>.<piece>_<hinge>`, the collider's name too). Before the world
+steps, it reads the value the parameter's tween will write in that step,
+or the value the game set; if the leaf can turn there, it does, and the
+tween writes it. If an actor is in the way, the tween is held for the
+step (it writes nothing and goes on from where it was the step after),
+the parameter keeps the angle the leaf holds, and the game gets
+`hinge_blocked { hinge, entity }` once, until the leaf moves again or
+another actor stops it. The game decides what then: wait, open again, or
+cancel the tween. A cutscene's `hinge` step drives the same parameter, so
+it stops the same way.
+
+The walkable grid leaves platforms out: a path goes through a doorway
+whatever its leaf does, and a closed leaf stops an actor walked into it
+like a wall: a `MoveTo` that meets it stops there, and after
+`stuck_steps` steps without progress the game gets `blocked` (stuck). A
+game opens a door before it walks an actor through it.
+
 ### Queries and the camera
 
 `raycast`, `shapecast` (a capsule), `overlap`, `closest_point` and
@@ -256,8 +320,8 @@ grid allocates when built or rebuilt after a collider changes.
 
 A collision pack (`SRMC`, `sariema_format::collision`) holds a room's
 colliders, triggers, actor colliders, action spots (feet and facing, for one
-actor), the routes scripts walk between spots and the traversals scripts
-carry actors along. Encoding follows the room
+actor), the routes scripts walk between spots, the traversals scripts
+carry actors along and the hinges that turn colliders. Encoding follows the room
 pack: magic, version, postcard body; `decode` validates numbers, sizes,
 indices and unique names and never panics.
 
@@ -281,6 +345,15 @@ piece:
    for it; otherwise the hull.
 
 `exclude`, `as_mesh`, `as_hull` and `as_box` override the choice by piece name.
+
+A hinged node of a loose piece (a kit node `<piece>_<hinge>` with
+`extras.giro`) whose axis is vertical once placed becomes a collider of
+its own, named like its scene node, `<room>.<piece>_<hinge>`: it is baked
+closed, with a hinge whose angle is the instance's `giros` value for it.
+The rest of the piece is baked as above, without it. A hinge of a piece
+that is not loose, or one that turns about a level axis (a lid, a
+trapdoor), stays part of its piece's collider at the angle it is placed
+at. `examples/door` is a house of two rooms whose door opens by itself.
 
 ```json
 "collision": {
@@ -422,6 +495,12 @@ Silicon Mac under load from other builds; medians, as the range of two runs.
 | 100 | 0.60–0.86 ms | 3.6–5.1 % | 0 |
 | 2,000 (packed, constantly touching) | 11.3–11.8 ms | 68–71 % | 0 |
 
+A hinged leaf costs, per step it turns, 0.06 µs with an actor elsewhere in
+the room, 0.38–0.44 µs when it stops at an actor in its swing or with 8
+actors around, and 0.72–0.79 µs for a quarter turn of a 1 m leaf in one
+step (5 samples): release, one core, three runs, measured with a timing
+loop over `try_platform_pose` in the doorway of `tests/hinge.rs`.
+
 The walkable grid of that room builds in 107–134 ms (once, at load). A 20 m
 path search takes 0.4–1.4 ms; a 61 m detour 4.4–6.0 ms; an unreachable target
 1 µs, refused by islands.
@@ -433,6 +512,11 @@ actor-to-actor pushing; its 20 m path search (`guidePath`) takes 6.5 ms median,
 17.5 ms worst. The 3D controller costs about 4–28 times more per actor than
 the 2D circle and stays below 0.1 % of a frame for a room's handful of
 actors; path search is about 5–15 times faster.
+
+A walkable grid costs about 0.8–5 µs a column on an Apple M5 (release, one
+core), less where nothing stands: 100,651 columns of a tree house in 0.37 s,
+526,000 of a house and its street in 2.6 s, 22.2 million mostly empty ones
+in 17–32 s.
 
 Baking is fast enough to run on every build: a tree-house room (12 mesh
 colliders, 11,421 triangles after exclusions) bakes in 0.3–2.5 s, a house
@@ -450,7 +534,9 @@ room with 135 colliders in 0.2 s.
 - The walkable grid is per collider shape, regular and 2.5D (`max_layers`
   floors per column). Cells are 10 cm by default, so a gap narrower than the
   actor by less than a cell may still pass on the grid and be refused by the
-  sweep, and very large outdoor areas cost memory; there is no navmesh,
+  sweep, and very large outdoor areas cost memory and time unless the room
+  declares `nav_bounds`; grids are built whole, not a tile at a time on
+  demand; there is no navmesh,
   no off-mesh links (jumps, ladders) and no partial path to an unreachable
   target.
 - Platforms move and turn about Y only (`Pose` is a translation and a yaw);
@@ -466,11 +552,16 @@ room with 135 colliders in 0.2 s.
   is to sample the clip along the traversal's timing and test each frame's
   bounds against the room, allowing only the declared contacts. At rest,
   rule 4 is covered by the collider check and `W_ACTOR_BOUNDS`.
-- Collision packs do not declare hinged pieces yet. `World::from_pack`
-  builds static colliders only, so a hinged leaf is a platform that only
-  `World::new` can create. The next step is a hinge (pivot and angle range)
-  in the pack, which `from_pack` builds as a platform, plus a binding from
-  clip time to hinge angle in the runtime.
+- Hinges turn about a vertical axis only. A lid or a trapdoor is drawn
+  turning but collides where it was placed.
+- A leaf never pushes and is never pushed: it waits for the game, which
+  hears `hinge_blocked`. Actors placed by a pose (as a traversal carries
+  them) or left out with `set_actor_active` are not in a leaf's way.
+- Paths do not see leaves: the grid does not mark a door closed, so a
+  `MoveTo` through a closed door ends against the leaf with `blocked`
+  (stuck) instead of `blocked` (no path) at once.
+- The leaf is checked against actors only. Two leaves, or a leaf and a
+  wall, may overlap if the game turns them so.
 - `physics-map` does not draw traversals or contact points.
 - Actors push each other apart as vertical circles (radius of the body
   capsule, overlapping heights); head spheres do not push.
@@ -518,3 +609,9 @@ room with 135 colliders in 0.2 s.
   as in most grid-based path smoothers.
 - **meshopt** (already a dependency of the importer) simplifies mesh
   colliders with an absolute error bound.
+- **Godot** (`AnimatableBody3D` with `sync_to_physics`, from its class
+  reference): a body that an animation moves is moved in the physics step,
+  so what collides is what is drawn. Hinged leaves do the same from the
+  scene parameter. Godot's body moves whatever is in its way; a leaf here
+  stops short of an actor and tells the game, because a scripted door
+  must never shove the hero into a wall.

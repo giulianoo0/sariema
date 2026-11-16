@@ -147,8 +147,7 @@ mod tests {
         };
         let sim = Simulation::new(Settings::default(), Vec::new(), logic, 1);
         let assets = Assets {
-            room: None,
-            collision: None,
+            rooms: Vec::new(),
             actors: Vec::new(),
             sounds: None,
             hud: None,

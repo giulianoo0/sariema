@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use sariema_engine::{Assets, Engine, EngineSettings};
+use sariema_engine::{Assets, Engine, EngineSettings, RoomAssets};
 use sariema_format::script::{Command, Entity, Event, Hud, records};
 use sariema_import::{ActorSource, RoomSource, build_actor, build_collision};
 use sariema_runtime::cutscene::author::compile_json;
@@ -67,8 +67,7 @@ pub fn assets() -> Assets {
             let hud = example().join("climb/hud.json");
             let font = "../../crates/sariema-ui/fonts/Nunito.ttf";
             Assets {
-                room: None,
-                collision: Some(collision),
+                rooms: vec![RoomAssets::collision("sill", collision)],
                 actors: vec![("hero".into(), hero)],
                 sounds: Some(bank),
                 hud: Some(Hud {

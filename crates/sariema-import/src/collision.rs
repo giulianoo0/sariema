@@ -6,8 +6,11 @@
 //! Each placed piece becomes one collider, named like a loose draw. A piece
 //! whose convex hull fills its box becomes that box; one whose hull hugs its
 //! surface becomes the hull; any other piece, and every flat one, becomes its
-//! triangles, simplified. Authored values are on the engine's axes: Y up,
-//! north is −Z, metres, yaw about +Y with yaw 0 facing +Z.
+//! triangles, simplified. A hinged part of a loose piece that turns about a
+//! vertical axis, a door leaf, becomes a collider of its own named like its
+//! node, `<piece>_<hinge>`, stored closed, with the hinge that turns it.
+//! Authored values are on the engine's axes: Y up, north is −Z, metres, yaw
+//! about +Y with yaw 0 facing +Z.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -15,14 +18,14 @@ use std::path::Path;
 use glam::{Mat3, Mat4, Vec3};
 use meshopt::SimplifyOptions;
 use sariema_format::collision::{self as pack, CollisionPack};
-use sariema_format::{AlphaMode, Material};
+use sariema_format::{Aabb, AlphaMode, Material};
 use sariema_physics::{
     ActorCollider, ColliderDesc, LocalBounds, Settings, Shape, World, convex_hull, yaw_matrix,
 };
 use serde::Deserialize;
 
-use crate::room::{Montagem, RoomSource, placement, read_json, shown_primitives};
-use crate::{ImportError, Kit, KitPrimitive, load_kit};
+use crate::room::{Montagem, RoomSource, instance_parts, placement, read_json};
+use crate::{ImportError, Kit, KitHinge, KitPrimitive, load_kit};
 
 /// The `collision` key of a room description, as `schemas/room.schema.json` defines it.
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -52,8 +55,19 @@ pub struct CollisionSource {
     /// Scripted moves with the collider off; `sariema check` proves where they end and touch.
     #[serde(default)]
     pub traversals: Vec<TraversalSource>,
+    /// Where across the walkable grids are built, when the colliders reach
+    /// far around where actors walk.
+    #[serde(default)]
+    pub nav_bounds: Option<NavBoundsSource>,
     #[serde(default)]
     pub bake: BakeSettings,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NavBoundsSource {
+    pub min: [f32; 3],
+    pub max: [f32; 3],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
@@ -201,6 +215,7 @@ pub fn build_collision(
     check_lists(source, collision, &montagem).map_err(schema)?;
 
     let mut colliders = Vec::new();
+    let mut hinges = Vec::new();
     for room in &source.show {
         let comodo = montagem
             .comodos
@@ -224,12 +239,11 @@ pub fn build_collision(
                 1 => format!("{room}.{}", inst.peca),
                 n => format!("{room}.{}.{n}", inst.peca),
             };
-            let primitives = shown_primitives(piece, inst, room)?;
-            let (vertices, triangles) =
-                solid_triangles(primitives, &kit, &source.additive_materials);
-            if triangles.is_empty() {
-                continue;
-            }
+            let transform = placement(inst, corner, room)?;
+            let loose = source.loose.contains(&inst.peca);
+            let turning =
+                |h: &KitHinge| loose && vertical_axis(transform * h.pivot, h.axis).is_some();
+            let parts = instance_parts(piece, inst, room, turning)?;
             let named = |list: &[String]| list.contains(&inst.peca);
             let kind = [
                 (Kind::Mesh, &collision.as_mesh),
@@ -239,16 +253,38 @@ pub fn build_collision(
             .into_iter()
             .find(|(_, list)| named(list))
             .map(|(kind, _)| kind);
-            let transform = placement(inst, corner, room)?;
-            let shape = bake_piece(&vertices, &triangles, transform, kind, &collision.bake)
-                .map_err(|why| schema(format!("{name} {why}")))?;
             let hidden = (piece.hidden_at_start && inst.estado.is_none())
                 || source.hidden.contains(&inst.peca);
-            colliders.push(pack::Collider {
-                name,
-                shape,
-                enabled: !hidden,
-            });
+            let mut bake = |name: String, primitives: &[KitPrimitive]| {
+                let (vertices, triangles) =
+                    solid_triangles(primitives, &kit, &source.additive_materials);
+                if triangles.is_empty() {
+                    return Ok(None);
+                }
+                let shape = bake_piece(&vertices, &triangles, transform, kind, &collision.bake)
+                    .map_err(|why| schema(format!("{name} {why}")))?;
+                colliders.push(pack::Collider {
+                    name,
+                    shape,
+                    enabled: !hidden,
+                });
+                Ok::<_, ImportError>(Some(colliders.len() as u32 - 1))
+            };
+            bake(name.clone(), &parts.shown)?;
+            for (hinge, angle) in parts.apart {
+                let frame = transform * hinge.pivot;
+                let Some(axis) = vertical_axis(frame, hinge.axis) else {
+                    continue;
+                };
+                if let Some(collider) = bake(format!("{name}_{}", hinge.name), &hinge.primitives)? {
+                    hinges.push(pack::Hinge {
+                        collider,
+                        pivot: frame.transform_point3(Vec3::ZERO).to_array(),
+                        axis,
+                        angle_deg: angle,
+                    });
+                }
+            }
         }
     }
     colliders.extend(collision.primitives.iter().map(|p| pack::Collider {
@@ -332,6 +368,18 @@ pub fn build_collision(
         })
         .collect::<Result<_, String>>()
         .map_err(schema)?;
+    let nav_bounds = match collision.nav_bounds {
+        Some(b) if (0..3).any(|i| b.min[i] > b.max[i]) => {
+            return Err(schema(format!(
+                "nav_bounds min {:?} is past max {:?}",
+                b.min, b.max
+            )));
+        }
+        b => b.map(|b| Aabb {
+            min: b.min,
+            max: b.max,
+        }),
+    };
     let pack = CollisionPack {
         room: source.name.clone(),
         colliders,
@@ -340,6 +388,8 @@ pub fn build_collision(
         spots,
         routes,
         traversals,
+        nav_bounds,
+        hinges,
     };
     pack::decode(&pack::encode(&pack)).map_err(|e| schema(e.to_string()))?;
     Ok(Some(pack))
@@ -381,6 +431,14 @@ fn check_lists(
 
 /// The primitives' triangles in the piece's frame, positions welded, leaving
 /// out additive surfaces (light cones, glows), which block nothing.
+/// `axis`, in the frame `frame` gives, as straight up or down on the
+/// engine's axes; `None` when it leans.
+fn vertical_axis(frame: Mat4, axis: Vec3) -> Option<[f32; 3]> {
+    let world = frame.transform_vector3(axis).normalize_or_zero();
+    (world.x.abs() < 1e-4 && world.z.abs() < 1e-4 && world.y != 0.0)
+        .then(|| [0.0, world.y.signum(), 0.0])
+}
+
 fn solid_triangles(
     primitives: &[KitPrimitive],
     kit: &Kit,

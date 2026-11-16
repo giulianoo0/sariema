@@ -8,6 +8,7 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use sariema_format::script::{COMMANDS, Command, Reader, WireError};
 use sariema_runtime::cutscene::PLAY_CODES;
 use sariema_runtime::cutscene::check::CODES as CHECK_CODES;
+use sariema_runtime::scenery::SceneReject;
 use sariema_runtime::world::Reject;
 use sariema_vm::VmError;
 use serde_json::{Value, json};
@@ -148,6 +149,7 @@ fn api_lists_every_error_code_the_engine_gives() {
         .chain(CHECK_CODES)
         .chain(PLAY_CODES)
         .chain(Reject::ALL.map(Reject::code))
+        .chain(SceneReject::ALL.map(SceneReject::code))
         .chain(sariema_engine::REJECTED.iter().copied())
         .chain(wire)
         .chain([
@@ -524,7 +526,7 @@ fn the_climb_example_replays_through_the_whole_engine_to_pinned_events_and_state
         "walls, the wave's marker, the sill zone, the walk to the mark, the climb through the window and its doorway trigger, the line"
     );
     // The same in the browsers (packages/sariema-web, `npm test`).
-    assert_eq!(played["engine_hash"], "60d39185bf71cd37");
+    assert_eq!(played["engine_hash"], "77d32c574ead63f0");
     let again = run("900");
     for hash in ["engine_hash", "physics_hash", "audio_hash"] {
         assert_eq!(again[hash], played[hash], "{hash} differs between two runs");
@@ -571,4 +573,111 @@ fn a_headless_game_run_draws_the_frames_asked_for_without_changing_what_happens(
         image.pixels().any(|p| p != first),
         "the frames show the room, the hero and the HUD"
     );
+}
+
+#[test]
+fn the_rooms_example_walks_into_the_hall_then_dissolves_into_the_attic() {
+    let tmp = TempDir::new().unwrap();
+    let pack = tmp.path().join("rooms.srmg");
+    let built = ok(&[
+        "build",
+        arg(&repo().join("examples/rooms")),
+        "-o",
+        arg(&pack),
+    ]);
+    assert_eq!(built["rooms"], json!(["porch", "attic", "hall"]));
+    let run = || ok(&["run", "--headless", "--game", arg(&pack), "--steps", "600"]);
+    let played = run();
+    assert_eq!(
+        story(&played),
+        [
+            "0 started",
+            "169 trigger_enter",
+            "170 room_switched",
+            "207 trigger_exit",
+            "319 arrived",
+            "379 timer_fired",
+            "380 room_switched",
+        ]
+    );
+    let again = run();
+    for hash in ["engine_hash", "physics_hash", "audio_hash"] {
+        assert_eq!(again[hash], played[hash], "{hash} differs between two runs");
+    }
+}
+
+#[test]
+fn the_door_example_opens_stops_on_the_hero_in_its_swing_and_shuts_once_it_walks_on() {
+    let tmp = TempDir::new().unwrap();
+    let pack = tmp.path().join("door.srmg");
+    let built = ok(&[
+        "build",
+        arg(&repo().join("examples/door")),
+        "-o",
+        arg(&pack),
+    ]);
+    assert_eq!(built["rooms"], json!(["house"]));
+    let run = || ok(&["run", "--headless", "--game", arg(&pack), "--steps", "420"]);
+    let played = run();
+    assert_eq!(
+        story(&played),
+        [
+            "0 started",
+            "49 trigger_enter",
+            "97 tween_done",
+            "111 arrived",
+            "169 timer_fired",
+            "198 hinge_blocked",
+            "231 timer_fired",
+            "246 tween_done",
+            "260 trigger_exit",
+            "318 timer_fired",
+            "320 arrived",
+            "390 tween_done",
+        ]
+    );
+    let again = run();
+    for hash in ["engine_hash", "physics_hash"] {
+        assert_eq!(again[hash], played[hash], "{hash} differs between two runs");
+    }
+}
+
+#[test]
+fn check_refuses_a_hinge_step_on_a_node_no_room_has() {
+    let tmp = TempDir::new().unwrap();
+    let door = repo().join("examples/door");
+    for file in ["kit.glb", "montagem.json", "luz.json"] {
+        fs::copy(door.join(file), tmp.path().join(file)).unwrap();
+    }
+    fs::create_dir_all(tmp.path().join("rooms")).unwrap();
+    fs::copy(
+        door.join("rooms/house.json"),
+        tmp.path().join("rooms/house.json"),
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("sariema.json"),
+        r#"{ "name": "t", "assets_root": ".", "rooms": { "house": "rooms/house.json" }, "game": {} }"#,
+    )
+    .unwrap();
+    fs::create_dir_all(tmp.path().join("cutscenes")).unwrap();
+    let shut = |node: &str| {
+        let text = format!(
+            r#"{{ "name": "shut", "roles": {{ "hero": {{ "start": {{ "position": [1, 0, -2] }} }} }},
+  "steps": [ {{ "parallel": [
+    [ {{ "clip": {{ "role": "hero", "clip": "push" }} }} ],
+    [ {{ "hinge": {{ "node": "{node}", "role": "hero", "clip": "push", "span": [0.2, 0.6], "to": 90 }} }} ] ] }} ] }}"#
+        );
+        fs::write(tmp.path().join("cutscenes/shut.json"), text).unwrap();
+    };
+    shut("house.door_lef");
+    let (code, message) = error_code(&["check", arg(tmp.path())]);
+    assert_eq!(code, "E_CUTSCENE_HINGE");
+    assert!(
+        message.contains("steps[0].parallel[1][0].hinge") && message.contains("house.door_lef"),
+        "{message}"
+    );
+    shut("house.door_leaf");
+    let checked = ok(&["check", arg(tmp.path())]);
+    assert_eq!(checked["cutscenes"], json!(["shut"]));
 }

@@ -67,6 +67,7 @@ pub struct CutsceneSettings {
     #[serde(serialize_with = "ease_out", deserialize_with = "ease_in")]
     pub end_ease: Ease,
     pub skip_fade: f32,
+    pub hinge_clip_wait: f32,
     pub advance_action: String,
     pub skip_action: String,
 }
@@ -81,6 +82,7 @@ impl Default for CutsceneSettings {
             end_blend: 0.6,
             end_ease: Ease::InOutCubic,
             skip_fade: 0.3,
+            hinge_clip_wait: 2.0,
             advance_action: "confirm".into(),
             skip_action: "skip".into(),
         }
@@ -190,6 +192,10 @@ pub const DOCS: &[(&str, &str)] = &[
         "Seconds of the camera blend back to the game's rig when a cutscene ends.",
     ),
     ("cutscene.end_ease", "Easing of that blend."),
+    (
+        "cutscene.hinge_clip_wait",
+        "Seconds a hinge step waits for its role to play its clip; then it ends, the leaf where it was, with a rejected E_CUTSCENE_HINGE_WAIT.",
+    ),
     (
         "cutscene.skip_fade",
         "Seconds of the fade a skip runs under, out and back in.",

@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Recording the scene's draws: the background, then the room's visible
-//! draws in order with the actors after its opaque ones, or their depth
-//! alone.
+//! Recording the scene's draws: the background, then the drawn rooms'
+//! visible draws in order with the actors after their opaque ones, or their
+//! depth alone.
 
 use sariema_core::Camera;
 use sariema_format::AlphaMode;
 
 use super::{Scene, Targets};
-use crate::Gpu;
 use crate::actors::{Actors, Layer};
-use crate::cull;
 use crate::resources::Room;
+use crate::{Gpu, Stage, cull};
 
 impl Scene {
     /// `keep_depth` keeps the depth for post-processing, stored or drawn
@@ -21,7 +20,7 @@ impl Scene {
         &self,
         gpu: &Gpu,
         encoder: &mut wgpu::CommandEncoder,
-        room: Option<&Room>,
+        stage: &Stage,
         actors: &Actors,
         keep_depth: bool,
     ) {
@@ -61,29 +60,34 @@ impl Scene {
         pass.set_bind_group(0, &self.frame_group, &[]);
         pass.set_pipeline(&self.background);
         pass.draw(0..3, 0..1);
-        // The background, then the room's draws in view.
+        // The background, then the rooms' draws in view.
         gpu.count_draws(1 + self.order.len() as u32);
-        let room = room.filter(|_| !self.order.is_empty());
-        if let Some(room) = room {
-            room.bind_meshes(&mut pass);
-        }
+        let mut bound: Option<u32> = None;
         let mut current = None;
         let mut actors_drawn = false;
-        for &(layer, _, i) in room.map_or(&[][..], |_| &self.order[..]) {
-            let room = room.expect("the order is of the room's draws");
+        for &(layer, _, slot, i) in &self.order {
             // Actors and their discs go between the opaque and the rest.
             if layer > 0 && !actors_drawn {
                 gpu.count_draws(actors.draw(&mut pass, Layer::Opaque));
                 gpu.count_draws(actors.draw_discs(&mut pass));
                 actors_drawn = true;
-                room.bind_meshes(&mut pass);
+                bound = None;
                 current = None;
+            }
+            let room = stage.room(slot);
+            if bound != Some(slot) {
+                room.bind_meshes(&mut pass);
+                bound = Some(slot);
             }
             let i = i as usize;
             let draw = &room.draws[i];
-            if current != Some(draw.kind) {
-                pass.set_pipeline(&self.pipelines[draw.kind.index()]);
-                current = Some(draw.kind);
+            let pipeline = (draw.dithered(), draw.kind);
+            if current != Some(pipeline) {
+                pass.set_pipeline(match pipeline {
+                    (true, kind) => &self.dithered[kind.dither_index()],
+                    (false, kind) => &self.pipelines[kind.index()],
+                });
+                current = Some(pipeline);
             }
             let material = &room.materials[draw.material as usize];
             if draw.kind.alpha == AlphaMode::Blend {
@@ -106,18 +110,18 @@ impl Scene {
         drop(pass);
         if let Some(single) = single_depth.as_ref().filter(|_| keep_depth) {
             let opaque = |alpha| alpha == AlphaMode::Opaque;
-            self.draw_depth(gpu, encoder, room, Some(actors), single, opaque);
+            self.draw_depth(gpu, encoder, stage, Some(actors), single, opaque);
         }
     }
 
-    /// The depth of the room's draws in view whose alpha mode `covers`
+    /// The depth of the rooms' draws in view whose alpha mode `covers`
     /// keeps and, if given, of the actors' opaque parts, into a
-    /// single-sample `depth` cleared to 1.
+    /// single-sample `depth` cleared to 1. A dithering draw is left out.
     pub fn draw_depth(
         &self,
         gpu: &Gpu,
         encoder: &mut wgpu::CommandEncoder,
-        room: Option<&Room>,
+        stage: &Stage,
         actors: Option<&Actors>,
         depth: &wgpu::TextureView,
         covers: impl Fn(AlphaMode) -> bool,
@@ -129,23 +133,26 @@ impl Scene {
             ..Default::default()
         });
         pass.set_bind_group(0, &self.frame_group, &[]);
-        if let Some(room) = room {
-            let covering = (self.order.iter())
-                .map(|&(_, _, i)| i as usize)
-                .filter(|&i| covers(room.draws[i].kind.alpha));
-            let mut current = None;
-            for i in covering {
-                if current.is_none() {
-                    room.bind_meshes(&mut pass);
-                }
-                let double_sided = room.draws[i].kind.double_sided;
-                if current != Some(double_sided) {
-                    pass.set_pipeline(&self.depth_only[double_sided as usize]);
-                    current = Some(double_sided);
-                }
-                room.draw(&mut pass, i);
-                gpu.count_draws(1);
+        let mut bound: Option<u32> = None;
+        let mut current = None;
+        for &(_, _, slot, i) in &self.order {
+            let room: &Room = stage.room(slot);
+            let i = i as usize;
+            let draw = &room.draws[i];
+            if !covers(draw.kind.alpha) || draw.dithered() {
+                continue;
             }
+            if bound != Some(slot) {
+                room.bind_meshes(&mut pass);
+                bound = Some(slot);
+            }
+            let double_sided = draw.kind.double_sided;
+            if current != Some(double_sided) {
+                pass.set_pipeline(&self.depth_only[double_sided as usize]);
+                current = Some(double_sided);
+            }
+            room.draw(&mut pass, i);
+            gpu.count_draws(1);
         }
         if let Some(actors) = actors {
             gpu.count_draws(actors.draw_depth(&mut pass));
@@ -154,36 +161,40 @@ impl Scene {
 }
 
 impl Scene {
-    /// Orders the room's visible draws for `camera`: opaque front to back,
-    /// then blended back to front, then additive. With
+    /// Orders the drawn rooms' visible draws for `camera`: opaque front to
+    /// back, then blended back to front, then additive. With
     /// `Quality::frustum_culling`, draws whose bounds lie outside the view
     /// are left out; returns how many.
-    pub(super) fn order(&mut self, room: &Room, camera: &Camera) -> u32 {
+    pub(super) fn order(&mut self, stage: &Stage, camera: &Camera) -> u32 {
         let planes = cull::planes(camera.proj * camera.view);
         let eye = camera.position;
         let mut culled = 0;
         self.order.clear();
-        for (i, d) in room.draws.iter().enumerate() {
-            if !d.visible || d.index_count == 0 {
-                continue;
+        for (slot, room) in stage.drawn() {
+            for (i, d) in room.draws.iter().enumerate() {
+                if !d.visible || d.index_count == 0 || d.presence == 0.0 {
+                    continue;
+                }
+                if self.frustum_culling && !cull::box_visible(&planes, d.min, d.max) {
+                    culled += 1;
+                    continue;
+                }
+                let distance2 = eye.distance_squared(d.center());
+                let i = i as u32;
+                self.order.push(match d.kind.alpha {
+                    AlphaMode::Opaque => (0, distance2, slot, i),
+                    AlphaMode::Blend => (1, -distance2, slot, i),
+                    AlphaMode::Additive => (2, 0.0, slot, i),
+                });
             }
-            if self.frustum_culling && !cull::box_visible(&planes, d.min, d.max) {
-                culled += 1;
-                continue;
-            }
-            let distance2 = eye.distance_squared(d.center());
-            self.order.push(match d.kind.alpha {
-                AlphaMode::Opaque => (0, distance2, i as u32),
-                AlphaMode::Blend => (1, -distance2, i as u32),
-                AlphaMode::Additive => (2, 0.0, i as u32),
-            });
         }
-        // The index breaks ties, so an unstable sort, which needs no buffer,
-        // gives the order a stable one would.
+        // The slot and index break ties, so an unstable sort, which needs no
+        // buffer, gives the order a stable one would.
         self.order.sort_unstable_by(|a, b| {
             (a.0.cmp(&b.0))
                 .then(a.1.total_cmp(&b.1))
                 .then(a.2.cmp(&b.2))
+                .then(a.3.cmp(&b.3))
         });
         culled
     }

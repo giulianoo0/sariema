@@ -1,0 +1,155 @@
+{
+ "name": "porch",
+ "kit": "../../crates/sariema-import/tests/fixtures/kit_min.opt.glb",
+ "montagem": "../rooms/montagem.json",
+ "luz": "../rooms/luz.json",
+ "show": [
+  "porch"
+ ],
+ "loose": [],
+ "drawn_materials": [],
+ "rim_materials": [],
+ "additive_materials": [],
+ "look": {
+  "exposure": 1.0,
+  "bloom_threshold": 1.0,
+  "bloom_strength": 0.3,
+  "tint": [
+   1.0,
+   1.0,
+   1.0
+  ],
+  "real": 0.0,
+  "night": 0.0,
+  "tilt": 0.0,
+  "focus": 10.0
+ },
+ "camera": {
+  "fov_y_deg": 40.0,
+  "pitch_deg": 50.0,
+  "distance": 10.0,
+  "focus": [
+   3.0,
+   0.0,
+   -3.0
+  ]
+ },
+ "background": {
+  "top": [
+   0.35,
+   0.5,
+   0.75
+  ],
+  "bottom": [
+   0.12,
+   0.1,
+   0.08
+  ]
+ },
+ "collision": {
+  "primitives": [
+   {
+    "name": "floor",
+    "box": {
+     "center": [
+      6.0,
+      -0.05,
+      -3.0
+     ],
+     "half_extents": [
+      6.2,
+      0.05,
+      3.2
+     ]
+    }
+   },
+   {
+    "name": "wall_w",
+    "box": {
+     "center": [
+      -0.1,
+      1.0,
+      -3.0
+     ],
+     "half_extents": [
+      0.1,
+      1.0,
+      3.2
+     ]
+    }
+   },
+   {
+    "name": "wall_e",
+    "box": {
+     "center": [
+      12.1,
+      1.0,
+      -3.0
+     ],
+     "half_extents": [
+      0.1,
+      1.0,
+      3.2
+     ]
+    }
+   },
+   {
+    "name": "wall_s",
+    "box": {
+     "center": [
+      6.0,
+      1.0,
+      0.1
+     ],
+     "half_extents": [
+      6.2,
+      1.0,
+      0.1
+     ]
+    }
+   },
+   {
+    "name": "wall_n",
+    "box": {
+     "center": [
+      6.0,
+      1.0,
+      -6.1
+     ],
+     "half_extents": [
+      6.2,
+      1.0,
+      0.1
+     ]
+    }
+   }
+  ],
+  "actors": [
+   {
+    "name": "hero",
+    "radius": 0.3,
+    "height": 1.0,
+    "head": {
+     "radius": 0.34,
+     "height": 1.1
+    },
+    "visual_bounds": {
+     "min": [
+      -0.34,
+      0.0,
+      -0.32
+     ],
+     "max": [
+      0.34,
+      1.44,
+      0.34
+     ]
+    }
+   }
+  ],
+  "exclude": [
+   "caixa",
+   "mesa"
+  ]
+ }
+}

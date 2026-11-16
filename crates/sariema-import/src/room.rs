@@ -3,17 +3,20 @@
 //! Assembles a room pack from a kit, the game's placement file (`montagem.json`)
 //! and its lighting file (`luz.json`).
 //!
-//! Placement, rotation and states follow the reference game's `buildCasa`.
-//! Hinges (`giros`) are not applied: hinged parts stay at their rest pose.
+//! Placement, rotation, states and hinges (`giros`) follow the reference
+//! game's `buildCasa`. Each shown sub-room is a group of its draws
+//! and lights; each copy of a loose piece is a node carrying every state of
+//! the piece, and each of its hinged parts a node of its own.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use glam::{Mat3, Mat4, Vec3};
+use glam::{Mat3, Mat4, Quat, Vec3};
 use sariema_format::{
-    Aabb, AlphaMode, Ambient, Background, Draw, Light, LightKind, Look, Material, Mesh, Mobility,
-    RoomCamera, RoomPack, Stats, Sun, Texture, Vertex, hemisphere_sh9,
+    Aabb, AlphaMode, Ambient, Background, Draw, Group, Hinge, Light, LightKind, Look, Material,
+    Mesh, Mobility, Node, Piece, PieceState, RoomCamera, RoomPack, Stats, Sun, Texture, Vertex,
+    hemisphere_sh9,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -22,7 +25,7 @@ use serde_json::Value;
 use crate::collision::CollisionSource;
 use crate::texture::srgb_to_linear;
 use crate::{
-    ImportError, Kit, KitPiece, KitPrimitive, TextureMode, encode_texture, load_kit, read,
+    ImportError, Kit, KitHinge, KitPiece, KitPrimitive, TextureMode, encode_texture, load_kit, read,
 };
 
 const SCHEMA: &str = include_str!("../../../schemas/room.schema.json");
@@ -42,6 +45,9 @@ pub struct RoomSource {
     /// Pieces that start hidden: loose ones as invisible draws, merged ones left out.
     #[serde(default)]
     pub hidden: Vec<String>,
+    /// Sub-rooms of `show` whose group starts switched off.
+    #[serde(default)]
+    pub groups_off: Vec<String>,
     /// Lights, named `<room>.<nome>`, that cast no shadow.
     #[serde(default)]
     pub shadowless_lights: Vec<String>,
@@ -115,6 +121,9 @@ pub(crate) struct Inst {
     /// Euler angles about Blender's axes, in degrees; see [`placement`].
     rot: Option<[f32; 3]>,
     pub(crate) estado: Option<String>,
+    /// Degrees each hinge of the piece is turned, by hinge name.
+    #[serde(default)]
+    giros: Option<BTreeMap<String, f32>>,
     escala: Option<f32>,
 }
 
@@ -166,6 +175,12 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
     let montagem: Montagem = read_json(&assets_root.join(&source.montagem))?;
     let luz: CasaLuz = read_json(&assets_root.join(&source.luz))?;
     dress(&mut kit.materials, source);
+    if let Some(off) = source.groups_off.iter().find(|g| !source.show.contains(g)) {
+        return Err(ImportError::Schema(format!(
+            "room {}: groups_off lists {off}, which show does not",
+            source.name
+        )));
+    }
 
     let mut scene = Scene {
         kit: &kit,
@@ -173,22 +188,39 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         hidden: &source.hidden,
         meshes: Vec::new(),
         draws: Vec::new(),
+        nodes: Vec::new(),
+        pieces: Vec::new(),
     };
     let mut lights = Vec::new();
+    let mut groups = Vec::new();
     for room in &source.show {
         let comodo = montagem
             .comodos
             .get(room)
             .ok_or_else(|| ImportError::Schema(format!("montagem has no room {room}")))?;
         let corner = comodo.sw_celulas.map(|cells| cells * montagem.celula);
+        let first_draw = scene.draws.len() as u32;
         scene.add_room(room, comodo, corner)?;
+        let first_light = lights.len() as u32;
         for item in luz.comodos.get(room).map_or(&[][..], |l| &l.luzes) {
             let mut light = light(room, item, corner)?;
             light.casts_shadow &= !source.shadowless_lights.contains(&light.name);
             lights.push(light);
         }
+        groups.push(Group {
+            name: room.clone(),
+            on: !source.groups_off.contains(room),
+            draws: (first_draw..scene.draws.len() as u32).collect(),
+            lights: (first_light..lights.len() as u32).collect(),
+        });
     }
-    let Scene { meshes, draws, .. } = scene;
+    let Scene {
+        meshes,
+        draws,
+        nodes,
+        pieces,
+        ..
+    } = scene;
     let placed = |piece: &String| {
         source
             .show
@@ -239,9 +271,9 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         .iter()
         .map(|image| encode_texture(&image.name, &image.rgba, mode))
         .collect::<Result<_, _>>()?;
-    Ok(RoomPack {
+    let mut room = RoomPack {
         name: source.name.clone(),
-        stats: Stats::of(&meshes, &textures, &draws),
+        stats: Stats::of(&[], &[], &[]),
         meshes,
         materials: kit.materials,
         textures,
@@ -258,7 +290,12 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         background: source.background.clone(),
         look: source.look.clone(),
         camera: source.camera.clone(),
-    })
+        groups,
+        nodes,
+        pieces,
+    };
+    room.stats = Stats::of_room(&room);
+    Ok(room)
 }
 
 /// How casa.ts lights a room that luz.json does not list.
@@ -299,11 +336,14 @@ struct Scene<'a> {
     hidden: &'a [String],
     meshes: Vec<Mesh>,
     draws: Vec<Draw>,
+    nodes: Vec<Node>,
+    pieces: Vec<Piece>,
 }
 
 impl Scene<'_> {
-    /// Adds one draw per material for the room's merged pieces, and one per
-    /// primitive of each loose piece.
+    /// Adds one draw per material for the room's merged pieces, and for each
+    /// copy of a loose piece a node with a draw per primitive of each of its
+    /// looks, and a node per hinged part.
     fn add_room(
         &mut self,
         room: &str,
@@ -320,11 +360,11 @@ impl Scene<'_> {
                     piece: inst.peca.clone(),
                     room: room.to_owned(),
                 })?;
-            let primitives = shown_primitives(piece, inst, room)?;
             let placement = placement(inst, corner, room)?;
+            let turns = hinge_turns(piece, inst, room)?;
             // As casa.ts treats nodes flagged oculto_no_inicio: hidden only while no estado is set.
-            let hidden = (piece.hidden_at_start && inst.estado.is_none())
-                || self.hidden.contains(&inst.peca);
+            let hidden_at_start = piece.hidden_at_start && inst.estado.is_none();
+            let hidden = self.hidden.contains(&inst.peca);
             if self.loose.contains(&inst.peca) {
                 let copy = copies.entry(&inst.peca).or_default();
                 *copy += 1;
@@ -332,11 +372,28 @@ impl Scene<'_> {
                     1 => format!("{room}.{}", inst.peca),
                     n => format!("{room}.{}.{n}", inst.peca),
                 };
-                for p in primitives {
-                    self.push(name.clone(), p.mesh.clone(), p.material, placement, !hidden);
+                self.add_loose(&name, piece, inst, room, placement, !hidden)?;
+                for (hinge, angle) in piece.hinges.iter().zip(&turns) {
+                    let pivot = placement * hinge.pivot;
+                    let first = self.draws.len() as u32;
+                    let turned = placement * turn(hinge, *angle);
+                    let shown = !hidden && !hidden_at_start;
+                    for p in &hinge.primitives {
+                        self.push(name.clone() + "_" + &hinge.name, p, turned, true);
+                    }
+                    self.nodes.push(Node {
+                        name: format!("{name}_{}", hinge.name),
+                        pivot: pivot.to_cols_array(),
+                        draws: (first..self.draws.len() as u32).collect(),
+                        visible: shown,
+                        hinge: Some(Hinge {
+                            axis: hinge.axis.into(),
+                            angle_deg: *angle,
+                        }),
+                    });
                 }
-            } else if !hidden {
-                for p in primitives {
+            } else if !hidden && !hidden_at_start {
+                for p in instance_primitives(piece, inst, room)? {
                     let mesh = merged.entry(p.material).or_insert_with(|| Mesh {
                         vertices: Vec::new(),
                         indices: Vec::new(),
@@ -347,29 +404,177 @@ impl Scene<'_> {
         }
         for (material, mesh) in merged {
             let name = format!("{room}/{}", self.kit.materials[material as usize].name);
-            self.push(name, mesh, material, Mat4::IDENTITY, true);
+            let primitive = KitPrimitive { mesh, material };
+            self.push(name, &primitive, Mat4::IDENTITY, true);
         }
         Ok(())
     }
 
-    fn push(&mut self, name: String, mesh: Mesh, material: u32, transform: Mat4, visible: bool) {
+    /// A loose copy `name`: a node over its draws, and a piece over its
+    /// looks when it has states. A piece hidden at start shows nothing until
+    /// a state is set: with states its start look is empty, without them
+    /// the node starts hidden.
+    fn add_loose(
+        &mut self,
+        name: &str,
+        piece: &KitPiece,
+        inst: &Inst,
+        room: &str,
+        placement: Mat4,
+        shown: bool,
+    ) -> Result<(), ImportError> {
+        let first = self.draws.len() as u32;
+        let stateless = piece.states.is_empty();
+        let shown = shown && !(stateless && piece.hidden_at_start && inst.estado.is_none());
+        let start: &[KitPrimitive] = if piece.hidden_at_start && !stateless {
+            &[]
+        } else {
+            &piece.primitives
+        };
+        let mut looks = vec![(String::new(), start)];
+        looks.extend(piece.states.iter().map(|(n, p)| (n.clone(), p.as_slice())));
+        if stateless {
+            for p in start {
+                self.push(name.to_owned(), p, placement, true);
+            }
+        } else {
+            let state = match &inst.estado {
+                None => 0,
+                Some(estado) => looks.iter().position(|(n, _)| n == estado).ok_or_else(|| {
+                    ImportError::Schema(format!(
+                        "room {room}: piece {} has no state {estado}",
+                        piece.name
+                    ))
+                })?,
+            };
+            let mut states = Vec::with_capacity(looks.len());
+            for (look, primitives) in looks {
+                let from = self.draws.len() as u32;
+                for p in primitives {
+                    self.push(name.to_owned(), p, placement, true);
+                }
+                states.push(PieceState {
+                    name: look,
+                    draws: (from..self.draws.len() as u32).collect(),
+                });
+            }
+            self.pieces.push(Piece {
+                name: name.to_owned(),
+                states,
+                state: state as u32,
+            });
+        }
+        self.nodes.push(Node {
+            name: name.to_owned(),
+            pivot: placement.to_cols_array(),
+            draws: (first..self.draws.len() as u32).collect(),
+            visible: shown,
+            hinge: None,
+        });
+        Ok(())
+    }
+
+    fn push(&mut self, name: String, p: &KitPrimitive, transform: Mat4, visible: bool) {
         // A mesh with no triangles would have no bounds.
-        if mesh.indices.is_empty() {
+        if p.mesh.indices.is_empty() {
             return;
         }
         let transform = transform.to_cols_array();
         self.draws.push(Draw {
             name: Some(name),
             mesh: self.meshes.len() as u32,
-            material,
-            bounds: Aabb::around(&mesh, &transform),
+            material: p.material,
+            bounds: Aabb::around(&p.mesh, &transform),
             transform,
             visible,
             // Additive surfaces (light cones, glows) add light and block none.
-            casts_shadow: self.kit.materials[material as usize].alpha != AlphaMode::Additive,
+            casts_shadow: self.kit.materials[p.material as usize].alpha != AlphaMode::Additive,
         });
-        self.meshes.push(mesh);
+        self.meshes.push(p.mesh.clone());
     }
+}
+
+/// Each of the piece's hinges' angle in degrees, as the instance's `giros`
+/// sets it (0 when it does not).
+fn hinge_turns(piece: &KitPiece, inst: &Inst, room: &str) -> Result<Vec<f32>, ImportError> {
+    let giros = inst.giros.as_ref();
+    if let Some(unknown) = giros
+        .into_iter()
+        .flat_map(|g| g.keys())
+        .find(|g| !piece.hinges.iter().any(|h| h.name == **g))
+    {
+        return Err(ImportError::Schema(format!(
+            "room {room}: piece {} has no hinge {unknown}",
+            piece.name
+        )));
+    }
+    Ok((piece.hinges.iter())
+        .map(|h| giros.and_then(|g| g.get(&h.name)).copied().unwrap_or(0.0))
+        .collect())
+}
+
+/// What turning `hinge` by `degrees` does in its piece's root space, as
+/// `applyGiro` turns the node from its rest pose about its own axis.
+fn turn(hinge: &KitHinge, degrees: f32) -> Mat4 {
+    let spin = Quat::from_axis_angle(hinge.axis, degrees.to_radians());
+    hinge.pivot * Mat4::from_quat(spin) * hinge.pivot.inverse()
+}
+
+/// The primitives the instance shows, its hinged parts turned as its
+/// `giros` say, in the piece's root space.
+pub(crate) fn instance_primitives(
+    piece: &KitPiece,
+    inst: &Inst,
+    room: &str,
+) -> Result<Vec<KitPrimitive>, ImportError> {
+    Ok(instance_parts(piece, inst, room, |_| false)?.shown)
+}
+
+/// A placed piece's primitives, some hinged parts set apart.
+pub(crate) struct Parts<'k> {
+    pub shown: Vec<KitPrimitive>,
+    /// Each hinged part set apart, with the degrees the `giros` turn it.
+    pub apart: Vec<(&'k KitHinge, f32)>,
+}
+
+/// What [`instance_primitives`] gives, without the hinged parts `apart`
+/// picks.
+pub(crate) fn instance_parts<'k>(
+    piece: &'k KitPiece,
+    inst: &Inst,
+    room: &str,
+    apart: impl Fn(&KitHinge) -> bool,
+) -> Result<Parts<'k>, ImportError> {
+    let mut out: Vec<KitPrimitive> = (shown_primitives(piece, inst, room)?.iter())
+        .map(|p| KitPrimitive {
+            mesh: p.mesh.clone(),
+            material: p.material,
+        })
+        .collect();
+    let mut kept = Vec::new();
+    let turns = hinge_turns(piece, inst, room)?;
+    for (hinge, angle) in piece.hinges.iter().zip(turns) {
+        if apart(hinge) {
+            kept.push((hinge, angle));
+            continue;
+        }
+        let moved = turn(hinge, angle);
+        for p in &hinge.primitives {
+            let mut mesh = Mesh {
+                vertices: Vec::new(),
+                indices: Vec::new(),
+            };
+            append(&mut mesh, &p.mesh, moved);
+            out.push(KitPrimitive {
+                mesh,
+                material: p.material,
+            });
+        }
+    }
+    Ok(Parts {
+        shown: out,
+        apart: kept,
+    })
 }
 
 /// The primitives the instance's `estado` shows, or the piece's start ones.

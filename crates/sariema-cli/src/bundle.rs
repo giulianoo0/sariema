@@ -1,33 +1,84 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! What a game pack carries besides its logic: the room it plays in with
-//! its collision, its actors, its sound bank and its HUD.
+//! What a game pack carries besides its logic: the rooms it plays in with
+//! their collision, its actors, its sound bank and its HUD.
 
 use std::fs;
 use std::path::Path;
 
-use sariema_format::script::{GameAssets, Hud};
+use std::collections::BTreeMap;
+
+use sariema_format::scenery::RoomIndex;
+use sariema_format::script::{GameAssets, GameRoom, Hud};
 use sariema_import::TextureMode;
 use sariema_ui::UiDesc;
+use serde::Deserialize;
 
 use crate::output::Failure;
 use crate::{actor, audio, project};
 
+/// A room the game plays in besides its start room, as the `game.rooms`
+/// of `sariema.json` lists it.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoomEntry {
+    /// Rooms to keep loaded while this one is active, nearest first.
+    #[serde(default)]
+    pub neighbours: Vec<String>,
+    /// A sound of the bank looped while the room is active.
+    #[serde(default)]
+    pub ambience: Option<String>,
+    /// Rooms whose geometry continues this one's, drawn with it.
+    #[serde(default)]
+    pub beside: Vec<String>,
+}
+
 /// The assets of the project in `dir`: `room` (the project's first room
-/// without it) and the HUD description at `hud`, relative to `dir`;
-/// `textures`, when given, replaces the room's and actors' own choice.
+/// without it) first, then every other room of `rooms`, and the HUD
+/// description at `hud`, relative to `dir`; `textures`, when given,
+/// replaces the rooms' and actors' own choice.
 pub fn assets(
     dir: &Path,
     room: Option<&str>,
+    rooms: &BTreeMap<String, RoomEntry>,
     hud: Option<&Path>,
     textures: Option<TextureMode>,
 ) -> Result<GameAssets, Failure> {
     let mut assets = GameAssets::default();
-    let rooms = project::room_ids(dir)?;
-    if let Some(room) = room.map(str::to_owned).or_else(|| rooms.first().cloned()) {
-        let (pack, collision) = project::room_packs(dir, &room, textures)?;
-        assets.room = Some(pack);
-        assets.collision = collision;
+    let ids = project::room_ids(dir)?;
+    if let Some(start) = room.map(str::to_owned).or_else(|| ids.first().cloned()) {
+        let names: Vec<&str> = std::iter::once(start.as_str())
+            .chain(rooms.keys().map(String::as_str).filter(|&r| r != start))
+            .collect();
+        for &name in &names {
+            let (pack, collision) = project::room_packs(dir, name, textures)?;
+            let entry = rooms.get(name).cloned().unwrap_or_default();
+            let index = |list: &[String], what: &str| {
+                (list.iter())
+                    .map(|n| match names.iter().position(|&r| r == n) {
+                        Some(i) if names[i] != name => Ok(i as u32),
+                        _ => Err(Failure::new(
+                            "E_SCHEMA",
+                            format!(
+                                "{}: game.rooms.{name} lists {what} {n}, which is not another room of game.rooms",
+                                dir.join("sariema.json").display()
+                            ),
+                        )),
+                    })
+                    .collect::<Result<Vec<u32>, Failure>>()
+            };
+            let neighbours = index(&entry.neighbours, "neighbour")?;
+            let beside = index(&entry.beside, "beside")?;
+            assets.rooms.push(GameRoom {
+                name: name.to_owned(),
+                index: RoomIndex::of(&pack),
+                room: Some(sariema_format::encode(&pack)),
+                collision,
+                neighbours,
+                beside,
+                ambience: entry.ambience,
+            });
+        }
     }
     let project: project::Project = project::load(dir)?;
     for id in project.actors.keys() {

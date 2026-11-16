@@ -18,6 +18,7 @@ pub mod motion;
 mod no_jump;
 pub mod outbox;
 pub mod rng;
+pub mod scenery;
 pub mod screen;
 pub mod settings;
 pub mod sim;

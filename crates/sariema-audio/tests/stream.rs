@@ -206,3 +206,51 @@ fn a_decoding_thread_keeps_a_stream_fed() {
     assert_eq!(audio.stats().underruns, 0);
     assert!(audio.take_stream_errors().is_empty());
 }
+
+#[test]
+fn a_stream_opened_ahead_plays_as_one_opened_at_its_play() {
+    let region = LoopPoints {
+        start: 33_075,
+        end: 77_175,
+    };
+    let play = |ahead: bool| {
+        let sounds = vec![file_def("tone.ogg", Container::Ogg, region)];
+        let (mut audio, mut mixer) = Audio::new(quiet_settings(), sounds, Feeding::Manual).unwrap();
+        let id = audio.sound("tone.ogg").unwrap();
+        if ahead {
+            audio.prepare(id, true).unwrap();
+            assert!(audio.is_prepared(id, true));
+            assert!(!audio.is_prepared(id, false), "open for a looped play only");
+        }
+        let params = PlayParams {
+            looped: Some(true),
+            ..PlayParams::default()
+        };
+        audio.play(0, id, params).unwrap();
+        assert!(!audio.is_prepared(id, true), "the play took it");
+        render(&mut audio, &mut mixer, 3 * 48_000, 480)
+    };
+    assert_eq!(play(true), play(false));
+}
+
+#[test]
+fn streams_opened_ahead_close_when_released() {
+    let region = LoopPoints {
+        start: 33_075,
+        end: 77_175,
+    };
+    let sounds = vec![
+        file_def("tone.ogg", Container::Ogg, region),
+        file_def("tone.mp3", Container::Mp3, region),
+    ];
+    let (mut audio, _mixer) = Audio::new(quiet_settings(), sounds, Feeding::Manual).unwrap();
+    let (ogg, mp3) = (
+        audio.sound("tone.ogg").unwrap(),
+        audio.sound("tone.mp3").unwrap(),
+    );
+    audio.prepare(ogg, true).unwrap();
+    audio.prepare(mp3, true).unwrap();
+    audio.release_prepared(|id| id == mp3);
+    assert!(!audio.is_prepared(ogg, true));
+    assert!(audio.is_prepared(mp3, true));
+}

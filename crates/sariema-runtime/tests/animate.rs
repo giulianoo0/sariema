@@ -3,9 +3,10 @@
 use glam::Vec3;
 use sariema_format::script::{Ease, Property};
 use sariema_runtime::follow::Followers;
+use sariema_runtime::scenery::Scenery;
 use sariema_runtime::store::Store;
 use sariema_runtime::timer::Timers;
-use sariema_runtime::tween::{Target, Tweens, read};
+use sariema_runtime::tween::{Target, Tweens, Values, read};
 use sariema_runtime::world::{Entity, Kind, World};
 
 const REST: f32 = 1e-3;
@@ -32,9 +33,16 @@ fn x(entity: Entity) -> Target {
     }
 }
 
+const NO_ROOMS: &Scenery = &Scenery::EMPTY;
+
 fn step(t: &mut Tweens, w: &mut World, s: &mut Store) -> Vec<u32> {
     let mut done = Vec::new();
-    t.step(w, s, REST, |id| done.push(id));
+    let mut scenery = Scenery::default();
+    let mut values = Values {
+        store: s,
+        scenery: &mut scenery,
+    };
+    t.step(w, &mut values, REST, |id| done.push(id));
     done
 }
 
@@ -43,16 +51,42 @@ fn a_tween_lands_exactly_on_its_end_value_on_its_last_step() {
     let (mut w, es) = world_with(1);
     let mut s = Store::default();
     let mut t = Tweens::default();
-    t.tween(&w, &s, 1, x(es[0]), 3.0, 0.5, Ease::InOutCubic)
+    t.tween((&w, &s, NO_ROOMS), 1, x(es[0]), 3.0, 0.5, Ease::InOutCubic)
         .unwrap();
     for n in 1..30 {
         assert!(step(&mut t, &mut w, &mut s).is_empty(), "done early at {n}");
-        assert!(read(&w, &s, &x(es[0])).unwrap() < 3.0);
+        assert!(read(&w, &s, NO_ROOMS, &x(es[0])).unwrap() < 3.0);
     }
     assert_eq!(step(&mut t, &mut w, &mut s), [1]);
-    assert_eq!(read(&w, &s, &x(es[0])).unwrap(), 3.0);
+    assert_eq!(read(&w, &s, NO_ROOMS, &x(es[0])).unwrap(), 3.0);
     assert!(t.is_empty());
     assert!(step(&mut t, &mut w, &mut s).is_empty());
+}
+
+#[test]
+fn a_held_tween_writes_nothing_that_step_and_resumes_where_it_was() {
+    let (mut w, es) = world_with(1);
+    let mut s = Store::default();
+    let mut t = Tweens::default();
+    t.tween((&w, &s, NO_ROOMS), 1, x(es[0]), 6.0, 0.1, Ease::Linear)
+        .unwrap();
+    let mut seen = Vec::new();
+    for n in 0..8 {
+        let next = t.peek(&x(es[0]), REST);
+        if n == 2 || n == 3 {
+            t.hold(&x(es[0]));
+        }
+        let done = step(&mut t, &mut w, &mut s);
+        let now = read(&w, &s, NO_ROOMS, &x(es[0])).unwrap();
+        if n != 2 && n != 3 {
+            assert_eq!(next, Some(now), "step {n}: peeked what it then wrote");
+        }
+        seen.push((now, done));
+    }
+    let values: Vec<f32> = seen.iter().map(|(v, _)| *v).collect();
+    assert_eq!(values, [1.0, 2.0, 2.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    assert_eq!(seen[7].1, [1], "done two steps late, on its own last step");
+    assert_eq!(t.peek(&x(es[0]), REST), None);
 }
 
 #[test]
@@ -60,18 +94,18 @@ fn a_new_tween_on_the_same_property_continues_from_where_the_old_one_was() {
     let (mut w, es) = world_with(1);
     let mut s = Store::default();
     let mut t = Tweens::default();
-    t.tween(&w, &s, 1, x(es[0]), 10.0, 1.0, Ease::Linear)
+    t.tween((&w, &s, NO_ROOMS), 1, x(es[0]), 10.0, 1.0, Ease::Linear)
         .unwrap();
     let mut last = 0.0;
     for _ in 0..20 {
         step(&mut t, &mut w, &mut s);
-        last = read(&w, &s, &x(es[0])).unwrap();
+        last = read(&w, &s, NO_ROOMS, &x(es[0])).unwrap();
     }
-    t.tween(&w, &s, 2, x(es[0]), 0.0, 1.0, Ease::InOutSine)
+    t.tween((&w, &s, NO_ROOMS), 2, x(es[0]), 0.0, 1.0, Ease::InOutSine)
         .unwrap();
     assert_eq!(t.len(), 1, "the old tween is replaced");
     step(&mut t, &mut w, &mut s);
-    let now = read(&w, &s, &x(es[0])).unwrap();
+    let now = read(&w, &s, NO_ROOMS, &x(es[0])).unwrap();
     assert!(
         (now - last).abs() < 10.0 / 60.0,
         "jumped from {last} to {now}"
@@ -96,12 +130,16 @@ fn a_critical_spring_settles_within_the_analytic_bound_without_overshoot() {
     let mut s = Store::default();
     let mut t = Tweens::default();
     w.node_mut(es[0]).unwrap().local.position.x = 1.0;
-    t.spring(&w, &s, 5, x(es[0]), 0.0, 2.0, 1.0).unwrap();
+    t.spring((&w, &s, NO_ROOMS), 5, x(es[0]), 0.0, 2.0, 1.0)
+        .unwrap();
     let bound = settle_steps(2.0);
     let mut settled = None;
     for n in 1..=bound + 2 {
         let done = step(&mut t, &mut w, &mut s);
-        assert!(read(&w, &s, &x(es[0])).unwrap() >= 0.0, "overshot at {n}");
+        assert!(
+            read(&w, &s, NO_ROOMS, &x(es[0])).unwrap() >= 0.0,
+            "overshot at {n}"
+        );
         if done == [5] {
             settled = Some(n);
             break;
@@ -113,7 +151,7 @@ fn a_critical_spring_settles_within_the_analytic_bound_without_overshoot() {
         settled + 6 >= bound,
         "settled at {settled}, too early for {bound}"
     );
-    assert_eq!(read(&w, &s, &x(es[0])).unwrap(), 0.0);
+    assert_eq!(read(&w, &s, NO_ROOMS, &x(es[0])).unwrap(), 0.0);
 }
 
 #[test]
@@ -121,15 +159,17 @@ fn a_spring_retargeted_mid_flight_keeps_its_velocity() {
     let (mut w, es) = world_with(1);
     let mut s = Store::default();
     let mut t = Tweens::default();
-    t.spring(&w, &s, 1, x(es[0]), 5.0, 1.5, 0.7).unwrap();
+    t.spring((&w, &s, NO_ROOMS), 1, x(es[0]), 5.0, 1.5, 0.7)
+        .unwrap();
     let mut xs = vec![0.0];
     for _ in 0..10 {
         step(&mut t, &mut w, &mut s);
-        xs.push(read(&w, &s, &x(es[0])).unwrap());
+        xs.push(read(&w, &s, NO_ROOMS, &x(es[0])).unwrap());
     }
-    t.spring(&w, &s, 1, x(es[0]), -2.0, 1.5, 0.7).unwrap();
+    t.spring((&w, &s, NO_ROOMS), 1, x(es[0]), -2.0, 1.5, 0.7)
+        .unwrap();
     step(&mut t, &mut w, &mut s);
-    xs.push(read(&w, &s, &x(es[0])).unwrap());
+    xs.push(read(&w, &s, NO_ROOMS, &x(es[0])).unwrap());
     let n = xs.len();
     let before = xs[n - 2] - xs[n - 3];
     let after = xs[n - 1] - xs[n - 2];
@@ -145,10 +185,11 @@ fn a_stiff_spring_stays_stable() {
     let (mut w, es) = world_with(1);
     let mut s = Store::default();
     let mut t = Tweens::default();
-    t.spring(&w, &s, 1, x(es[0]), 1.0, 80.0, 0.05).unwrap();
+    t.spring((&w, &s, NO_ROOMS), 1, x(es[0]), 1.0, 80.0, 0.05)
+        .unwrap();
     for _ in 0..600 {
         step(&mut t, &mut w, &mut s);
-        let v = read(&w, &s, &x(es[0])).unwrap();
+        let v = read(&w, &s, NO_ROOMS, &x(es[0])).unwrap();
         assert!(v.is_finite() && v.abs() <= 2.0, "{v}");
     }
 }
@@ -163,8 +204,9 @@ fn tweens_drive_variables_and_drop_dead_entities_silently() {
         property: Property::Var,
         var: 9,
     };
-    t.tween(&w, &s, 1, var, 2.0, 0.1, Ease::Linear).unwrap();
-    t.tween(&w, &s, 2, x(es[0]), 2.0, 0.1, Ease::Linear)
+    t.tween((&w, &s, NO_ROOMS), 1, var, 2.0, 0.1, Ease::Linear)
+        .unwrap();
+    t.tween((&w, &s, NO_ROOMS), 2, x(es[0]), 2.0, 0.1, Ease::Linear)
         .unwrap();
     w.despawn(es[0]).unwrap();
     let mut done = Vec::new();

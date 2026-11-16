@@ -456,8 +456,7 @@ mod tests {
     #[test]
     fn losing_focus_lets_go_of_the_keys_and_the_mouse() {
         let assets = Assets {
-            room: None,
-            collision: None,
+            rooms: Vec::new(),
             actors: Vec::new(),
             sounds: None,
             hud: Some(Hud {

@@ -28,6 +28,7 @@ use crate::no_jump;
 use crate::outbox::{HostIn, HostOut};
 use crate::settings::Settings;
 use crate::state::State;
+use crate::tween::Values;
 
 /// Why a game stopped for good.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -152,6 +153,12 @@ impl<L: Logic> Simulation<L> {
         &self.state
     }
 
+    /// Gives the step the rooms of the pack, the first active; see
+    /// [`Scenery`](crate::scenery::Scenery).
+    pub fn set_rooms(&mut self, rooms: Vec<crate::scenery::RoomScene>) {
+        self.state.scenery = crate::scenery::Scenery::new(rooms);
+    }
+
     pub fn logic(&self) -> &L {
         &self.logic
     }
@@ -210,6 +217,7 @@ impl<L: Logic> Simulation<L> {
         s.screen.begin_step();
         s.clips.step();
         s.outbox.begin_step();
+        s.scenery.begin_step();
         std::mem::swap(&mut s.seen, &mut s.happened);
         s.happened.clear();
         let head = &mut self.head;
@@ -260,9 +268,14 @@ impl<L: Logic> Simulation<L> {
         s.followers.step(&mut s.world);
         let events = &mut s.events;
         let rest = s.settings.spring_rest;
-        s.tweens.step(&mut s.world, &mut s.store, rest, |tween| {
+        let mut values = Values {
+            store: &mut s.store,
+            scenery: &mut s.scenery,
+        };
+        s.tweens.step(&mut s.world, &mut values, rest, |tween| {
             events.push(Event::TweenDone { tween })
         });
+        s.scenery.step();
         s.timers
             .step(|timer| events.push(Event::TimerFired { timer }));
         s.screen.step();
