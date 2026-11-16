@@ -112,6 +112,8 @@ struct Actor {
     triggers: Vec<u32>,
     /// Off: the actor is left out of every step, as if removed.
     active: bool,
+    /// Radians per second, in place of `controller.max_yaw_speed`.
+    max_yaw_speed: Option<f32>,
 }
 
 /// A walkable grid being built a share at a time, by
@@ -288,6 +290,7 @@ impl World {
             awake: true,
             triggers: Vec::new(),
             active: true,
+            max_yaw_speed: None,
         };
         actor.ground = self.standing_on(&actor, desc.position, desc.yaw);
         self.actors.push(actor);
@@ -598,6 +601,9 @@ impl World {
                 let a = &mut self.actors[actor.0 as usize];
                 a.target_yaw = wrap_angle(yaw);
                 a.awake = true;
+            }
+            Intent::SetMaxYawSpeed { actor, speed } => {
+                self.actors[actor.0 as usize].max_yaw_speed = speed;
             }
         }
     }
@@ -956,6 +962,7 @@ impl World {
     fn turn(&mut self, i: usize) {
         let filter = self.settings.controller.yaw_filter;
         let blend = self.derived.yaw_blend;
+        let (setting, dt) = (self.derived.max_turn, self.settings.step_seconds);
         let a = &mut self.actors[i];
         let facing = match a.route {
             Some(Route {
@@ -973,7 +980,7 @@ impl World {
                 a.target_yaw = want;
             }
         }
-        let max = self.derived.max_turn;
+        let max = a.max_yaw_speed.map_or(setting, |speed| speed * dt);
         let yaw = wrap_angle(a.yaw + (wrap_angle(a.target_yaw - a.yaw) * blend).clamp(-max, max));
         let swings = a.desc.collider.head.is_some_and(|h| h.forward != 0.0);
         if !swings || yaw == a.yaw {

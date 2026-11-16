@@ -67,6 +67,9 @@ pub enum Intent {
     /// Turns the actor in place towards `yaw` at the controller's turn
     /// rate; walking turns it towards where it goes instead.
     Face { actor: ActorId, yaw: f32 },
+    /// Radians per second the actor turns at most, in place of
+    /// `controller.max_yaw_speed`; none gives it the setting back.
+    SetMaxYawSpeed { actor: ActorId, speed: Option<f32> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

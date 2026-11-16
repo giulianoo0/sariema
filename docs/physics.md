@@ -54,6 +54,7 @@ step, in id order, and appends events to a buffer the caller owns.
 | `SetColliderEnabled` | Enable or disable a collider. Actors inside a collider being enabled are pushed out of it at the next step, or it stays disabled. |
 | `SetSpeedScale` | Multiply the walk speed. |
 | `Face { yaw }` | Turn in place towards `yaw`; walking turns towards where the actor goes instead. |
+| `SetMaxYawSpeed { speed }` | Radians per second this actor turns at most, in place of `controller.max_yaw_speed`; `None` gives it the setting back. The engine sends it for `set_turn_rate`. |
 
 `World::set_actor_active(id, false)` leaves an actor out of every step (it
 leaves its triggers) without changing any other id; the engine uses it for
@@ -410,7 +411,7 @@ it feels.
 | `controller.accel_steps` | 0 | Steps to full speed and to stop; 0 is instant. |
 | `controller.yaw_rate` | 14 /s | Facing closes `1 − e^(−rate·dt)` of the remaining angle per step. |
 | `controller.yaw_filter` | 0.1 rad | Smaller changes of the wanted facing are ignored. |
-| `controller.max_yaw_speed` | infinite | Radians per second an actor turns at most; the engine sets it to the runtime's `motion.turn_rate`, so no turn is fast enough to count as a jump. |
+| `controller.max_yaw_speed` | infinite | Radians per second an actor turns at most; the engine sets it to the runtime's `motion.turn_rate`, so no turn is fast enough to count as a jump, and an actor's own `set_turn_rate` overrides it for that actor. |
 | `nav.cell_size` | 0.1 m | Walkable-grid cell side. |
 | `nav.max_layers` | 4 | Floors per grid column. |
 | `nav.snap_radius` | 0.5 m | How far a start or target may be from a floor. |
