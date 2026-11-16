@@ -1,12 +1,14 @@
 {
   "name": "intro",
   "roles": {
-    "hero": { "start": { "position": [0, 0, 0], "yaw": 0 } }
+    "hero": { "start": { "position": [4.5, 0, -1], "yaw": 0 } }
   },
   "steps": [
     { "letterbox": { "to": 1, "duration": 0.4 } },
-    { "shot": { "follow": "hero", "distance": 4, "pitch": 20, "yaw": 180, "blend": 1.0 } },
-    { "line": { "speaker": "hero", "text": "Morning. Time to look around.", "advance": "auto", "duration": 2 } },
+    { "shot": { "follow": "hero", "distance": 4, "pitch": 25, "yaw": 150, "height": 1, "blend": 0.8 } },
+    { "walk": { "role": "hero", "to": [3.5, 0, -1.6], "speed": 1.2 } },
+    { "sound": { "sound": "chime", "bus": "effects", "at": "hero", "volume": 1 } },
+    { "line": { "speaker": "hero", "text": "Morning. Time to look around.", "voice": "hello", "advance": "auto", "duration": 2 } },
     { "letterbox": { "to": 0, "duration": 0.4 } }
   ]
 }

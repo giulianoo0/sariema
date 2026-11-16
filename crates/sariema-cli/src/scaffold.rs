@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! `sariema new`: a game project that builds, checks and runs as it is.
+//! `sariema new`: a game project that builds, checks and runs as it is: a
+//! room with collision, a hero walked by the player, an intro cutscene, a
+//! sound bank with music, an effect and a voice, and a HUD with a joystick,
+//! a button and an objective.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,7 +22,7 @@ const FILES: &[(&str, &[u8])] = &[
     ),
     (
         "montagem.json",
-        include_bytes!("../../../examples/demo/montagem.json"),
+        include_bytes!("../../../examples/collision/montagem.json"),
     ),
     (
         "luz.json",
@@ -28,6 +31,28 @@ const FILES: &[(&str, &[u8])] = &[
     (
         "kit.glb",
         include_bytes!("../../sariema-import/tests/fixtures/kit_min.opt.glb"),
+    ),
+    (
+        "actors/hero.json",
+        include_bytes!("../templates/new/actors/hero.json"),
+    ),
+    (
+        "actors/hero.glb",
+        include_bytes!("../../../examples/demo/actors/arm.glb"),
+    ),
+    ("audio.json", include_bytes!("../templates/new/audio.json")),
+    (
+        "sounds/tone.ogg",
+        include_bytes!("../../sariema-audio/tests/fixtures/tone.ogg"),
+    ),
+    ("hud.json", include_bytes!("../templates/new/hud.json")),
+    (
+        "fonts/Nunito.ttf",
+        include_bytes!("../../sariema-ui/fonts/Nunito.ttf"),
+    ),
+    (
+        "fonts/OFL.txt",
+        include_bytes!("../../sariema-ui/fonts/OFL.txt"),
     ),
     (
         "cutscenes/intro.json",
@@ -91,7 +116,22 @@ pub fn new(dir: &Path, sdk: Option<&Path>, toolchain: Option<&str>) -> Result<Do
         .and_then(|n| n.to_str())
         .unwrap_or("game")
         .to_string();
-    let mut game = json!({ "logic": "game", "cutscenes": "cutscenes" });
+    let mut game = json!({
+        "logic": "game",
+        "cutscenes": "cutscenes",
+        "room": "start",
+        "hud": "hud.json",
+        "settings": {
+            "input": {
+                "buttons": [
+                    { "name": "confirm", "keys": ["space", "enter"], "pad": ["south"] },
+                    { "name": "back", "keys": ["backspace"], "pad": ["east"] },
+                    { "name": "skip", "keys": ["escape"], "pad": ["start"] },
+                    { "name": "action", "keys": ["e"], "pad": ["west"] }
+                ]
+            }
+        }
+    });
     if let Some(toolchain) = toolchain {
         game["toolchain"] = json!(toolchain);
     }
@@ -99,6 +139,8 @@ pub fn new(dir: &Path, sdk: Option<&Path>, toolchain: Option<&str>) -> Result<Do
         "name": name,
         "assets_root": ".",
         "rooms": { "start": "rooms/start.json" },
+        "actors": { "hero": "actors/hero.json" },
+        "audio": "audio.json",
         "game": game,
     });
     let manifest = format!(
@@ -127,7 +169,8 @@ pub fn new(dir: &Path, sdk: Option<&Path>, toolchain: Option<&str>) -> Result<Do
     Ok(Done {
         json: json!({ "project": dir.display().to_string(), "name": name, "files": written }),
         text: format!(
-            "made {name} in {}; next: sariema check {0}, sariema build {0} -o {name}.srmg",
+            "made {name} in {}; next: sariema check {0}, sariema build {0} -o {name}.srmg, \
+             sariema run --game {name}.srmg",
             dir.display()
         ),
     })

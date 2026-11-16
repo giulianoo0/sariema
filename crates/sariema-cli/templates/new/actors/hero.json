@@ -1,0 +1,6 @@
+{
+  "name": "hero",
+  "model": "actors/hero.glb",
+  "markers": { "wave": { "tap": 0.25 } },
+  "materials": { "mat_arm": { "rim": 0.3 } }
+}

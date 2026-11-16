@@ -329,9 +329,28 @@ fn new_makes_a_project_that_checks_builds_and_runs() {
     let (code, _) = error_code(&["new", arg(&dir)]);
     assert_eq!(code, "E_PROJECT_EXISTS");
 
-    assert_eq!(ok(&["check", arg(&dir)])["cutscenes"], json!(["intro"]));
+    let checked = ok(&["check", arg(&dir)]);
+    assert_eq!(checked["cutscenes"], json!(["intro"]));
+    assert_eq!(checked["warnings"], json!([]));
     let pack = tmp.path().join("first.srmg");
-    ok(&["build", arg(&dir), "-o", arg(&pack)]);
+    let built = ok(&["build", arg(&dir), "-o", arg(&pack)]);
+    assert_eq!(
+        (
+            &built["room"],
+            &built["collision"],
+            &built["actors"],
+            &built["sounds"],
+            &built["hud"]
+        ),
+        (
+            &json!(true),
+            &json!(true),
+            &json!(["hero"]),
+            &json!(true),
+            &json!(true)
+        ),
+        "a room with collision, a hero, sound and a HUD"
+    );
     let input = dir.join("input/walk.json");
     let run = ok(&[
         "run",
@@ -343,15 +362,27 @@ fn new_makes_a_project_that_checks_builds_and_runs() {
         "--steps",
         "480",
     ]);
-    let story = story(&run);
-    assert!(
-        story.contains(&"1 cutscene_started".to_string()),
-        "{story:?}"
+    let story: Vec<String> = story(&run)
+        .into_iter()
+        .map(|e| e.split_once(' ').unwrap().1.to_owned())
+        .filter(|e| !["buffered", "axis", "control", "hit_wall"].contains(&e.as_str()))
+        .collect();
+    assert_eq!(
+        story,
+        [
+            "started",
+            "cutscene_started",
+            "arrived",
+            "line_done",
+            "cutscene_ended",
+            "button",
+            "button",
+            "clip_marker",
+            "clip_finished"
+        ],
+        "the intro walks the hero in and says its line, then the player waves"
     );
-    assert!(
-        story.iter().any(|e| e.ends_with("cutscene_ended")),
-        "{story:?}"
-    );
+    assert!(run["audio_hash"].is_string(), "{run}");
 
     let room = tmp.path().join("start.srma");
     ok(&["build", arg(&dir), "--room", "start", "-o", arg(&room)]);

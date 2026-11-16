@@ -1,0 +1,15 @@
+{
+  "root": "sounds",
+  "sounds": {
+    "theme": {
+      "file": "tone.ogg",
+      "bus": "music",
+      "stream": true,
+      "loop": { "start": 33075, "end": 77175 },
+      "enter_s": 0.8,
+      "leave_s": 2.0
+    },
+    "chime": { "file": "tone.ogg", "bus": "effects" },
+    "hello": { "file": "tone.ogg", "bus": "voice", "on_demand": true }
+  }
+}

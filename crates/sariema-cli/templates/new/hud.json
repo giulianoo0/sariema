@@ -1,0 +1,43 @@
+{
+  "fonts": {
+    "label": { "file": "fonts/Nunito.ttf", "weight": 750 },
+    "phrase": { "file": "fonts/Nunito.ttf", "weight": 800 }
+  },
+  "nodes": [
+    { "name": "hud", "safe": true, "children": [
+      { "name": "objective", "absolute": true, "left": 16, "top": 12, "direction": "column",
+        "padding": [8, 16], "max_width": 360, "opacity": 0,
+        "fill": "#FFF8EC", "border": { "width": 2.5, "color": "#33261C" }, "radius": 16,
+        "shadow": { "y": 3, "color": "#33261C61" },
+        "children": [
+          { "text": "Objective", "font": "label", "size": 13, "fill": "#7A4A12" },
+          { "name": "phrase", "text": "Look around the room", "font": "phrase", "size": 17,
+            "fill": "#33261C", "max_lines": 2 }
+        ]},
+      { "name": "zone", "absolute": true, "left": 0, "top": 0, "bottom": 0, "width": "50%",
+        "widget": { "joystick": { "base": "base", "pin": "pin" } },
+        "children": [
+          { "name": "base", "absolute": true, "left": 16, "bottom": 16, "width": 128, "height": 128,
+            "radius": 64, "fill": "#FFFFFF38", "border": { "width": 3, "color": "#FFFFFFB3" }, "opacity": 0.45,
+            "children": [
+              { "name": "pin", "absolute": true, "left": 36, "top": 36, "width": 56, "height": 56, "radius": 28,
+                "fill": "#FFFFFF", "shadow": { "y": 2, "blur": 6, "color": "#0000004D" } }
+            ]}
+        ]},
+      { "name": "action", "absolute": true, "right": 16, "bottom": 16, "width": 80, "height": 80,
+        "widget": { "button": { "face": "face", "ring": "ring" } },
+        "children": [
+          { "name": "ring", "absolute": true, "left": 0, "top": 0, "width": 80, "height": 80,
+            "ring": { "width": 5, "track": "#FFFFFF47" }, "fill": "#FFC93D", "progress": 0 },
+          { "name": "face", "absolute": true, "left": 8, "top": 8, "width": 64, "height": 64, "radius": 32,
+            "fill": "#E0650F", "shadow": { "y": 3, "color": "#33261C61" } }
+        ]}
+    ]}
+  ],
+  "animations": {
+    "enter": [
+      { "node": "objective", "prop": "y", "from": -14, "to": 0, "duration": 0.26 },
+      { "node": "objective", "prop": "opacity", "from": 0, "to": 1, "duration": 0.18 }
+    ]
+  }
+}
