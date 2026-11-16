@@ -279,3 +279,54 @@ fn a_move_given_after_a_teleport_in_the_same_step_starts_from_where_it_lands() {
         "{a:?}"
     );
 }
+
+#[test]
+fn a_refused_teleport_leaves_the_walk_going() {
+    let mut room = Room::default();
+    room.floor(30.0).add(
+        "block",
+        Owned::Box {
+            center: Vec3::new(8.0, 2.5, 0.0),
+            half: Vec3::splat(2.5),
+            rotation: Mat3::IDENTITY,
+        },
+    );
+    let mut world = room.world(Settings::default());
+    let id = actor(&mut world, Vec3::new(-4.0, 0.0, 0.0));
+    settle(&mut world, id);
+    let target = Vec3::new(-4.0, 0.0, 6.0);
+    world.apply(Intent::MoveTo {
+        actor: id,
+        target,
+        face: None,
+    });
+    let mut events = Vec::new();
+    for _ in 0..10 {
+        world.step(&mut events);
+    }
+    world.apply(Intent::Teleport {
+        actor: id,
+        position: Vec3::new(8.0, 1.0, 0.0),
+        yaw: 0.0,
+    });
+    let mut seen = Vec::new();
+    for _ in 0..600 {
+        events.clear();
+        world.step(&mut events);
+        seen.extend(events.iter().map(|e| e.kind));
+        if seen.contains(&EventKind::Arrived) {
+            break;
+        }
+    }
+    assert_eq!(
+        seen,
+        [EventKind::TeleportRejected, EventKind::Arrived],
+        "{:?}",
+        world.actor(id)
+    );
+    let a = world.actor(id);
+    assert!(
+        Vec2::new(a.position.x - target.x, a.position.z - target.z).length() <= 0.02 + 1e-4,
+        "{a:?}"
+    );
+}

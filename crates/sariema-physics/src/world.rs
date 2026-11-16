@@ -103,6 +103,8 @@ struct Actor {
     pose: Option<(Vec3, f32)>,
     posed: bool,
     move_to: Option<(Vec3, Option<f32>)>,
+    /// `move_to` was given after the pending teleport, so it outlives it.
+    move_after_teleport: bool,
     route: Option<Route>,
     path: Vec<Vec3>,
     nav: Option<usize>,
@@ -250,6 +252,7 @@ impl World {
             pose: None,
             posed: false,
             move_to: None,
+            move_after_teleport: false,
             route: None,
             path: Vec::new(),
             nav: None,
@@ -387,6 +390,7 @@ impl World {
                 let a = &mut self.actors[actor.0 as usize];
                 a.release();
                 a.move_to = Some((target, face));
+                a.move_after_teleport = a.teleport.is_some();
                 a.route = None;
             }
             Intent::Stop { actor } => {
@@ -413,8 +417,7 @@ impl World {
                 let a = &mut self.actors[actor.0 as usize];
                 a.release();
                 a.teleport = Some((position, yaw));
-                a.move_to = None;
-                a.route = None;
+                a.move_after_teleport = false;
             }
             Intent::Pose {
                 actor,
@@ -593,12 +596,19 @@ impl World {
                     a.vertical = 0.0;
                     a.ground = ground;
                     a.route = None;
+                    if !a.move_after_teleport {
+                        a.move_to = None;
+                    }
+                    a.move_after_teleport = false;
                     a.awake = true;
                 }
-                None => events.push(Event {
-                    actor: id,
-                    kind: EventKind::TeleportRejected,
-                }),
+                None => {
+                    self.actors[i].move_after_teleport = false;
+                    events.push(Event {
+                        actor: id,
+                        kind: EventKind::TeleportRejected,
+                    });
+                }
             }
         }
         if let Some((target, face)) = self.actors[i].move_to.take() {

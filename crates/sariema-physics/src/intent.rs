@@ -39,9 +39,10 @@ pub enum Intent {
     },
     /// Puts the actor at `position` facing `yaw`, then pushes it out of
     /// anything it overlaps; if that fails it stays where it was and
-    /// [`EventKind::TeleportRejected`] is reported. It drops a `MoveTo`
-    /// given before it; one given after it, even in the same step, walks
-    /// from where it lands.
+    /// [`EventKind::TeleportRejected`] is reported. Once it lands it drops a
+    /// `MoveTo` given before it, and one given after it, even in the same
+    /// step, walks from where it landed; a refused teleport leaves the walk
+    /// going.
     Teleport {
         actor: ActorId,
         position: Vec3,
