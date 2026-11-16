@@ -8,6 +8,7 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use sariema_format::script::{COMMANDS, Command, Reader, WireError};
 use sariema_runtime::cutscene::PLAY_CODES;
 use sariema_runtime::cutscene::check::CODES as CHECK_CODES;
+use sariema_runtime::scenery::SceneReject;
 use sariema_runtime::world::Reject;
 use sariema_vm::VmError;
 use serde_json::{Value, json};
@@ -100,6 +101,7 @@ fn api_lists_every_error_code_the_engine_gives() {
         .chain(CHECK_CODES)
         .chain(PLAY_CODES)
         .chain(Reject::ALL.map(Reject::code))
+        .chain(SceneReject::ALL.map(SceneReject::code))
         .chain(sariema_engine::REJECTED.iter().copied())
         .chain(wire)
         .chain([
@@ -476,7 +478,7 @@ fn the_climb_example_replays_through_the_whole_engine_to_pinned_events_and_state
         "walls, the wave's marker, the sill zone, the walk to the mark, the climb through the window and its doorway trigger, the line"
     );
     // The same in the browsers (packages/sariema-web, `npm test`).
-    assert_eq!(played["engine_hash"], "60d39185bf71cd37");
+    assert_eq!(played["engine_hash"], "8828f445d1990c5c");
     let again = run("900");
     for hash in ["engine_hash", "physics_hash", "audio_hash"] {
         assert_eq!(again[hash], played[hash], "{hash} differs between two runs");

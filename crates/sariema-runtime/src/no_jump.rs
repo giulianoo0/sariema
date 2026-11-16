@@ -208,7 +208,7 @@ pub(crate) fn may_tween(
     duration: f32,
     curve: Ease,
 ) -> Result<(), Refusal> {
-    let Ok(from) = tween::read(&s.world, &s.store, t) else {
+    let Ok(from) = tween::read(&s.world, &s.store, &s.scenery, t) else {
         return Ok(());
     };
     let steps = steps_of(duration);

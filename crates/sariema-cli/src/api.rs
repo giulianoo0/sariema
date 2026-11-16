@@ -261,6 +261,16 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "camera_use names a rig never defined",
     ),
     (
+        "E_ROOM_UNKNOWN",
+        Kind::Rejected,
+        "room_preload or room_switch names a room the pack lacks",
+    ),
+    (
+        "E_SCENE_UNKNOWN",
+        Kind::Rejected,
+        "a group, piece, state or scene parameter the active room lacks",
+    ),
+    (
         "E_CUTSCENE_BUSY",
         Kind::Rejected,
         "cutscene_play while a cutscene plays",

@@ -21,7 +21,7 @@ use sariema_physics::{
 };
 use serde::Deserialize;
 
-use crate::room::{Montagem, RoomSource, placement, read_json, shown_primitives};
+use crate::room::{Montagem, RoomSource, instance_primitives, placement, read_json};
 use crate::{ImportError, Kit, KitPrimitive, load_kit};
 
 /// The `collision` key of a room description, as `schemas/room.schema.json` defines it.
@@ -224,9 +224,9 @@ pub fn build_collision(
                 1 => format!("{room}.{}", inst.peca),
                 n => format!("{room}.{}.{n}", inst.peca),
             };
-            let primitives = shown_primitives(piece, inst, room)?;
+            let primitives = instance_primitives(piece, inst, room)?;
             let (vertices, triangles) =
-                solid_triangles(primitives, &kit, &source.additive_materials);
+                solid_triangles(&primitives, &kit, &source.additive_materials);
             if triangles.is_empty() {
                 continue;
             }

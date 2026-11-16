@@ -8,6 +8,7 @@ use sariema_core::STEP_SECONDS;
 use sariema_format::script::{Ease, Property};
 
 use crate::ease::ease;
+use crate::scenery::Scenery;
 use crate::spring::Spring;
 use crate::store::Store;
 use crate::world::{Entity, Reject, World};
@@ -22,17 +23,30 @@ pub struct Target {
 impl Target {
     fn same(&self, other: &Target) -> bool {
         self.property == other.property
-            && if self.property == Property::Var {
+            && if self.named() {
                 self.var == other.var
             } else {
                 self.entity == other.entity
             }
     }
+
+    /// Whether `var` names what it drives, instead of `entity`.
+    pub fn named(&self) -> bool {
+        matches!(self.property, Property::Var | Property::Scene)
+    }
 }
 
-pub fn read(world: &World, store: &Store, t: &Target) -> Result<f32, Reject> {
-    if t.property == Property::Var {
-        return Ok(store.var(t.var));
+/// What a tween or spring drives, besides entities.
+pub struct Values<'a> {
+    pub store: &'a mut Store,
+    pub scenery: &'a mut Scenery,
+}
+
+pub fn read(world: &World, store: &Store, scenery: &Scenery, t: &Target) -> Result<f32, Reject> {
+    match t.property {
+        Property::Var => return Ok(store.var(t.var)),
+        Property::Scene => return scenery.param(t.var).map_err(|_| Reject::Stale),
+        _ => {}
     }
     let local = world.node(t.entity).ok_or(Reject::Stale)?.local;
     Ok(match t.property {
@@ -43,14 +57,23 @@ pub fn read(world: &World, store: &Store, t: &Target) -> Result<f32, Reject> {
         Property::Pitch => local.pitch,
         Property::Roll => local.roll,
         Property::Scale => local.scale,
-        Property::Var => unreachable!(),
+        Property::Var | Property::Scene => unreachable!(),
     })
 }
 
-pub fn write(world: &mut World, store: &mut Store, t: &Target, v: f32) -> Result<(), Reject> {
-    if t.property == Property::Var {
-        store.vars.insert(t.var, v);
-        return Ok(());
+pub fn write(world: &mut World, values: &mut Values, t: &Target, v: f32) -> Result<(), Reject> {
+    match t.property {
+        Property::Var => {
+            values.store.vars.insert(t.var, v);
+            return Ok(());
+        }
+        Property::Scene => {
+            return values
+                .scenery
+                .set_param(t.var, v)
+                .map_err(|_| Reject::Stale);
+        }
+        _ => {}
     }
     let local = &mut world.node_mut(t.entity)?.local;
     match t.property {
@@ -61,7 +84,7 @@ pub fn write(world: &mut World, store: &mut Store, t: &Target, v: f32) -> Result
         Property::Pitch => local.pitch = v,
         Property::Roll => local.roll = v,
         Property::Scale => local.scale = v,
-        Property::Var => unreachable!(),
+        Property::Var | Property::Scene => unreachable!(),
     }
     Ok(())
 }
@@ -118,18 +141,16 @@ impl Tweens {
         Some(self.list.remove(at))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn tween(
         &mut self,
-        world: &World,
-        store: &Store,
+        (world, store, scenery): (&World, &Store, &Scenery),
         id: u32,
         target: Target,
         to: f32,
         duration: f32,
         ease: Ease,
     ) -> Result<(), Reject> {
-        let from = read(world, store, &target)?;
+        let from = read(world, store, scenery, &target)?;
         self.take(id, &target);
         self.list.push(Anim {
             id,
@@ -146,18 +167,16 @@ impl Tweens {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn spring(
         &mut self,
-        world: &World,
-        store: &Store,
+        (world, store, scenery): (&World, &Store, &Scenery),
         id: u32,
         target: Target,
         to: f32,
         frequency: f32,
         damping: f32,
     ) -> Result<(), Reject> {
-        let now = read(world, store, &target)?;
+        let now = read(world, store, scenery, &target)?;
         let velocity = self.velocity(id, &target, now);
         self.take(id, &target);
         self.list.push(Anim {
@@ -202,7 +221,7 @@ impl Tweens {
     pub fn forget(&mut self, entity: Entity) -> bool {
         let before = self.list.len();
         self.list
-            .retain(|a| a.target.property == Property::Var || a.target.entity != entity);
+            .retain(|a| a.target.named() || a.target.entity != entity);
         self.list.len() != before
     }
 
@@ -212,7 +231,7 @@ impl Tweens {
     pub fn step(
         &mut self,
         world: &mut World,
-        store: &mut Store,
+        values: &mut Values,
         rest: f32,
         mut done: impl FnMut(u32),
     ) {
@@ -250,7 +269,7 @@ impl Tweens {
                 }
             };
             anim.last = value;
-            let alive = write(world, store, &anim.target, value).is_ok();
+            let alive = write(world, values, &anim.target, value).is_ok();
             if finished && alive {
                 done(anim.id);
             }

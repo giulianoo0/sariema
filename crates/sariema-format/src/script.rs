@@ -23,8 +23,8 @@ mod wire;
 pub use table::{BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Event};
 pub use wire::{
     Advance, Anchor, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,
-    MessageSpec, Orientation, Property, Reader, Sink, Str, Value, VariantSpec, Vec3, Wire,
-    WireError, name_id,
+    MessageSpec, Orientation, Property, Reader, RoomTransition, Sink, Str, Value, VariantSpec,
+    Vec3, Wire, WireError, name_id,
 };
 
 use cutscene::{Await, Block, Cutscene, Place, Point, Shot, Toward};

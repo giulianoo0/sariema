@@ -148,6 +148,9 @@ pub fn demo_room() -> RoomPack {
             focus: [0.0, 0.0, 0.0],
         },
         stats,
+        groups: Vec::new(),
+        nodes: Vec::new(),
+        pieces: Vec::new(),
     }
 }
 

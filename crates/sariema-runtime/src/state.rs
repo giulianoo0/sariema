@@ -14,6 +14,7 @@ use crate::input::Input;
 use crate::motion::{Goal, Motion};
 use crate::outbox::Outbox;
 use crate::rng::Pcg32;
+use crate::scenery::Scenery;
 use crate::screen::{Dialogue, Fader, Screen};
 use crate::settings::Settings;
 use crate::store::Store;
@@ -43,6 +44,7 @@ pub struct State {
     pub world: World,
     pub store: Store,
     pub tweens: Tweens,
+    pub scenery: Scenery,
     pub followers: Followers,
     pub timers: Timers,
     pub zones: Zones,
@@ -73,6 +75,7 @@ impl State {
             world: World::new(settings.max_entities),
             store: Store::default(),
             tweens: Tweens::default(),
+            scenery: Scenery::default(),
             followers: Followers::default(),
             timers: Timers::default(),
             zones: Zones::default(),
@@ -152,7 +155,8 @@ impl State {
     }
 
     /// The world as the player sees it: entities, flags, variables, the
-    /// screen, the camera and who controls the hero. Leaves out time.
+    /// screen, the camera, the rooms and who controls the hero. Leaves out
+    /// time.
     pub fn world_hash(&self) -> u64 {
         let mut h = StateHasher::default();
         for (e, n) in self.world.entities() {
@@ -176,6 +180,7 @@ impl State {
         h.f32(self.screen.fade.value());
         h.f32(self.screen.letterbox.value());
         self.camera.hash_into(&mut h);
+        self.scenery.hash_into(&mut h);
         h.u32(self.control.hero.index);
         h.u32(self.control.by as u32);
         h.finish()

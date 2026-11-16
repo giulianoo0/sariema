@@ -28,10 +28,14 @@
       "minItems": 1,
       "description": "Sub-rooms (comodos) to include; the first gives the ambient light and the sun."
     },
-    "loose": { "$ref": "#/$defs/names", "description": "Pieces that keep their own draws instead of merging by material." },
+    "loose": { "$ref": "#/$defs/names", "description": "Pieces that keep their own draws instead of merging by material: each copy is a node the game can show, hide and move, with every state of the piece and its hinges." },
     "hidden": {
       "$ref": "#/$defs/names",
       "description": "Pieces that start hidden. Loose ones keep invisible draws the game can show; merged ones are left out."
+    },
+    "groups_off": {
+      "$ref": "#/$defs/names",
+      "description": "Sub-rooms of show whose group starts switched off: built and loaded, drawn once the game switches the group on."
     },
     "shadowless_lights": {
       "$ref": "#/$defs/names",

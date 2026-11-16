@@ -367,9 +367,11 @@ pub struct EnumSpec {
 }
 
 wire_enum! {
-    /// What an entity stands for. `asset` in `spawn` indexes the matching
-    /// table: the room's draws, the actor bank, the room's lights or the UI
-    /// tree; it is unused for the other kinds.
+    /// What an entity stands for. `asset` in `spawn` is the name id of what
+    /// it stands for: a node or a light of the active room, which the entity
+    /// then places, shows and hides (it starts where the room has it), an
+    /// actor of the pack, or a node of the UI tree; it is unused for the
+    /// other kinds.
     Kind {
         Empty = 0 => "empty",
         RoomNode = 1 => "room_node",
@@ -427,6 +429,22 @@ wire_enum! {
         Scale = 6 => "scale",
         /// A world variable, read by other modules (material parameters, UI, audio).
         Var = 7 => "var",
+        /// A scene parameter of the active room named by `var`, such as
+        /// `look.exposure`, `light.<name>.intensity` or `hinge.<node>`.
+        Scene = 8 => "scene",
+    }
+}
+
+wire_enum! {
+    /// How a room switch is shown.
+    RoomTransition {
+        /// At once: under a fade, or where both rooms look the same.
+        Cut = 0 => "cut",
+        /// Both rooms drawn while the lighting blends from the old room's to
+        /// the new one's: where the geometry continues and the camera goes on.
+        Continuous = 1 => "continuous",
+        /// The old room dissolves into the new one.
+        Dissolve = 2 => "dissolve",
     }
 }
 

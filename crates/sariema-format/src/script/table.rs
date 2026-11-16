@@ -12,12 +12,13 @@
 
 use super::wire::{
     Advance, Anchor, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,
-    MessageSpec, Orientation, Property, Reader, Sink, Str, Value, Vec3, Wire, WireError,
+    MessageSpec, Orientation, Property, Reader, RoomTransition, Sink, Str, Value, Vec3, Wire,
+    WireError,
 };
 
 batch_table! {
     version 1;
-    enums [Kind, Ease, Property, ClipMode, Bus, Controller, Advance, Orientation, Anchor]
+    enums [Kind, Ease, Property, ClipMode, Bus, Controller, Advance, Orientation, Anchor, RoomTransition]
     commands {
         /// Brings an entity to life in a free slot the game chose. The slot's
         /// generation must be newer than any it had before.
@@ -144,6 +145,24 @@ batch_table! {
         /// Forgets a buffered press of `action`.
         0x0090 Consume consume { action: u16 }
 
+        /// Starts loading room `room` (its name id) of the pack in the
+        /// background, so a later `room_switch` to it shows no wait. A host
+        /// keeps at most its setting of rooms loaded, dropping the ones used
+        /// longest ago.
+        0x00B0 RoomPreload room_preload { room: u32 }
+        /// Makes `room` the active room: its collision moves the actors, its
+        /// lighting lights the scene, its groups, nodes, pieces and scene
+        /// parameters are the ones the next commands address. Actors, sound
+        /// and the camera go on as they were. `duration` is how long a
+        /// continuous switch or a dissolve takes; a cut takes none. A room
+        /// not loaded yet is loaded at once, which can stall that frame.
+        0x00B1 RoomSwitch room_switch { room: u32, transition: RoomTransition, duration: f32 }
+        /// Switches a group of the active room, its draws and lights, on or off.
+        0x00B2 RoomGroup room_group { group: u32, on: bool }
+        /// Shows `state` of a piece of the active room; state 0 is the look
+        /// before any state.
+        0x00B3 PieceState piece_state { piece: u32, state: u32 }
+
         0x00A0 HostReady host_ready {}
         0x00A1 HostExit host_exit {}
         0x00A2 HostOrientation host_orientation { orientation: Orientation }
@@ -187,6 +206,8 @@ batch_table! {
         0x0042 CutsceneCall cutscene_call { cutscene: u32, call: u32 }
         /// A cutscene changed a flag.
         0x0043 FlagChanged flag_changed { flag: u32, on: bool }
+        /// The active room changed, by the game's `room_switch` or a cutscene's.
+        0x0044 RoomSwitched room_switched { room: u32 }
 
         0x0050 SaveLoaded save_loaded { key: Str, value: Bytes }
         0x0051 SaveLoadDone save_load_done {}
