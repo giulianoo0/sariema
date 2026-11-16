@@ -409,6 +409,13 @@ impl Stage {
         Ok(())
     }
 
+    /// Moves the first actor to `position`, facing as it was placed.
+    pub fn move_first(&mut self, position: Vec3) {
+        if let Some(actor) = self.actors.first_mut() {
+            actor.model.w_axis = position.extend(1.0);
+        }
+    }
+
     /// The duration of the first actor's first clip.
     pub fn first_clip_s(&self) -> Option<f32> {
         let actor = self.actors.first()?;
@@ -488,9 +495,13 @@ pub fn camera(args: &StageArgs, room: &RoomCamera, aspect: f32) -> Camera {
 /// Cuts the room's cutaways around the first actor, as a game whose hero it
 /// is would once the line settles, seen by the room's camera.
 pub fn cut_around(renderer: &mut Renderer, room: &RoomPack, actors: &[Placement]) {
-    let Some(hero) = actors.first().map(|a| [a.position.x, a.position.z]) else {
-        return;
-    };
+    if let Some(hero) = actors.first() {
+        cut_at(renderer, room, [hero.position.x, hero.position.z]);
+    }
+}
+
+/// Cuts the room's cutaways around a hero standing at `hero` (x, z).
+pub fn cut_at(renderer: &mut Renderer, room: &RoomPack, hero: [f32; 2]) {
     let toward = sariema_runtime::scenery::toward(0.0);
     for (c, cutaway) in room.cutaways.iter().enumerate() {
         if let Some(line) = cutaway.line.at(hero, toward) {

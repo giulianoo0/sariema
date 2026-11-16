@@ -12,6 +12,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use clap::{Args, ValueEnum, value_parser};
+use glam::Vec3;
 use sariema_core::room_camera;
 use sariema_format::script::{GAME_MAGIC, decode_game};
 use sariema_render::{
@@ -21,7 +22,7 @@ use serde_json::{Value, json};
 
 use crate::Tier;
 use crate::output::{Done, Failure};
-use crate::stage::{self, Placement, Stage, StageArgs};
+use crate::stage::{self, Placement, Stage, StageArgs, Triple};
 
 mod alloc;
 mod game;
@@ -72,6 +73,11 @@ pub struct BenchArgs {
     /// stand at rest.
     #[arg(long, requires = "actors")]
     clip: Option<String>,
+    /// Walks the first --actor from where it is placed to X,Y,Z and back
+    /// over every --frames frames, the room's cutaways cutting around it,
+    /// so their cut moves every frame.
+    #[arg(long, value_name = "X,Y,Z", requires = "actors")]
+    walk: Option<Triple>,
 }
 
 impl BenchArgs {
@@ -204,6 +210,15 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
             Some(game) => Some(game.draw(renderer, &view)?),
             None => {
                 let time_s = frame as f32 / 60.0;
+                if let (Some(Triple(to)), Some(from)) = (&args.walk, args.actors.first()) {
+                    let phase = (frame % args.frames) as f32 / args.frames as f32;
+                    let there = 1.0 - (2.0 * phase - 1.0).abs();
+                    let at = from.position.lerp(Vec3::from(*to), there);
+                    if let Some(stage) = &mut stage {
+                        stage.move_first(at);
+                    }
+                    stage::cut_at(renderer, &room, [at.x, at.z]);
+                }
                 if let Some(stage) = &mut stage {
                     stage.pose(renderer, time_s)?;
                 }
@@ -298,6 +313,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
                 "msaa": effective.msaa,
                 "shadows": !args.no_shadows,
                 "ao": effective.ao_samples > 0,
+                "walk": args.walk.as_ref().map(|t| t.0),
                 "frames": args.frames,
                 "warmup": args.warmup,
                 "runs": args.runs,
