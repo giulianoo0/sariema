@@ -132,7 +132,7 @@ fn stop(s: &mut State, e: Entity) -> bool {
 /// visible when the step began that no forced teleport placed: `e`, a child
 /// of it at any depth (going as far), or a follower (going its gain of it).
 fn may_jump(s: &State, e: Entity, moved: f32) -> Result<(), Refusal> {
-    if moved <= step_limit(s) || s.screen.covered() || s.camera.cut() {
+    if moved <= step_limit(s) * SLACK || s.screen.covered() || s.camera.cut() {
         return Ok(());
     }
     let mut budget = s.world.len() as usize + s.followers.len();
@@ -147,7 +147,7 @@ fn may_jump(s: &State, e: Entity, moved: f32) -> Result<(), Refusal> {
 
 /// `budget` bounds the walk, which a cycle of followers would not end.
 fn seen_moving(s: &State, e: Entity, moved: f32, budget: &mut usize) -> bool {
-    if *budget == 0 || moved <= step_limit(s) {
+    if *budget == 0 || moved <= step_limit(s) * SLACK {
         return false;
     }
     *budget -= 1;

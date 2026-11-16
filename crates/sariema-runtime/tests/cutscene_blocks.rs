@@ -456,6 +456,18 @@ fn hero_plays(
     skip: Option<u64>,
     extra: fn(u64, &mut Vec<u8>),
 ) -> (Vec<(u64, String)>, Vec3) {
+    let mut settings = Settings::default();
+    settings.motion.builtin = builtin;
+    hero_plays_with(settings, cutscene, scale, skip, extra)
+}
+
+fn hero_plays_with(
+    settings: Settings,
+    cutscene: &str,
+    scale: f32,
+    skip: Option<u64>,
+    extra: fn(u64, &mut Vec<u8>),
+) -> (Vec<(u64, String)>, Vec3) {
     let compiled = compile_json(cutscene).unwrap().0;
     let name = compiled.name.clone();
     let seen = Rc::new(RefCell::new(Vec::new()));
@@ -496,8 +508,6 @@ fn hero_plays(
         }
         extra(step, out);
     });
-    let mut settings = Settings::default();
-    settings.motion.builtin = builtin;
     let actions = Actions::for_settings(&settings.input);
     let mut sim = Simulation::new(settings, vec![compiled], logic, 1);
     for _ in 0..400 {
@@ -573,6 +583,30 @@ fn a_start_walk_slows_to_what_may_be_seen_and_ends_alike_played_or_skipped() {
         }
         if end.distance(Vec3::new(3.0, 0.0, 0.0)) > 1e-5 {
             wrong.push(format!("{case}: the hero ended at {end}, not at its start"));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+#[test]
+fn a_start_walk_slowed_by_the_speed_scale_is_never_refused_for_rounding() {
+    let mut wrong = Vec::new();
+    let cases: [(f32, &[f32]); 2] = [
+        (1.5, &[16.89, 17.03, 17.45]),
+        (10.0, &[2.09, 2.22, 2.25, 2.45]),
+    ];
+    for (start_walk_speed, scales) in cases {
+        for &scale in scales {
+            let mut settings = Settings::default();
+            settings.cutscene.start_walk_speed = start_walk_speed;
+            let (events, end) = hero_plays_with(settings, START_AWAY, scale, None, nothing);
+            let case = format!("start_walk_speed {start_walk_speed}, scale {scale}");
+            if !at(&events, "Rejected").is_empty() {
+                wrong.push(format!("{case}: refused at {:?}", at(&events, "Rejected")));
+            }
+            if end.distance(Vec3::new(3.0, 0.0, 0.0)) > 1e-5 {
+                wrong.push(format!("{case}: the hero ended at {end}, not at its start"));
+            }
         }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
