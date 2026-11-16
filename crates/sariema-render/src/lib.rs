@@ -19,6 +19,7 @@
 use std::cell::Cell;
 use std::fmt;
 use std::sync::Arc;
+use std::time::Instant;
 
 use sariema_core::Camera;
 use sariema_format::actor::ActorPack;
@@ -35,11 +36,13 @@ mod quality;
 mod resources;
 mod scene;
 mod shadow;
+mod timing;
 
 pub use actors::{ActorId, ActorModel, ActorState, DiscShadow};
 pub use golden::{GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, GoldenDiff, compare_images};
 pub use headless::{Headless, render_coverage, render_to_image};
 pub use quality::Quality;
+pub use timing::{FrameTimings, PassTime};
 
 use actors::Actors;
 use cluster::Visible;
@@ -47,6 +50,7 @@ use post::Post;
 use resources::Room;
 use scene::Scene;
 use shadow::{Assigned, Shadows};
+use timing::GpuTimer;
 
 #[derive(Clone, Debug)]
 pub struct RenderConfig {
@@ -104,17 +108,43 @@ pub struct FrameStats {
     pub actors_drawn: u32,
     /// Visible actors left out because their bounds are outside the view.
     pub actors_culled: u32,
+    /// Render passes of the frame: shadows, scene and post-processing.
+    pub passes: u32,
+    /// Draw calls of every pass.
+    pub draws: u32,
+    /// Bytes written to GPU buffers during the frame.
+    pub bytes_uploaded: u64,
 }
 
-/// The device and queue, counting what is created through them.
+/// The device and queue, counting what is created and done through them.
 pub(crate) struct Gpu {
     pub device: Arc<wgpu::Device>,
     pub queue: Arc<wgpu::Queue>,
     pipelines: Cell<u32>,
     buffers: Cell<u32>,
+    passes: Cell<u32>,
+    draws: Cell<u32>,
+    uploaded: Cell<u64>,
+    timer: Option<GpuTimer>,
 }
 
 impl Gpu {
+    /// Counts a render pass about to begin and gives its timestamp writes
+    /// while passes are being timed.
+    pub fn pass(&self, label: &'static str) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+        self.passes.set(self.passes.get() + 1);
+        self.timer.as_ref()?.pass(label)
+    }
+
+    pub fn count_draws(&self, draws: u32) {
+        self.draws.set(self.draws.get() + draws);
+    }
+
+    pub fn write(&self, buffer: &wgpu::Buffer, bytes: &[u8]) {
+        self.uploaded.set(self.uploaded.get() + bytes.len() as u64);
+        self.queue.write_buffer(buffer, 0, bytes);
+    }
+
     pub fn pipeline(&self, desc: &wgpu::RenderPipelineDescriptor) -> wgpu::RenderPipeline {
         self.pipelines.set(self.pipelines.get() + 1);
         self.device.create_render_pipeline(desc)
@@ -159,6 +189,7 @@ pub struct Renderer {
     room: Option<Room>,
     visible: Visible,
     stats: FrameStats,
+    timings: FrameTimings,
     warned: bool,
 }
 
@@ -192,6 +223,10 @@ impl Renderer {
             queue,
             pipelines: Cell::new(0),
             buffers: Cell::new(0),
+            passes: Cell::new(0),
+            draws: Cell::new(0),
+            uploaded: Cell::new(0),
+            timer: None,
         };
         let layouts = scene::layouts(&gpu);
         let shadows = Shadows::new(&gpu, &quality, &layouts.draw);
@@ -210,6 +245,7 @@ impl Renderer {
             room: None,
             visible: Visible::default(),
             stats: FrameStats::default(),
+            timings: FrameTimings::default(),
             warned: false,
         })
     }
@@ -302,6 +338,11 @@ impl Renderer {
     /// Draws a frame into `target`, which must be `width × height` in the
     /// configured output format.
     pub fn render(&mut self, camera: &Camera, time_s: f32, target: &wgpu::TextureView) {
+        let start = Instant::now();
+        for count in [&self.gpu.passes, &self.gpu.draws] {
+            count.set(0);
+        }
+        self.gpu.uploaded.set(0);
         let room = self.room.as_ref();
         self.visible.find(
             room.map_or(&[][..], |r| &r.lights[..]),
@@ -311,18 +352,27 @@ impl Renderer {
             self.quality.max_visible_lights,
         );
         self.actors.upload(&self.gpu);
-        let shadows = self.shadows.assign(
+        self.shadows.assign(
             &self.gpu,
             room,
             camera,
             &self.visible.lights,
             self.actors.moved(),
         );
-        let mut stats = self
-            .scene
-            .prepare(&self.gpu, room, camera, time_s, &self.visible, shadows);
+        let draws_culled = self.scene.cull(room, camera);
         let actor_stats = (self.actors).prepare(camera, |b| self.shadows.maps(b));
         self.actors.forget_moves();
+        let culled = Instant::now();
+        let mut stats = self.scene.prepare(
+            &self.gpu,
+            room,
+            camera,
+            time_s,
+            &self.visible,
+            self.shadows.assigned(),
+        );
+        let binned = Instant::now();
+        stats.draws_culled = draws_culled;
         stats.actors_drawn = actor_stats.drawn;
         stats.actors_culled = actor_stats.culled;
         if !self.warned && (stats.lights_dropped > 0 || stats.cluster_overflows > 0) {
@@ -339,13 +389,38 @@ impl Renderer {
         self.stats = stats;
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
         if let Some(room) = &self.room {
-            self.shadows.draw(&mut encoder, room, &self.actors);
+            self.shadows
+                .draw(&self.gpu, &mut encoder, room, &self.actors);
         }
         let keep_depth = self.post.reads_depth();
-        self.scene
-            .draw(&mut encoder, self.room.as_ref(), &self.actors, keep_depth);
+        self.scene.draw(
+            &self.gpu,
+            &mut encoder,
+            self.room.as_ref(),
+            &self.actors,
+            keep_depth,
+        );
+        let recorded = Instant::now();
         self.stats.post_passes = self.post.draw(&self.gpu, &mut encoder, camera, target);
-        self.gpu.queue.submit([encoder.finish()]);
+        if let Some(timer) = &self.gpu.timer {
+            timer.end_frame(&mut encoder);
+        }
+        let posted = Instant::now();
+        let commands = encoder.finish();
+        let finished = Instant::now();
+        self.gpu.queue.submit([commands]);
+        let submitted = Instant::now();
+        self.stats.passes = self.gpu.passes.get();
+        self.stats.draws = self.gpu.draws.get();
+        self.stats.bytes_uploaded = self.gpu.uploaded.get();
+        self.timings = FrameTimings {
+            cull: culled - start,
+            bin: binned - culled,
+            record: recorded - binned,
+            post: posted - recorded,
+            finish: finished - posted,
+            submit: submitted - finished,
+        };
     }
 
     /// Depth of the non-additive visible draws into a single-sample
@@ -353,6 +428,7 @@ impl Renderer {
     pub(crate) fn render_depth(&mut self, camera: &Camera, depth: &wgpu::TextureView) {
         let room = self.room.as_ref();
         let (none, no_shadows) = (Visible::default(), Assigned::default());
+        self.scene.cull(room, camera);
         self.scene
             .prepare(&self.gpu, room, camera, 0.0, &none, &no_shadows);
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
@@ -380,13 +456,40 @@ impl Renderer {
         self.stats
     }
 
+    pub fn last_frame_timings(&self) -> FrameTimings {
+        self.timings
+    }
+
+    /// Times every render pass of the next `frames` frames on the GPU; false,
+    /// and nothing timed, where the device lacks `Features::TIMESTAMP_QUERY`.
+    /// Replaces the passes timed before.
+    pub fn time_gpu_passes(&mut self, frames: u32) -> bool {
+        let device = &self.gpu.device;
+        if !device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+            return false;
+        }
+        // The shadow atlas and the scene, then the post-processing chain.
+        let passes = 2 + self.post.most_passes();
+        self.gpu.timer = Some(GpuTimer::new(device, passes, frames.max(1)));
+        true
+    }
+
+    /// Per frame timed by [`Renderer::time_gpu_passes`], its passes in order;
+    /// waits for the GPU to finish them.
+    pub fn gpu_pass_times(&self) -> Result<Vec<Vec<PassTime>>, RenderError> {
+        match &self.gpu.timer {
+            Some(timer) => timer.read(&self.gpu.device, &self.gpu.queue),
+            None => Ok(Vec::new()),
+        }
+    }
+
     pub(crate) fn gpu(&self) -> &Gpu {
         &self.gpu
     }
 }
 
-/// A device of `adapter` with every limit it has, and with ASTC sampling and
-/// adapter-specific format features when it offers them.
+/// A device of `adapter` with every limit it has, and with ASTC sampling,
+/// adapter-specific format features and timestamp queries when it offers them.
 pub fn request_device(
     adapter: &wgpu::Adapter,
     label: &str,
@@ -394,10 +497,12 @@ pub fn request_device(
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some(label),
         // Adapter-specific format features let the quality clamp offer sample
-        // counts beyond WebGPU's 1 and 4; ASTC lets packs keep compressed textures.
+        // counts beyond WebGPU's 1 and 4; ASTC lets packs keep compressed
+        // textures; timestamps let `Renderer::time_gpu_passes` time passes.
         required_features: adapter.features()
             & (wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
-                | wgpu::Features::TEXTURE_COMPRESSION_ASTC),
+                | wgpu::Features::TEXTURE_COMPRESSION_ASTC
+                | wgpu::Features::TIMESTAMP_QUERY),
         required_limits: adapter.limits(),
         ..Default::default()
     }))

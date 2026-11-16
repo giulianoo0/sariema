@@ -18,11 +18,12 @@ pub(crate) enum Layer {
 
 impl Actors {
     /// Draws the `layer` parts of the frame's actors in view; the pass has
-    /// the frame group at 0.
-    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, layer: Layer) {
+    /// the frame group at 0. Returns the draws recorded.
+    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, layer: Layer) -> u32 {
         let Some(pipelines) = &self.pipelines else {
-            return;
+            return 0;
         };
+        let mut drawn = 0;
         let mut current = None;
         for &i in &self.in_view {
             let (instance, model) = self.of(i);
@@ -52,17 +53,20 @@ impl Actors {
                 }
                 pass.set_bind_group(2, &material.group, &[]);
                 draw_part(pass, part);
+                drawn += 1;
             }
         }
+        drawn
     }
 
     /// Darkens the floor under the frame's actors that no shadow map holds.
-    pub fn draw_discs(&self, pass: &mut wgpu::RenderPass<'_>) {
+    /// Returns the draws recorded.
+    pub fn draw_discs(&self, pass: &mut wgpu::RenderPass<'_>) -> u32 {
         let Some(pipelines) = &self.pipelines else {
-            return;
+            return 0;
         };
         if self.discs.is_empty() {
-            return;
+            return 0;
         }
         pass.set_pipeline(&pipelines.disc);
         for &i in &self.discs {
@@ -70,20 +74,23 @@ impl Actors {
             pass.set_bind_group(1, instance.group.as_ref(), &[]);
             pass.draw(0..6, 0..1);
         }
+        self.discs.len() as u32
     }
 
     /// Draws the depth of the casting actors that `reaches` says can be in
-    /// the slot whose view is bound at 2 with `view_offset`.
+    /// the slot whose view is bound at 2 with `view_offset`. Returns the
+    /// draws recorded.
     pub fn draw_shadows(
         &self,
         pass: &mut wgpu::RenderPass<'_>,
         view: &wgpu::BindGroup,
         view_offset: u32,
         reaches: impl Fn((Vec3, Vec3)) -> bool,
-    ) {
+    ) -> u32 {
         let Some(pipelines) = &self.pipelines else {
-            return;
+            return 0;
         };
+        let mut drawn = 0;
         let mut pipeline_set = false;
         for instance in self.instances.iter().filter(|i| i.drawn()) {
             let model = &self.models[instance.model];
@@ -98,8 +105,10 @@ impl Actors {
             bind(pass, instance, model);
             for part in visible_parts(instance, model).filter(|p| p.casts_shadow) {
                 draw_part(pass, part);
+                drawn += 1;
             }
         }
+        drawn
     }
 
     fn of(&self, i: u32) -> (&Instance, &ModelGpu) {

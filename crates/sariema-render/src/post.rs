@@ -65,6 +65,7 @@ struct Layouts {
 
 /// A full-screen draw into `target`.
 struct Pass {
+    label: &'static str,
     pipeline: wgpu::RenderPipeline,
     group: wgpu::BindGroup,
     target: wgpu::TextureView,
@@ -176,14 +177,21 @@ impl Post {
             srgb_target: self.stages.srgb_target as u32,
             ao_strength: if self.ao { look.ao_strength } else { 0.0 },
         };
-        let queue = &gpu.queue;
-        queue.write_buffer(&self.stages.bright, 0, bytemuck::bytes_of(&bright));
-        queue.write_buffer(&self.stages.params, 0, bytemuck::bytes_of(&params));
+        gpu.write(&self.stages.bright, bytemuck::bytes_of(&bright));
+        gpu.write(&self.stages.params, bytemuck::bytes_of(&params));
     }
 
     /// Whether the next frame reads the scene's depth.
     pub fn reads_depth(&self) -> bool {
         self.tilt || self.ao
+    }
+
+    /// Passes of a frame with every effect on.
+    pub fn most_passes(&self) -> u32 {
+        let f = &self.frame;
+        let chains = [&f.occlusion, &f.reduce, &f.bloom, &f.tilt];
+        // The depth resolve and the composite.
+        2 + chains.iter().map(|c| c.len() as u32).sum::<u32>()
     }
 
     /// Records the passes the look needs, then the composite into `target`,
@@ -202,8 +210,7 @@ impl Post {
                 b: camera.proj.w_axis.z,
                 _pad: [0.0; 2],
             };
-            gpu.queue
-                .write_buffer(&self.stages.projection, 0, bytemuck::bytes_of(&projection));
+            gpu.write(&self.stages.projection, bytemuck::bytes_of(&projection));
             if let Some(occlusion) = self.stages.occlusion.as_ref().filter(|_| self.ao) {
                 occlusion.prepare(gpu, camera, self.ao_radius_m);
             }
@@ -220,7 +227,14 @@ impl Post {
         let mut drawn = 1;
         for (_, passes) in groups.into_iter().filter(|(on, _)| *on) {
             for pass in passes {
-                fullscreen(encoder, &pass.pipeline, &pass.group, &pass.target);
+                fullscreen(
+                    gpu,
+                    encoder,
+                    pass.label,
+                    &pass.pipeline,
+                    &pass.group,
+                    &pass.target,
+                );
             }
             drawn += passes.len() as u32;
         }
@@ -228,7 +242,8 @@ impl Post {
             true => &frame.composite,
             false => &frame.composite_without_bloom,
         };
-        fullscreen(encoder, &self.stages.composite, group, target);
+        let composite = &self.stages.composite;
+        fullscreen(gpu, encoder, "composite", composite, group, target);
         drawn
     }
 }
@@ -403,6 +418,7 @@ impl Stages {
         Frame {
             resolve: self.pass(
                 gpu,
+                "resolve depth",
                 &self.resolve,
                 &self.layouts.resolve,
                 [
@@ -418,8 +434,15 @@ impl Stages {
             ],
             bloom: self.bloom_passes(gpu, &t),
             tilt: [
-                self.blur(gpu, &self.blur[0], &t.half, &t.scratch[0], &t.half),
-                self.blur(gpu, &self.blur[0], &t.quarter, &t.scratch[1], &t.quarter),
+                self.blur(gpu, "tilt", &self.blur[0], &t.half, &t.scratch[0], &t.half),
+                self.blur(
+                    gpu,
+                    "tilt",
+                    &self.blur[0],
+                    &t.quarter,
+                    &t.scratch[1],
+                    &t.quarter,
+                ),
             ]
             .into_iter()
             .flatten()
@@ -431,12 +454,20 @@ impl Stages {
 
     fn bloom_passes(&self, gpu: &Gpu, t: &Targets) -> Vec<Pass> {
         let level = |k| mip(&t.bloom, k);
-        let mut passes =
-            Vec::from(self.blur(gpu, &self.bright_blur, &t.quarter, &t.scratch[1], &level(0)));
+        let first = level(0);
+        let mut passes = Vec::from(self.blur(
+            gpu,
+            "bloom",
+            &self.bright_blur,
+            &t.quarter,
+            &t.scratch[1],
+            &first,
+        ));
         for k in 1..t.bloom.mip_level_count() {
-            passes.push(self.reduce(gpu, &level(k - 1), &level(k)));
+            let (source, target) = (level(k - 1), level(k));
+            passes.push(self.reduce(gpu, &source, &target));
             let scratch = &t.scratch[k as usize + 1];
-            passes.extend(self.blur(gpu, &self.blur[0], &level(k), scratch, &level(k)));
+            passes.extend(self.blur(gpu, "bloom", &self.blur[0], &target, scratch, &target));
         }
         passes
     }
@@ -448,6 +479,7 @@ impl Stages {
         ];
         self.pass(
             gpu,
+            "reduce",
             &self.downsample,
             &self.layouts.downsample,
             resources,
@@ -460,6 +492,7 @@ impl Stages {
     fn blur(
         &self,
         gpu: &Gpu,
+        label: &'static str,
         horizontal: &wgpu::RenderPipeline,
         source: &wgpu::TextureView,
         scratch: &wgpu::TextureView,
@@ -472,7 +505,7 @@ impl Stages {
                 self.kernel.as_entire_binding(),
                 self.bright.as_entire_binding(),
             ];
-            self.pass(gpu, pipeline, &self.layouts.blur, resources, target)
+            self.pass(gpu, label, pipeline, &self.layouts.blur, resources, target)
         };
         [
             pass(horizontal, source, scratch),
@@ -507,12 +540,14 @@ impl Stages {
     fn pass<'a>(
         &self,
         gpu: &Gpu,
+        label: &'static str,
         pipeline: &wgpu::RenderPipeline,
         layout: &wgpu::BindGroupLayout,
         resources: impl IntoIterator<Item = BindingResource<'a>>,
         target: &wgpu::TextureView,
     ) -> Pass {
         Pass {
+            label,
             pipeline: pipeline.clone(),
             group: group(gpu, layout, resources),
             target: target.clone(),
@@ -709,13 +744,15 @@ fn pipeline(
 }
 
 fn fullscreen(
+    gpu: &Gpu,
     encoder: &mut wgpu::CommandEncoder,
+    label: &'static str,
     pipeline: &wgpu::RenderPipeline,
     group: &wgpu::BindGroup,
     target: &wgpu::TextureView,
 ) {
     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("post"),
+        label: Some(label),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view: target,
             depth_slice: None,
@@ -725,11 +762,13 @@ fn fullscreen(
                 store: wgpu::StoreOp::Store,
             },
         })],
+        timestamp_writes: gpu.pass(label),
         ..Default::default()
     });
     pass.set_pipeline(pipeline);
     pass.set_bind_group(0, group, &[]);
     pass.draw(0..3, 0..1);
+    gpu.count_draws(1);
 }
 
 #[cfg(test)]

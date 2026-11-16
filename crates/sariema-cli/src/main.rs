@@ -10,6 +10,7 @@ use sariema_import::TextureMode;
 use sariema_render::Quality;
 
 mod actor;
+mod bench;
 mod filmstrip;
 mod golden;
 mod output;
@@ -74,6 +75,10 @@ enum Command {
         #[arg(long)]
         update: bool,
     },
+    /// Draw a pack's room offscreen many times and report the cost of each
+    /// load stage, frame stage and GPU pass, with draws, passes, uploads and
+    /// allocations per frame.
+    Bench(bench::BenchArgs),
 }
 
 #[derive(Args)]
@@ -165,6 +170,7 @@ fn main() -> ExitCode {
         Command::Inspect { pack } => pack::inspect(pack),
         Command::Run(args) => run::run(args),
         Command::Test { dir, update } => golden::test(dir, *update),
+        Command::Bench(args) => bench::bench(args),
     });
     output::emit(cli.json, outcome)
 }

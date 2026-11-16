@@ -502,12 +502,16 @@ impl Shadows {
             );
             let gpu_slots: Vec<GpuShadow> = slots.iter().map(|s| s.gpu(self.atlas_size)).collect();
             if !views.is_empty() {
-                gpu.queue.write_buffer(&self.views, 0, &views);
-                gpu.queue
-                    .write_buffer(&self.gpu_slots, 0, bytemuck::cast_slice(&gpu_slots));
+                gpu.write(&self.views, &views);
+                gpu.write(&self.gpu_slots, bytemuck::cast_slice(&gpu_slots));
             }
             std::mem::swap(&mut self.slots, &mut self.next);
         }
+        &self.assigned
+    }
+
+    /// What the last [`Shadows::assign`] gave out.
+    pub fn assigned(&self) -> &Assigned {
         &self.assigned
     }
 
@@ -519,7 +523,13 @@ impl Shadows {
     }
 
     /// Draws the slots [`Shadows::assign`] found stale.
-    pub fn draw(&mut self, encoder: &mut wgpu::CommandEncoder, room: &Room, actors: &Actors) {
+    pub fn draw(
+        &mut self,
+        gpu: &Gpu,
+        encoder: &mut wgpu::CommandEncoder,
+        room: &Room,
+        actors: &Actors,
+    ) {
         if self.stale.is_empty() {
             return;
         }
@@ -533,6 +543,7 @@ impl Shadows {
                 }),
                 stencil_ops: None,
             }),
+            timestamp_writes: gpu.pass("shadows"),
             ..Default::default()
         });
         let mut meshes_bound = false;
@@ -543,6 +554,7 @@ impl Shadows {
             pass.set_scissor_rect(x, y, size, size);
             pass.set_pipeline(&self.clear);
             pass.draw(0..3, 0..1);
+            gpu.count_draws(1);
             let casters = room.draws.iter().enumerate().filter(|(_, d)| {
                 d.visible
                     && d.casts_shadow
@@ -557,12 +569,14 @@ impl Shadows {
                     meshes_bound = true;
                 }
                 room.draw(&mut pass, d);
+                gpu.count_draws(1);
             }
             if slot.actors {
                 let offset = i as u32 * self.view_stride;
-                actors.draw_shadows(&mut pass, &self.views_group, offset, |b| {
+                let drawn = actors.draw_shadows(&mut pass, &self.views_group, offset, |b| {
                     slot.reaches(&room.lights, b)
                 });
+                gpu.count_draws(drawn);
                 meshes_bound = false;
             }
         }

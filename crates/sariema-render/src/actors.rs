@@ -484,8 +484,7 @@ impl Actors {
             return;
         }
         if let Some(buffer) = &self.buffer {
-            gpu.queue
-                .write_buffer(buffer, 0, bytemuck::cast_slice(&self.rows));
+            gpu.write(buffer, bytemuck::cast_slice(&self.rows));
         }
         self.dirty = false;
     }

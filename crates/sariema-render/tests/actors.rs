@@ -116,6 +116,22 @@ fn write_actor_goldens() {
 }
 
 #[test]
+fn an_actors_draws_are_counted() {
+    let room = demo_room();
+    let (mut h, _) = arm_scene(Quality::high(), 0.0);
+    h.render(&camera(), 0.0);
+    h.render(&camera(), 0.0);
+    let stats = h.renderer().last_frame_stats();
+    assert_eq!(stats.actors_drawn, 1, "{stats:?}");
+    let visible = room.draws.iter().filter(|d| d.visible).count() as u32;
+    let room_draws = 1 + visible - stats.draws_culled + stats.post_passes;
+    let parts = demo_arm().parts.iter().filter(|p| p.visible).count() as u32;
+    // Every visible part, and at most a disc under it.
+    let actor_draws = stats.draws - room_draws;
+    assert!((parts..=parts + 1).contains(&actor_draws), "{stats:?}");
+}
+
+#[test]
 fn a_pose_moves_pixels_and_the_actor_is_drawn() {
     let (mut rest, _) = arm_scene(Quality::high(), 0.0);
     let (mut bent, _) = arm_scene(Quality::high(), 0.5);

@@ -317,9 +317,20 @@ impl Scene {
         self.grid = Grid::new(width, height, quality);
     }
 
+    /// Orders the room's draws in view of `camera`; returns how many
+    /// visible draws were left out as outside it.
+    pub fn cull(&mut self, room: Option<&Room>, camera: &Camera) -> u32 {
+        match room {
+            Some(room) => self.order(room, camera),
+            None => {
+                self.order.clear();
+                0
+            }
+        }
+    }
+
     /// Bins the frame's `visible` lights, with their `shadows`, for `camera`
-    /// and uploads what changed since the last frame; then orders the room's
-    /// draws in view.
+    /// and uploads what changed since the last frame.
     pub fn prepare(
         &mut self,
         gpu: &Gpu,
@@ -344,26 +355,15 @@ impl Scene {
             self.max_lights_per_cluster,
         );
         let frame = frame_uniform(room, camera, &grid, shadows.sun);
-        let queue = &gpu.queue;
         let sent = &mut self.sent;
         sent.lights
-            .write(queue, &self.lights, bytemuck::cast_slice(&self.packed));
+            .write(gpu, &self.lights, bytemuck::cast_slice(&self.packed));
         sent.cells
-            .write(queue, &self.cells, bytemuck::cast_slice(&self.bins.cells));
-        sent.indices.write(
-            queue,
-            &self.indices,
-            bytemuck::cast_slice(&self.bins.indices),
-        );
+            .write(gpu, &self.cells, bytemuck::cast_slice(&self.bins.cells));
+        sent.indices
+            .write(gpu, &self.indices, bytemuck::cast_slice(&self.bins.indices));
         sent.frame
-            .write(queue, &self.frame, bytemuck::bytes_of(&frame));
-        let draws_culled = match room {
-            Some(room) => self.order(room, camera),
-            None => {
-                self.order.clear();
-                0
-            }
-        };
+            .write(gpu, &self.frame, bytemuck::bytes_of(&frame));
         FrameStats {
             lights_in_frustum: visible.in_frustum,
             lights_dropped: visible.dropped,
@@ -371,7 +371,6 @@ impl Scene {
             max_lights_overlapping_cluster: self.bins.max_overlapping,
             cluster_overflows: self.bins.overflows,
             shadows_skipped: shadows.skipped,
-            draws_culled,
             ..FrameStats::default()
         }
     }
@@ -383,11 +382,11 @@ impl Scene {
 struct Sent(Vec<u8>);
 
 impl Sent {
-    fn write(&mut self, queue: &wgpu::Queue, buffer: &wgpu::Buffer, bytes: &[u8]) {
+    fn write(&mut self, gpu: &Gpu, buffer: &wgpu::Buffer, bytes: &[u8]) {
         if bytes.is_empty() || self.0 == bytes {
             return;
         }
-        queue.write_buffer(buffer, 0, bytes);
+        gpu.write(buffer, bytes);
         self.0.clear();
         self.0.extend_from_slice(bytes);
     }

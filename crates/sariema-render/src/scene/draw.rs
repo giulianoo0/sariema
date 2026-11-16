@@ -8,6 +8,7 @@ use sariema_core::Camera;
 use sariema_format::AlphaMode;
 
 use super::{Scene, Targets};
+use crate::Gpu;
 use crate::actors::{Actors, Layer};
 use crate::cull;
 use crate::resources::Room;
@@ -17,6 +18,7 @@ impl Scene {
     /// discarded, which spares tile-based GPUs writing it out.
     pub fn draw(
         &self,
+        gpu: &Gpu,
         encoder: &mut wgpu::CommandEncoder,
         room: Option<&Room>,
         actors: &Actors,
@@ -51,11 +53,14 @@ impl Scene {
                 },
             })],
             depth_stencil_attachment: Some(depth_attachment(depth, depth_store)),
+            timestamp_writes: gpu.pass("scene"),
             ..Default::default()
         });
         pass.set_bind_group(0, &self.frame_group, &[]);
         pass.set_pipeline(&self.background);
         pass.draw(0..3, 0..1);
+        // The background, then the room's draws in view.
+        gpu.count_draws(1 + self.order.len() as u32);
         let room = room.filter(|_| !self.order.is_empty());
         if let Some(room) = room {
             room.bind_meshes(&mut pass);
@@ -66,8 +71,8 @@ impl Scene {
             let room = room.expect("the order is of the room's draws");
             // Actors and their discs go between the opaque and the rest.
             if layer > 0 && !actors_drawn {
-                actors.draw(&mut pass, Layer::Opaque);
-                actors.draw_discs(&mut pass);
+                gpu.count_draws(actors.draw(&mut pass, Layer::Opaque));
+                gpu.count_draws(actors.draw_discs(&mut pass));
                 actors_drawn = true;
                 room.bind_meshes(&mut pass);
                 current = None;
@@ -92,10 +97,10 @@ impl Scene {
             room.draw(&mut pass, i);
         }
         if !actors_drawn {
-            actors.draw(&mut pass, Layer::Opaque);
-            actors.draw_discs(&mut pass);
+            gpu.count_draws(actors.draw(&mut pass, Layer::Opaque));
+            gpu.count_draws(actors.draw_discs(&mut pass));
         }
-        actors.draw(&mut pass, Layer::Translucent);
+        gpu.count_draws(actors.draw(&mut pass, Layer::Translucent));
     }
 
     pub fn draw_depth(
