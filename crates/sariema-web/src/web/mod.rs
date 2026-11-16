@@ -54,7 +54,7 @@ impl Engine {
     pub async fn create(canvas: HtmlCanvasElement, options: String) -> Result<Engine, JsError> {
         let settings =
             WebSettings::from_json(&options).map_err(|e| js(StageError::new("E_USAGE", e)))?;
-        let gpu = Gpu::new(canvas, settings.backend).await.map_err(js)?;
+        let gpu = Gpu::new(canvas, &settings).await.map_err(js)?;
         let size = (gpu.config.width, gpu.config.height);
         let format = gpu.config.format;
         let stage = Stage::new(

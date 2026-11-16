@@ -1,0 +1,167 @@
+// SPDX-License-Identifier: Apache-2.0
+
+// What the browser tests drive: each call loads, draws or plays something
+// with the engine and returns what came of it. The runner (run.mjs) holds
+// the expectations.
+
+import { mount } from "../dist/index.js";
+
+const canvas = document.getElementById("stage");
+const fixtures = new URL("/fixtures/", location.href);
+const at = (path) => new URL(path, fixtures);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let sariema = null;
+let manifest = null;
+const uiEvents = [];
+
+async function referencePixels(url) {
+  const blob = await (await fetch(url)).blob();
+  const bitmap = await createImageBitmap(blob, { colorSpaceConversion: "none", premultiplyAlpha: "none" });
+  const c = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(bitmap, 0, 0);
+  return g.getImageData(0, 0, bitmap.width, bitmap.height).data;
+}
+
+/** As `sariema_render::compare_images`: the largest channel delta, and the share of pixels over 6. */
+function compare(a, b) {
+  let max = 0;
+  let over = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    const d = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]), Math.abs(a[i + 3] - b[i + 3]));
+    if (d > max) max = d;
+    if (d > 6) over++;
+  }
+  return { max_channel_delta: max, differing_pixels_ratio: over / (a.length / 4) };
+}
+
+async function pngDataUrl({ width, height, data }) {
+  const c = new OffscreenCanvas(width, height);
+  c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(data), width, height), 0, 0);
+  const blob = await c.convertToBlob({ type: "image/png" });
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(blob);
+  });
+}
+
+function placement({ scale, rotate_y, translate: [x, y, z] }) {
+  const c = Math.cos(rotate_y) * scale;
+  const s = Math.sin(rotate_y) * scale;
+  return [c, 0, -s, 0, 0, scale, 0, 0, s, 0, c, 0, x, y, z, 1];
+}
+
+function once(type, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`no ${type} event in ${ms} ms`)), ms);
+    const off = sariema.on(type, (e) => {
+      clearTimeout(timer);
+      off();
+      resolve(e);
+    });
+  });
+}
+
+let arm = null;
+
+window.suite = {
+  async start(options = {}) {
+    manifest = await (await fetch(at("fixtures.json"))).json();
+    const t0 = performance.now();
+    sariema = await mount(canvas, { quality: manifest.quality, maxPixelRatio: 1, autoStart: false, ...options });
+    sariema.on("ui", (e) => uiEvents.push(e));
+    return { mount_ms: performance.now() - t0, capabilities: sariema.capabilities(), scenes: manifest.scenes };
+  },
+
+  async scene(name, keepRender = false) {
+    const scene = manifest.scenes.find((s) => s.name === name);
+    const variants = sariema.capabilities().texture_variants;
+    const variant = scene.room.includes(".rgba8.") ? "rgba8" : "astc";
+    if (scene.room.startsWith("packs/") && !variants.includes(variant)) {
+      return { name, skipped: `this device has no ${variant} textures` };
+    }
+    const t0 = performance.now();
+    await sariema.loadRoom(at(scene.room));
+    const load_ms = performance.now() - t0;
+    if (scene.actor) {
+      arm ??= sariema.spawnActor(await sariema.loadActor(at(scene.actor.pack)));
+      const a = scene.actor;
+      sariema.setActor(arm, { transform: placement(a), clip: a.clip, time: a.time, speed: a.speed });
+    } else if (arm !== null) {
+      sariema.setActor(arm, { visible: false });
+    }
+    const frame = await sariema.capture();
+    const diff = compare(frame.data, await referencePixels(at(scene.reference)));
+    const stats = sariema.stats();
+    return { name, load_ms, ...diff, stats, png: keepRender ? await pngDataUrl(frame) : undefined };
+  },
+
+  async remount(options) {
+    sariema.destroy();
+    arm = null;
+    sariema = await mount(canvas, { quality: manifest.quality, maxPixelRatio: 1, autoStart: false, ...options });
+    return sariema.capabilities();
+  },
+
+  async game() {
+    const manifest = await sariema.loadGame(at("game/"));
+    const viaGame = await sariema.capture();
+    const file = sariema.pick(manifest.rooms[manifest.start], manifest.start);
+    await sariema.loadRoom(at(`game/${file}`));
+    const direct = await sariema.capture();
+    const model = await sariema.loadGameActor("arm");
+    return { start: manifest.start, file, model, ...compare(viaGame.data, direct.data), draws: sariema.stats().draws };
+  },
+
+  async audio() {
+    await sariema.loadSounds(at(manifest.sounds));
+    await sariema.resumeAudio();
+    const before = await sariema.audioStats();
+    sariema.play("beep");
+    await sleep(800);
+    const after = await sariema.audioStats();
+    return { before, after };
+  },
+
+  async ui() {
+    const description = await (await fetch(at(manifest.ui.description))).text();
+    await sariema.setUi(description, { [manifest.ui.font]: at(manifest.ui.font_file) });
+    uiEvents.length = 0;
+    sariema.start();
+    await sleep(100);
+    return { width: canvas.width, height: canvas.height };
+  },
+
+  async uiEvents() {
+    await sleep(200);
+    sariema.stop();
+    return uiEvents.slice();
+  },
+
+  async loseContext(reference) {
+    sariema.start();
+    await sleep(50);
+    const lost = once("lost", 5000);
+    const restored = once("restored", 15000);
+    const backend = sariema.backend;
+    if (backend === "webgl2") {
+      const ext = canvas.getContext("webgl2").getExtension("WEBGL_lose_context");
+      ext.loseContext();
+      await lost;
+      await sleep(50);
+      ext.restoreContext();
+    } else {
+      sariema.loseDevice();
+      await lost;
+    }
+    await restored;
+    await sleep(100);
+    sariema.stop();
+    const frame = await sariema.capture();
+    const scene = manifest.scenes.find((s) => s.name === reference);
+    return { backend, ...compare(frame.data, await referencePixels(at(scene.reference))), stats: sariema.stats() };
+  },
+};
+
+window.dispatchEvent(new Event("suite-ready"));

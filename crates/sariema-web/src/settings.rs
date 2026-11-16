@@ -53,6 +53,9 @@ pub struct WebSettings {
     pub audio: FeedSettings,
     /// Quads the UI holds before its buffer grows. Default 1024.
     pub ui_quads: u32,
+    /// Sample compressed textures where the GPU can. False loads the RGBA8
+    /// packs on every device, as one without ASTC does. Default true.
+    pub compressed_textures: bool,
 }
 
 impl Default for WebSettings {
@@ -66,6 +69,7 @@ impl Default for WebSettings {
             step: StepSettings::default(),
             audio: FeedSettings::default(),
             ui_quads: 1024,
+            compressed_textures: true,
         }
     }
 }
@@ -119,13 +123,14 @@ mod tests {
     #[test]
     fn options_override_by_name_and_unknown_ones_fail() {
         let s = WebSettings::from_json(
-            r#"{"backend":"webgl2","quality":"high","msaa":1,"step":{"step_s":0.01}}"#,
+            r#"{"backend":"webgl2","quality":"high","msaa":1,"step":{"step_s":0.01},"compressed_textures":false}"#,
         )
         .unwrap();
         assert_eq!(s.backend, Backend::WebGl2);
         assert_eq!(s.render_quality().msaa, 1);
         assert_eq!(s.step.step_s, 0.01);
         assert_eq!(s.step.max_steps_per_frame, 4);
+        assert!(!s.compressed_textures);
         let wrong = WebSettings::from_json(r#"{"quallity":"high"}"#).unwrap_err();
         assert!(wrong.contains("quallity"), "{wrong}");
     }

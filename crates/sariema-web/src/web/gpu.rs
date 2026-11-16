@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde_json::{Value, json};
 use web_sys::HtmlCanvasElement;
 
-use crate::settings::Backend;
+use crate::settings::{Backend, WebSettings};
 use crate::stage::StageError;
 
 pub struct Gpu {
@@ -18,13 +18,13 @@ pub struct Gpu {
     pub queue: Arc<wgpu::Queue>,
     pub config: wgpu::SurfaceConfiguration,
     pub info: wgpu::AdapterInfo,
-    /// Set when the device is lost or an error escaped every scope; the page
-    /// then makes a new engine.
+    /// Set when the device is lost; the page then makes a new engine.
     pub lost: Arc<AtomicBool>,
 }
 
 impl Gpu {
-    pub async fn new(canvas: HtmlCanvasElement, backend: Backend) -> Result<Gpu, StageError> {
+    pub async fn new(canvas: HtmlCanvasElement, settings: &WebSettings) -> Result<Gpu, StageError> {
+        let backend = settings.backend;
         let gpu_error = |why: String| StageError::new("E_GPU", why);
         let backends = match backend {
             Backend::Auto => wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL,
@@ -48,10 +48,13 @@ impl Gpu {
             })
             .await
             .map_err(|e| gpu_error(format!("no {backend:?} adapter: {e}")))?;
-        let wanted = wgpu::Features::TEXTURE_COMPRESSION_ASTC
+        let compressed = wgpu::Features::TEXTURE_COMPRESSION_ASTC
             | wgpu::Features::TEXTURE_COMPRESSION_BC
-            | wgpu::Features::TEXTURE_COMPRESSION_ETC2
-            | wgpu::Features::TIMESTAMP_QUERY;
+            | wgpu::Features::TEXTURE_COMPRESSION_ETC2;
+        let mut wanted = wgpu::Features::TIMESTAMP_QUERY;
+        if settings.compressed_textures {
+            wanted |= compressed;
+        }
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("sariema web"),
@@ -67,10 +70,8 @@ impl Gpu {
             web_sys::console::warn_1(&format!("sariema: device lost ({reason:?}): {why}").into());
             flag.store(true, Ordering::Relaxed);
         });
-        let flag = lost.clone();
         device.on_uncaptured_error(Arc::new(move |e| {
             web_sys::console::error_1(&format!("sariema: {e}").into());
-            flag.store(true, Ordering::Relaxed);
         }));
         let caps = surface.get_capabilities(&adapter);
         // The composite encodes sRGB itself into a linear target.
