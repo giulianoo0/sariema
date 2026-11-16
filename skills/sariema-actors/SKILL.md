@@ -87,5 +87,5 @@ The JSON of `run` gives `actors_drawn`, `actors_culled`,
 | E_ACTOR_NAME | a name the model lacks; the message lists those it has | copy the name from the list |
 | huge disc shadow or culling box | a clip (a fall) moves far; bounds hold every clip | expected; the disc comes from the bind pose height |
 | no shadow from an actor | `Quality::actor_shadow_slots` is 0 or the room has no shadowed light reaching it | a disc is drawn instead; raise the setting |
-| feet slide | the game moves the actor faster than the clip's stride | move at the clip's ground speed, or scale the clip's speed |
+| feet slide | the game moves the actor faster than the clip's stride | move at the clip's ground speed, or set the clip's rate to pace over ground speed with `clip_rate`; a second `play_clip` restarts the cycle |
 | prop floats beside the hand | wrong socket, or the socket's offset is in another space | `inspect` the sockets; offsets are in the joint's space |

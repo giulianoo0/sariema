@@ -413,6 +413,16 @@ without `--headless` the pack plays in a window.
   loses no time, where waiting for `clip_finished` and then playing loses a
   step or two. The animation module crossfades over `blend`. A `play_clip`
   or `clip_path` drops the queue; with no clip playing it plays at once.
+- **A clip's rate while it plays**: `clip_rate` plays the clip an actor
+  plays at a new rate from the step it arrives, going on from the time it
+  is at: no restart and no crossfade, where a second `play_clip` starts it
+  over and blends. A game that eases its hero from a stroll to a run sets
+  the walk cycle's rate to the pace over the clip's ground speed each step
+  the pace changes, and the feet keep to the ground. A rate of 0 holds the
+  clip where it is. A rate sent during a `clip_path` lasts until the next
+  span begins with its own; the clips queued with `clip_next` keep theirs.
+  Refused with `E_CLIP_NOT_PLAYING` when the actor plays another clip or
+  none, and `E_CLIP_RATE` below 0.
 - **Time scale**: `time_scale` plays the world slower or faster than real
   time, reached over `blend` seconds. The display frames' time is scaled
   before it becomes steps: a step stays 1/60 s of world time, so play stays

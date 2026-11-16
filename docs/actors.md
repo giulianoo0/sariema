@@ -99,7 +99,8 @@ and listed in the project file under `actors`:
   can size a collider from them.
 - The ground speed of a clip is the mean horizontal speed of the lowest foot
   while it is the lowest. Game code that moves an actor at that speed keeps
-  its feet from sliding.
+  its feet from sliding; when the actor's pace changes, `clip_rate` sets
+  the walk clip's rate to pace over ground speed without starting it over.
 
 Errors: `E_ACTOR_NAME` (a clip, joint, material, face, frame or socket the
 description names does not exist; the message lists the names that do),
