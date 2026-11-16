@@ -49,6 +49,8 @@ struct Mapped {
     speed: f32,
     /// Placed by the entity carrying it, with its collider off.
     carried: bool,
+    /// Degrees per second it turns at most; `motion.turn_rate` when none.
+    turn_rate: Option<f32>,
 }
 
 struct Traversing {
@@ -418,6 +420,11 @@ impl Physics {
             };
             let yaw = node.local.yaw;
             let id = self.add(body, pose.position, yaw);
+            let turn_rate = s.motion.get(entity).and_then(|m| m.turn_rate);
+            self.world.apply(Intent::SetMaxYawSpeed {
+                actor: id,
+                speed: turn_rate.map(f32::to_radians),
+            });
             self.owners[id.0 as usize] = entity;
             if self.actors.len() <= i {
                 self.actors.resize_with(i + 1, || None);
@@ -429,6 +436,7 @@ impl Physics {
                 written: (pose.position, yaw),
                 speed: 0.0,
                 carried: !node.parent.is_none(),
+                turn_rate,
             });
         }
     }
@@ -551,6 +559,16 @@ impl Physics {
                 duration,
             } => self.start_traversal(s, entity, traversal, duration),
             PhysicsIntent::Teleport { .. } | PhysicsIntent::Stop { .. } => self.halt(s, intent),
+            PhysicsIntent::TurnRate { entity, rate } => {
+                if let Some(m) = self.mapped_mut(entity) {
+                    m.turn_rate = rate;
+                    let id = m.id;
+                    self.world.apply(Intent::SetMaxYawSpeed {
+                        actor: id,
+                        speed: rate.map(f32::to_radians),
+                    });
+                }
+            }
             PhysicsIntent::SkippedWalk { entity, target } => {
                 let Some(m) = self.mapped(entity) else {
                     return;
@@ -722,8 +740,9 @@ impl Physics {
             let f = t.done as f32 / t.steps as f32;
             let total = t.along[t.along.len() - 1];
             let mut at = point_along(&t.path, &t.along, f * total);
+            let max_turn = m.turn_rate.map_or(self.max_turn, |r| r * STEP_SECONDS);
             let turn = ((t.yaw - m.written.1 + 180.0).rem_euclid(360.0) - 180.0)
-                .clamp(-self.max_turn, self.max_turn);
+                .clamp(-max_turn, max_turn);
             let yaw = m.written.1 + turn;
             let scale = s.world.node(t.entity).map_or(1.0, |n| n.local.scale);
             let rotation = Quat::from_rotation_y(yaw.to_radians());
