@@ -1,30 +1,43 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The `bench` command: loads a pack offscreen, draws it many times and
-//! reports where the time goes, by load stage, frame stage and GPU pass.
+//! reports where the time goes, by load stage, frame stage and GPU pass. A
+//! game pack's frame is one engine step and the room, its actors and the
+//! HUD drawn at the step's end.
 
+use std::fmt::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use clap::{Args, ValueEnum, value_parser};
 use sariema_core::room_camera;
+use sariema_format::script::{GAME_MAGIC, decode_game};
 use sariema_render::{
     FrameTimings, PassTime, Quality, RenderConfig, RenderError, Renderer, request_device,
 };
 use serde_json::{Value, json};
 
 use crate::Tier;
+use crate::game_view;
 use crate::output::{Done, Failure};
 
 mod alloc;
+mod game;
 mod stats;
+
+use game::GameFrame;
 
 const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 #[derive(Args)]
 pub struct BenchArgs {
+    /// Room pack (.srma), or game pack (.srmg) to step and draw.
     pack: PathBuf,
+    /// Recorded input log a game pack's steps replay
+    /// (schemas/input-log.schema.json); without one it gets no input.
+    #[arg(long)]
+    input: Option<PathBuf>,
     /// Frames timed in each run.
     #[arg(long, default_value_t = 300, value_parser = value_parser!(u32).range(1..))]
     frames: u32,
@@ -67,6 +80,9 @@ impl BenchArgs {
 #[derive(Default)]
 struct Samples {
     frame: Vec<f64>,
+    /// A game's step and HUD, inside `frame`.
+    step: Vec<f64>,
+    hud: Vec<f64>,
     stages: Vec<FrameTimings>,
     allocations: Vec<u64>,
     allocated_bytes: Vec<u64>,
@@ -90,8 +106,21 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     let path = &args.pack;
     let bytes = std::fs::read(path).map_err(|e| Failure::io(path, e))?;
     let read_ms = lap();
-    let mut room = sariema_format::decode(&bytes)
-        .map_err(|e| Failure::new(e.code(), format!("{}: {e}", path.display())))?;
+    let failed = |code: &'static str, e: &dyn std::fmt::Display| {
+        Failure::new(code, format!("{}: {e}", path.display()))
+    };
+    let (mut room, game) = if bytes.starts_with(&GAME_MAGIC) {
+        let pack = decode_game(&bytes).map_err(|e| failed(e.code(), &e))?;
+        (game_view::room(&pack.assets)?, Some(pack))
+    } else if args.input.is_some() {
+        return Err(failed(
+            "E_USAGE",
+            &"--input replays a game pack's steps; this is a room pack",
+        ));
+    } else {
+        let room = sariema_format::decode(&bytes).map_err(|e| failed(e.code(), &e))?;
+        (room, None)
+    };
     if args.no_shadows {
         if let Some(sun) = &mut room.sun {
             sun.casts_shadow = false;
@@ -112,7 +141,20 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     let mut renderer = Renderer::new(device.clone(), queue, config)?;
     let pipelines_ms = lap();
     renderer.time_cpu_stages(Some(since_start));
-    renderer.load_room(&room)?;
+    let size = (args.width, args.height);
+    let mut game = match game {
+        Some(pack) => Some(GameFrame::load(
+            &mut renderer,
+            &room,
+            pack,
+            args.input.as_deref(),
+            size,
+        )?),
+        None => {
+            renderer.load_room(&room)?;
+            None
+        }
+    };
     wait(&device)?;
     let upload_ms = lap();
 
@@ -133,18 +175,25 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     let view = target.create_view(&Default::default());
     let camera = room_camera(&room.camera, args.width as f32 / args.height as f32);
     let mut frame = 0u32;
-    let mut draw = |renderer: &mut Renderer| {
-        renderer.render(&camera, frame as f32 / 60.0, &view);
+    let mut draw = |renderer: &mut Renderer| -> Result<Option<game::Parts>, Failure> {
+        let parts = match &mut game {
+            Some(game) => Some(game.draw(renderer, &view)?),
+            None => {
+                renderer.render(&camera, frame as f32 / 60.0, &view);
+                None
+            }
+        };
         frame += 1;
+        Ok(parts)
     };
 
     lap();
-    draw(&mut renderer);
+    draw(&mut renderer)?;
     let first_frame_cpu_ms = lap();
     wait(&device)?;
     let first_frame_wall_ms = first_frame_cpu_ms + lap();
     for _ in 0..args.warmup {
-        draw(&mut renderer);
+        draw(&mut renderer)?;
     }
     wait(&device)?;
 
@@ -155,10 +204,14 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
         for _ in 0..args.frames {
             let before = allocations_so_far();
             let start = Instant::now();
-            draw(&mut renderer);
+            let parts = draw(&mut renderer)?;
             let cpu = start.elapsed();
             let after = allocations_so_far();
             samples.frame.push(ms(cpu));
+            if let Some(parts) = parts {
+                samples.step.push(ms(parts.step));
+                samples.hud.push(ms(parts.hud));
+            }
             samples.stages.push(renderer.last_frame_timings());
             if let (Some((count, bytes)), Some((count_after, bytes_after))) = (before, after) {
                 samples.allocations.push(count_after - count);
@@ -172,7 +225,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
 
     let gpu = if renderer.time_gpu_passes(args.frames) {
         for _ in 0..args.frames {
-            draw(&mut renderer);
+            draw(&mut renderer)?;
         }
         gpu_json(&renderer.gpu_pass_times()?)
     } else {
@@ -183,20 +236,29 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     let info = adapter.get_info();
     let cpu_median = stats::median(&samples.frame);
     let wall_median = stats::median(&walls);
-    let text = format!(
+    let mut text = format!(
         "{} at {}×{}: {cpu_median:.3} ms CPU and {wall_median:.3} ms wall per frame (medians); \
          {} passes, {} draws, {} bytes uploaded per frame",
-        room.name,
+        game.as_ref().map_or(&room.name, |g| g.name()),
         args.width,
         args.height,
         frame_stats.passes,
         frame_stats.draws,
         frame_stats.bytes_uploaded
     );
+    if !samples.step.is_empty() {
+        let _ = write!(
+            text,
+            "; the step {:.3} ms and the HUD {:.3} ms of it",
+            stats::median(&samples.step),
+            stats::median(&samples.hud)
+        );
+    }
     Ok(Done {
         json: json!({
             "pack": path.display().to_string(),
             "room": room.name,
+            "game": game.as_ref().map(GameFrame::json),
             "adapter": { "name": info.name, "backend": format!("{:?}", info.backend) },
             "load_average": load_average(),
             "settings": {
@@ -221,6 +283,8 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
             },
             "cpu_ms": {
                 "frame": stats::summary(&samples.frame),
+                "step": counted(&samples.step),
+                "hud": counted(&samples.hud),
                 "cull": samples.stage(|t| t.cull),
                 "bin": samples.stage(|t| t.bin),
                 "record": samples.stage(|t| t.record),
@@ -311,8 +375,9 @@ fn wait(device: &wgpu::Device) -> Result<(), Failure> {
         .map_err(|e| Failure::new("E_GPU", e.to_string()))
 }
 
-/// Null in builds without the `alloc-count` feature, which count nothing.
-fn counted(values: &[u64]) -> Value {
+/// Null when nothing was counted: allocations in builds without the
+/// `alloc-count` feature, a step or a HUD for a room pack.
+fn counted<T: Copy + PartialOrd + serde::Serialize>(values: &[T]) -> Value {
     if values.is_empty() {
         Value::Null
     } else {

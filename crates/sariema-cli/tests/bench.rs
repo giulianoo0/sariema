@@ -157,3 +157,52 @@ fn bench_errors_are_stable_codes() {
         assert_eq!(out["error"]["code"], "E_USAGE", "{args:?}");
     }
 }
+
+#[test]
+fn bench_steps_and_draws_a_game_pack_counting_its_hud_pass() {
+    let tmp = TempDir::new().unwrap();
+    let climb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/climb");
+    let pack = tmp.path().join("climb.srmg");
+    let (code, out) = sariema(&[
+        "build",
+        climb.to_str().unwrap(),
+        "-o",
+        pack.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "{out}");
+    let log = climb.join("input/play.json");
+    let out = bench(&pack, &["--input", log.to_str().unwrap()]);
+    assert_eq!(out["game"]["name"], "climb");
+    let hud = &out["game"]["hud_pass"];
+    assert_eq!(
+        (&hud["passes"], &hud["draws"]),
+        (&1.into(), &1.into()),
+        "{hud}"
+    );
+    assert!(hud["bytes_uploaded"].as_u64().unwrap() > 0, "{hud}");
+    for stage in ["step", "hud"] {
+        assert!(
+            out["cpu_ms"][stage]["median"].as_f64().unwrap() > 0.0,
+            "{stage}"
+        );
+    }
+    let per_frame = &out["per_frame"];
+    assert!(
+        per_frame["passes"].as_u64().unwrap() > per_frame["post_passes"].as_u64().unwrap() + 1,
+        "the room's passes and the HUD's: {per_frame}"
+    );
+
+    let room = demo_pack(tmp.path());
+    let (code, out) = sariema(&[
+        "bench",
+        room.to_str().unwrap(),
+        "--input",
+        log.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        (code, &out["error"]["code"]),
+        (1, &"E_USAGE".into()),
+        "{out}"
+    );
+    assert!(bench(&room, &[])["game"].is_null());
+}
