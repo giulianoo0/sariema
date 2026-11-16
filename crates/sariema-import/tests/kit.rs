@@ -391,7 +391,7 @@ fn loads_the_reference_kit() {
     let want = &manifest["kit"];
     let count = |key: &str| want[key].as_u64().unwrap() as usize;
     let kit = load_kit(&root.join(want["path"].as_str().unwrap())).unwrap();
-    assert_eq!(kit.triangles(), count("triangles"));
+    assert_eq!(kit.triangles() as usize, count("triangles"));
     assert_eq!(kit.materials.len(), count("materials"));
     assert_eq!(kit.images.len(), count("images"));
     let emissive = kit
@@ -399,7 +399,7 @@ fn loads_the_reference_kit() {
         .iter()
         .find(|m| m.name == want["emissive_material"].as_str().unwrap());
     assert_eq!(
-        emissive.unwrap().emissive_texture,
+        emissive.unwrap().emissive_texture.map(|i| i as usize),
         Some(count("emissive_texture"))
     );
     let piece = &want["piece"];
