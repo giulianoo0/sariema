@@ -11,7 +11,7 @@ mod room;
 mod texture;
 
 pub use kit::{Kit, KitImage, KitPiece, KitPrimitive, load_kit};
-pub use room::{AmbientFill, RoomSource, build_room};
+pub use room::{Hemisphere, RoomSource, build_room};
 pub use texture::{TextureMode, encode_texture, mip_chain_rgba8};
 
 #[derive(Debug)]
@@ -22,6 +22,11 @@ pub enum ImportError {
     /// The kit requires this glTF extension and the reader does not support it.
     Extension(String),
     PieceMissing {
+        piece: String,
+        room: String,
+    },
+    /// The room description hides a piece that none of its shown rooms place.
+    HiddenPieceMissing {
         piece: String,
         room: String,
     },
@@ -39,7 +44,9 @@ impl ImportError {
             ImportError::Io(_) => "E_IO",
             ImportError::Gltf(_) | ImportError::Schema(_) => "E_SCHEMA",
             ImportError::Extension(_) => "E_GLTF_EXTENSION",
-            ImportError::PieceMissing { .. } => "E_ROOM_PIECE_MISSING",
+            ImportError::PieceMissing { .. } | ImportError::HiddenPieceMissing { .. } => {
+                "E_ROOM_PIECE_MISSING"
+            }
             ImportError::Encode { .. } => "E_TEXTURE_ENCODE",
         }
     }
@@ -55,6 +62,12 @@ impl fmt::Display for ImportError {
             }
             ImportError::PieceMissing { piece, room } => {
                 write!(f, "room {room} uses piece {piece}, which is not in the kit")
+            }
+            ImportError::HiddenPieceMissing { piece, room } => {
+                write!(
+                    f,
+                    "room {room} hides piece {piece}, which no room in show places"
+                )
             }
             ImportError::Schema(why) => write!(f, "does not match the schema: {why}"),
             ImportError::Encode { texture, why } => {

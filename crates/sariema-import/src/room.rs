@@ -52,15 +52,16 @@ pub struct RoomSource {
     pub camera: RoomCamera,
     pub background: Background,
     #[serde(default)]
-    pub ambient_fill: Option<AmbientFill>,
+    pub extra_hemisphere: Option<Hemisphere>,
     /// ASTC 4×4 when absent.
     #[serde(default)]
     pub textures: Option<TextureMode>,
 }
 
-/// A hemisphere light added to the first shown room's ambient; colours are linear RGB.
+/// A hemisphere light, added to the one luz.json gives the first shown room;
+/// colours are linear RGB.
 #[derive(Clone, Debug, Deserialize)]
-pub struct AmbientFill {
+pub struct Hemisphere {
     pub sky: [f32; 3],
     pub ground: [f32; 3],
     pub intensity: f32,
@@ -185,6 +186,26 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         }
     }
     let Scene { meshes, draws, .. } = scene;
+    let placed = |piece: &String| {
+        source
+            .show
+            .iter()
+            .filter_map(|room| montagem.comodos.get(room))
+            .any(|comodo| comodo.instancias.iter().any(|inst| inst.peca == *piece))
+    };
+    if let Some(piece) = source.hidden.iter().find(|piece| !placed(piece)) {
+        return Err(ImportError::HiddenPieceMissing {
+            piece: piece.clone(),
+            room: source.name.clone(),
+        });
+    }
+    let lit = |name: &String| lights.iter().any(|l| l.name == *name);
+    if let Some(name) = source.shadowless_lights.iter().find(|name| !lit(name)) {
+        return Err(ImportError::Schema(format!(
+            "room {}: shadowless_lights lists {name}, which no room in show lights",
+            source.name
+        )));
+    }
 
     let first = source
         .show
@@ -202,9 +223,9 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         linear_rgb(&sky.hemi_chao)?,
         sky.hemi_int,
     );
-    if let Some(fill) = &source.ambient_fill {
+    if let Some(extra) = &source.extra_hemisphere {
         // Light adds, and so do the coefficients of a linear projection.
-        let added = hemisphere_sh9(fill.sky, fill.ground, fill.intensity);
+        let added = hemisphere_sh9(extra.sky, extra.ground, extra.intensity);
         for (sum, add) in sh9.iter_mut().flatten().zip(added.iter().flatten()) {
             *sum += add;
         }

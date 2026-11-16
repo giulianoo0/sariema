@@ -35,7 +35,7 @@
     },
     "shadowless_lights": {
       "$ref": "#/$defs/names",
-      "description": "Lights, named <room>.<nome>, that cast no shadow; luz.json has no shadow setting and its spots cast by default."
+      "description": "Lights, named <room>.<nome>, that cast no shadow."
     },
     "drawn_materials": { "$ref": "#/$defs/names" },
     "rim_materials": {
@@ -83,9 +83,9 @@
         "bottom": { "$ref": "#/$defs/rgb" }
       }
     },
-    "ambient_fill": {
+    "extra_hemisphere": {
       "type": "object",
-      "description": "A hemisphere light added to the ambient light of the first room in show, as three.js's HemisphereLight lights.",
+      "description": "A hemisphere light added to the one luz.json gives the first room in show, for one the game creates in code.",
       "additionalProperties": false,
       "required": ["sky", "ground", "intensity"],
       "properties": {

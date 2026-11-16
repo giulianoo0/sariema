@@ -222,6 +222,23 @@ fn listed_pieces_start_hidden() {
     assert_eq!(merged.stats.triangles, 12);
 }
 
+#[test]
+fn hiding_an_unplaced_piece_names_it_and_the_room() {
+    // lampada is in the kit but only room b places it.
+    for piece in ["mesa_typo", "lampada"] {
+        let e = build_err(with(
+            sala_min(),
+            json!({ "show": ["a"], "hidden": [piece] }),
+        ));
+        assert_eq!(e.code(), "E_ROOM_PIECE_MISSING");
+        let message = e.to_string();
+        assert!(
+            message.contains(piece) && message.contains("sala_min"),
+            "{message}"
+        );
+    }
+}
+
 /// A kit with one piece, `vela`, hidden at start: a 1-triangle `vela_base` and
 /// a 1-triangle `vela_chama` that only its state `acesa` shows.
 fn candle_kit() -> PathBuf {
@@ -404,6 +421,17 @@ fn listed_lights_cast_no_shadow() {
 }
 
 #[test]
+fn unknown_shadowless_light_names_it_and_the_room() {
+    let e = build_err(with(sala_min(), json!({ "shadowless_lights": ["a.fogo"] })));
+    assert_eq!(e.code(), "E_SCHEMA");
+    let message = e.to_string();
+    assert!(
+        message.contains("a.fogo") && message.contains("sala_min"),
+        "{message}"
+    );
+}
+
+#[test]
 fn lights_are_placed_like_pieces() {
     let sala = with_edited("luz", "luz_min.json", "placed", |l| {
         l["comodos"]["b"]["luzes"] = json!([point("vela", [0.5, 0.25, 1.0], 2.0, 3.0)]);
@@ -466,10 +494,10 @@ fn first_shown_room_gives_ambient_and_sun() {
 }
 
 #[test]
-fn ambient_fill_adds_a_hemisphere() {
-    let fill = json!({ "sky": [0.5, 0.25, 0.5], "ground": [0.1, 0.1, 0.0], "intensity": 2.0 });
+fn extra_hemisphere_adds_to_the_ambient() {
+    let extra = json!({ "sky": [0.5, 0.25, 0.5], "ground": [0.1, 0.1, 0.0], "intensity": 2.0 });
     let plain = build(sala_min());
-    let filled = build(with(sala_min(), json!({ "ambient_fill": fill })));
+    let filled = build(with(sala_min(), json!({ "extra_hemisphere": extra })));
     for (normal, added) in [
         ([0.0, 1.0, 0.0], [1.0, 0.5, 1.0]),
         ([0.0, -1.0, 0.0], [0.2, 0.2, 0.0]),
@@ -516,6 +544,30 @@ fn zero_sun_direction_is_error() {
 fn schema_rejects_unknown_field() {
     let e = build_err(with(sala_min(), json!({ "extra": 1 })));
     assert_eq!(e.code(), "E_SCHEMA");
+}
+
+#[test]
+fn schema_rejects_malformed_room_options() {
+    let sky = [0.5, 0.5, 0.5];
+    for (bad, at) in [
+        (
+            json!({ "extra_hemisphere": { "sky": sky, "ground": sky, "intensity": -1.0 } }),
+            "/extra_hemisphere/intensity",
+        ),
+        (
+            json!({ "extra_hemisphere": { "sky": sky, "intensity": 1.0 } }),
+            "/extra_hemisphere",
+        ),
+        (json!({ "hidden": "mesa" }), "/hidden"),
+        (
+            json!({ "shadowless_lights": "a.foco" }),
+            "/shadowless_lights",
+        ),
+    ] {
+        let e = build_err(with(sala_min(), bad));
+        assert_eq!(e.code(), "E_SCHEMA");
+        assert!(e.to_string().contains(at), "{e}");
+    }
 }
 
 #[test]
