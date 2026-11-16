@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 
 use glam::{Vec3, vec3};
 use sariema_core::{Camera, room_camera};
