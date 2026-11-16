@@ -199,6 +199,61 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         Kind::Rejected,
         Reject::TeleportVisible.message(),
     ),
+    (
+        "E_TELEPORT_BLOCKED",
+        Kind::Rejected,
+        "the collision module could not push a teleported actor out of what it landed in; it stayed where it was",
+    ),
+    (
+        "E_COLLIDER_BLOCKED",
+        Kind::Rejected,
+        "a collider was enabled where an actor stood and the actor could not be pushed out; the collider stays off",
+    ),
+    (
+        "E_AUDIO_UNKNOWN_SOUND",
+        Kind::Rejected,
+        "a sound or music id names no sound in the game's bank",
+    ),
+    (
+        "E_AUDIO_NOT_LOADED",
+        Kind::Rejected,
+        "a sound could not be loaded to play",
+    ),
+    (
+        "E_AUDIO_QUEUE_FULL",
+        Kind::Rejected,
+        "more sound commands in a step than the mixer's queue holds",
+    ),
+    (
+        "E_AUDIO_NOT_FINITE",
+        Kind::Rejected,
+        "a sound's volume or a bus volume is not a finite number",
+    ),
+    (
+        "E_AUDIO_DECODE",
+        Kind::Rejected,
+        "a sound in the bank could not be decoded",
+    ),
+    (
+        "E_UI_UNKNOWN",
+        Kind::Rejected,
+        "a ui_* command names a HUD node or animation the HUD does not have",
+    ),
+    (
+        "E_UI_FONT",
+        Kind::Rejected,
+        "a HUD text could not be shaped with its font",
+    ),
+    (
+        "E_UI_ATLAS_FULL",
+        Kind::Rejected,
+        "the HUD's glyph atlas has no room for a text's glyphs",
+    ),
+    (
+        "E_UI_ANIMATIONS",
+        Kind::Rejected,
+        "more HUD animations at once than the HUD's settings allow",
+    ),
     ("E_NOT_ACTOR", Kind::Rejected, Reject::NotActor.message()),
     (
         "E_RIG_UNKNOWN",

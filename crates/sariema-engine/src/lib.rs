@@ -33,6 +33,22 @@ pub use physics::{Physics, to_physics, to_runtime};
 pub use settings::{EngineSettings, HudSettings, SoundSettings};
 pub use view::ActorView;
 
+/// Every code the modules wired in here give the game in a `rejected`
+/// event, besides the runtime's own.
+pub const REJECTED: &[&str] = &[
+    "E_TELEPORT_BLOCKED",
+    "E_COLLIDER_BLOCKED",
+    "E_AUDIO_UNKNOWN_SOUND",
+    "E_AUDIO_NOT_LOADED",
+    "E_AUDIO_QUEUE_FULL",
+    "E_AUDIO_NOT_FINITE",
+    "E_AUDIO_DECODE",
+    "E_UI_UNKNOWN",
+    "E_UI_FONT",
+    "E_UI_ATLAS_FULL",
+    "E_UI_ANIMATIONS",
+];
+
 pub struct Engine<L> {
     sim: Simulation<L>,
     anim: Animation,

@@ -100,6 +100,7 @@ fn api_lists_every_error_code_the_engine_gives() {
         .chain(CHECK_CODES)
         .chain(PLAY_CODES)
         .chain(Reject::ALL.map(Reject::code))
+        .chain(sariema_engine::REJECTED.iter().copied())
         .chain(wire)
         .chain([
             "E_INPUT_LOG",
@@ -381,4 +382,72 @@ fn game_runs_take_their_own_flags() {
     fs::write(&junk, b"not a pack").unwrap();
     let (code, _) = error_code(&["run", "--headless", "--game", arg(&junk), "--steps", "1"]);
     assert_eq!(code, "E_PACK_BAD_MAGIC");
+}
+
+#[test]
+fn the_climb_example_replays_through_the_whole_engine_to_pinned_events_and_state() {
+    let tmp = TempDir::new().unwrap();
+    let climb = repo().join("examples/climb");
+    let pack = tmp.path().join("climb.srmg");
+    let built = ok(&["build", arg(&climb), "-o", arg(&pack)]);
+    assert_eq!(
+        (
+            &built["collision"],
+            &built["actors"],
+            &built["sounds"],
+            &built["hud"]
+        ),
+        (&json!(true), &json!(["hero"]), &json!(true), &json!(true))
+    );
+    let log = climb.join("input/play.json");
+    let run = |steps: &str| {
+        ok(&[
+            "run",
+            "--headless",
+            "--game",
+            arg(&pack),
+            "--input",
+            arg(&log),
+            "--steps",
+            steps,
+        ])
+    };
+    let played = run("900");
+    let story: Vec<String> = story(&played)
+        .into_iter()
+        .filter(|e| !e.ends_with(" buffered"))
+        .collect();
+    assert_eq!(
+        story,
+        [
+            "0 started",
+            "31 hit_wall",
+            "50 button",
+            "54 button",
+            "66 clip_marker",
+            "99 clip_finished",
+            "186 trigger_enter",
+            "187 control",
+            "187 cutscene_started",
+            "213 arrived",
+            "243 arrived",
+            "244 cutscene_call",
+            "249 trigger_exit",
+            "259 clip_marker",
+            "267 trigger_enter",
+            "292 clip_finished",
+            "328 trigger_exit",
+            "340 arrived",
+            "436 line_done",
+            "485 control",
+            "485 cutscene_ended",
+        ],
+        "walls, the wave's marker, the sill zone, the walk to the mark, the climb through the window and its doorway trigger, the line"
+    );
+    // The same on wasm32 under Node's WebAssembly (tools/wasm-replay).
+    assert_eq!(played["engine_hash"], "991d561c984fa567");
+    let again = run("900");
+    for hash in ["engine_hash", "physics_hash", "audio_hash"] {
+        assert_eq!(again[hash], played[hash], "{hash} differs between two runs");
+    }
 }

@@ -25,6 +25,7 @@ pollster.workspace = true
 sariema-anim = { path = "../sariema-anim" }
 sariema-audio = { path = "../sariema-audio" }
 sariema-core = { path = "../sariema-core" }
+sariema-engine = { path = "../sariema-engine" }
 sariema-format = { path = "../sariema-format" }
 sariema-import = { path = "../sariema-import" }
 sariema-physics = { path = "../sariema-physics" }

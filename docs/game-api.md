@@ -327,8 +327,12 @@ Input is recorded as the steps at which actions changed
 ```
 
 `sariema run --headless --game pack.srmg --input log.json --steps N --json`
-replays it and prints the events, host messages, log, saves, state and
-world hashes and timing.
+replays it in [the whole engine](engine.md), collision, animation, sound and
+HUD included, and prints the events, host messages, log, saves and timing,
+with `engine_hash` (the runtime, the collision world and every animator: the
+same on every platform, wasm32 included), `state_hash` and `world_hash` (the
+runtime's), `physics_hash`, and `audio_hash` over the samples it mixed
+(repeatable with the same build, not across builds).
 
 ## The engine's systems
 

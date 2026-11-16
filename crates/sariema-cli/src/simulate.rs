@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! `run --headless --game`: a game pack's simulation without drawing, fed a
-//! recorded input log, reporting what happened and the state it ended in.
+//! `run --headless --game`: a game pack in the whole engine without drawing,
+//! fed a recorded input log, reporting what happened and the state it ended
+//! in. Sound is mixed with the steps and hashed.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -9,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use clap::{Args, value_parser};
+use sariema_engine::{Engine, EngineSettings};
 use sariema_format::script::{Event, Value as Field, decode_game, name_id, records};
-use sariema_runtime::game::start;
 use sariema_runtime::input::{InputLog, Replay};
 use sariema_runtime::outbox::{HostIn, HostOut};
 use serde_json::{Map, Value, json};
@@ -127,13 +128,13 @@ pub fn run(path: &Path, args: &GameRun) -> Result<Done, Failure> {
         .map(|n| (name_id(n).to_string(), n))
         .collect();
     let names = json!(names);
-    let mut sim = start(pack, args.seed.unwrap_or(0))
+    let mut engine = Engine::load(pack, args.seed.unwrap_or(0), EngineSettings::default())
         .map_err(|e| Failure::new(e.code, format!("{}: {e}", path.display())))?;
     let log = match &args.input {
         Some(input) => read_log(input)?,
         None => InputLog::default(),
     };
-    let mut replay = Replay::new(&log, &sim.state().settings.input).map_err(|e| {
+    let mut replay = Replay::new(&log, &engine.state().settings.input).map_err(|e| {
         Failure::new(
             e.code(),
             format!("{}: {e}", args.input.as_deref().unwrap_or(path).display()),
@@ -148,8 +149,9 @@ pub fn run(path: &Path, args: &GameRun) -> Result<Done, Failure> {
     let (mut total, mut slowest) = (Duration::ZERO, Duration::ZERO);
     for step in 0..steps {
         let started = Instant::now();
-        sim.step(replay.actions(step));
+        engine.step(replay.actions(step));
         let took = started.elapsed();
+        let sim = engine.simulation_mut();
         total += took;
         slowest = slowest.max(took);
         for event in records::<Event>(sim.delivered().bytes()).flatten() {
@@ -189,6 +191,10 @@ pub fn run(path: &Path, args: &GameRun) -> Result<Done, Failure> {
         }
     }
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    let engine_hash = hex(engine.state_hash());
+    let physics_hash = engine.physics().map(|p| hex(p.world.state_hash()));
+    let audio_hash = engine.sound().map(|s| hex(s.hash()));
+    let sim = engine.simulation();
     let state_hash = hex(sim.state_hash());
     let world_hash = hex(sim.state().world_hash());
     let memory = sim.logic().vm().memory().len();
@@ -196,7 +202,10 @@ pub fn run(path: &Path, args: &GameRun) -> Result<Done, Failure> {
     Ok(Done {
         json: json!({
             "steps": steps,
+            "engine_hash": engine_hash,
             "state_hash": state_hash,
+            "physics_hash": physics_hash,
+            "audio_hash": audio_hash,
             "world_hash": world_hash,
             "events": events,
             "host": host,
@@ -213,7 +222,7 @@ pub fn run(path: &Path, args: &GameRun) -> Result<Done, Failure> {
             },
         }),
         text: format!(
-            "{steps} steps: state {state_hash}, world {world_hash}, {} events, {} host messages, {:.3} ms per step (max {:.3})",
+            "{steps} steps: engine {engine_hash}, state {state_hash}, world {world_hash}, {} events, {} host messages, {:.3} ms per step (max {:.3})",
             events.len(),
             host.len(),
             ms(total) / steps as f64,
