@@ -26,6 +26,11 @@ pub enum ImportError {
         room: String,
     },
     Schema(String),
+    /// The ASTC encoder failed on this texture.
+    Encode {
+        texture: String,
+        why: String,
+    },
 }
 
 impl ImportError {
@@ -35,6 +40,7 @@ impl ImportError {
             ImportError::Gltf(_) | ImportError::Schema(_) => "E_SCHEMA",
             ImportError::Extension(_) => "E_GLTF_EXTENSION",
             ImportError::PieceMissing { .. } => "E_ROOM_PIECE_MISSING",
+            ImportError::Encode { .. } => "E_TEXTURE_ENCODE",
         }
     }
 }
@@ -51,6 +57,9 @@ impl fmt::Display for ImportError {
                 write!(f, "room {room} uses piece {piece}, which is not in the kit")
             }
             ImportError::Schema(why) => write!(f, "does not match the schema: {why}"),
+            ImportError::Encode { texture, why } => {
+                write!(f, "texture {texture} could not be compressed: {why}")
+            }
         }
     }
 }

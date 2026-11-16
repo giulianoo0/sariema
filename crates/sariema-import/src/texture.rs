@@ -8,6 +8,8 @@ use image::RgbaImage;
 use sariema_format::{Texture, TextureFormat};
 use serde::Deserialize;
 
+use crate::ImportError;
+
 /// How a pack stores its colour textures.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -20,56 +22,82 @@ pub enum TextureMode {
 }
 
 /// `img` with its mip chain. In [`TextureMode::Astc4x4`] each mip is compressed
-/// on its own and a mip under 4×4 takes one block; an image whose sides are
-/// not positive multiples of 4 stays RGBA8, since the GPU only takes whole blocks.
-pub fn encode_texture(name: &str, img: &RgbaImage, mode: TextureMode) -> Texture {
+/// on its own and a mip under 4×4 takes one block. An image whose sides are not
+/// positive multiples of 4 stays RGBA8, with a warning, since the GPU only takes
+/// whole blocks.
+pub fn encode_texture(
+    name: &str,
+    img: &RgbaImage,
+    mode: TextureMode,
+) -> Result<Texture, ImportError> {
     let (width, height) = img.dimensions();
     let mips = mip_chain_rgba8(img);
     let whole_blocks = [width, height]
         .iter()
         .all(|&s| s > 0 && s.is_multiple_of(4));
-    let astc = mode == TextureMode::Astc4x4 && whole_blocks;
-    let (format, mips) = if astc {
-        (TextureFormat::Astc4x4Srgb, astc_4x4(mips, width, height))
-    } else {
-        (TextureFormat::Rgba8Srgb, mips)
+    let (format, mips) = match mode {
+        TextureMode::Astc4x4 if whole_blocks => {
+            let blocks = astc_4x4(mips, width, height).map_err(|e| ImportError::Encode {
+                texture: name.to_owned(),
+                why: e.to_string(),
+            })?;
+            (TextureFormat::Astc4x4Srgb, blocks)
+        }
+        TextureMode::Astc4x4 => {
+            log::warn!(
+                "texture {name} is {width}×{height}, not whole 4×4 blocks, so it stays RGBA8 instead of ASTC"
+            );
+            (TextureFormat::Rgba8Srgb, mips)
+        }
+        TextureMode::Rgba8 => (TextureFormat::Rgba8Srgb, mips),
     };
-    Texture {
+    Ok(Texture {
         name: name.to_owned(),
         width,
         height,
         format,
         mips,
-    }
+    })
 }
 
 /// `mips` are the RGBA8 levels of a `width × height` image, as [`mip_chain_rgba8`] makes them.
-fn astc_4x4(mips: Vec<Vec<u8>>, width: u32, height: u32) -> Vec<Vec<u8>> {
-    let config = config_init(Profile::LdrSrgb, 4, 4, 1, Preset::Medium, Flags::empty())
-        .expect("astcenc takes 4×4 LDR sRGB blocks");
-    let mut context = Context::new(&config).expect("astcenc context");
+fn astc_4x4(
+    mips: Vec<Vec<u8>>,
+    width: u32,
+    height: u32,
+) -> Result<Vec<Vec<u8>>, ctt_astcenc::Error> {
+    let config = config_init(Profile::LdrSrgb, 4, 4, 1, Preset::Medium, Flags::empty())?;
+    let mut context = Context::new(&config)?;
     (0u32..)
         .zip(mips)
-        .map(|(level, mut mip)| {
+        .map(|(level, mip)| {
             let (w, h) = ((width >> level).max(1), (height >> level).max(1));
-            // astcenc reads w × h texels through this pointer.
-            assert_eq!(mip.len(), w as usize * h as usize * 4);
-            let mut texels = mip.as_mut_ptr().cast();
-            let mut image = astcenc_image {
-                dim_x: w,
-                dim_y: h,
-                dim_z: 1,
-                data_type: astcenc_type_ASTCENC_TYPE_U8,
-                data: &mut texels,
-            };
-            let mut blocks = vec![0; w.div_ceil(4) as usize * h.div_ceil(4) as usize * 16];
-            context
-                .compress(&mut image, Swizzle::IDENTITY, &mut blocks)
-                .expect("astcenc compresses a whole RGBA8 image");
-            context.compress_reset().expect("astcenc context reset");
-            blocks
+            let mut rgba =
+                RgbaImage::from_raw(w, h, mip).expect("mip_chain_rgba8 makes w × h levels");
+            compress_level(&mut context, &mut rgba)
         })
         .collect()
+}
+
+/// The only call that hands astcenc texel memory: the safe `Context::compress` reads
+/// `dim_x × dim_y` RGBA8 texels through the bare pointer in `astcenc_image`, and `level` holds them.
+fn compress_level(
+    context: &mut Context,
+    level: &mut RgbaImage,
+) -> Result<Vec<u8>, ctt_astcenc::Error> {
+    let (w, h) = level.dimensions();
+    let mut texels = level.as_mut_ptr().cast();
+    let mut image = astcenc_image {
+        dim_x: w,
+        dim_y: h,
+        dim_z: 1,
+        data_type: astcenc_type_ASTCENC_TYPE_U8,
+        data: &mut texels,
+    };
+    let mut blocks = vec![0; w.div_ceil(4) as usize * h.div_ceil(4) as usize * 16];
+    context.compress(&mut image, Swizzle::IDENTITY, &mut blocks)?;
+    context.compress_reset()?;
+    Ok(blocks)
 }
 
 /// Every mip level of `img`, largest first, down to 1×1, as RGBA8 sRGB bytes.

@@ -183,7 +183,7 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         .images
         .iter()
         .map(|image| encode_texture(&image.name, &image.rgba, mode))
-        .collect();
+        .collect::<Result<_, _>>()?;
     Ok(RoomPack {
         name: source.name.clone(),
         stats: Stats::of(&meshes, &textures, &draws),

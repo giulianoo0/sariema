@@ -296,20 +296,33 @@ fn gpu_format(format: TextureFormat) -> wgpu::TextureFormat {
     }
 }
 
-/// Texel blocks of `format`: width, height and bytes.
-fn block(format: wgpu::TextureFormat) -> (u32, u32, u32) {
-    let (width, height) = format.block_dimensions();
-    let bytes = format
-        .block_copy_size(None)
-        .expect("colour formats have one aspect");
-    (width, height, bytes)
+/// One texel block of a texture format, in texels and bytes; uncompressed
+/// formats have 1×1 blocks.
+struct Block {
+    width: u32,
+    height: u32,
+    bytes: u32,
+}
+
+impl Block {
+    fn of(format: wgpu::TextureFormat) -> Block {
+        let (width, height) = format.block_dimensions();
+        let bytes = format
+            .block_copy_size(None)
+            .expect("colour formats have one aspect");
+        Block {
+            width,
+            height,
+            bytes,
+        }
+    }
 }
 
 fn texture_problem(t: &Texture, max_side: u32, features: wgpu::Features) -> Option<String> {
     let format = gpu_format(t.format);
     if !features.contains(format.required_features()) {
         return Some(format!(
-            "is {:?}, which this device cannot sample; pack the room with --textures rgba8",
+            r#"is {:?}, which this device cannot sample; set "textures": "rgba8" in the room description"#,
             t.format
         ));
     }
@@ -319,10 +332,11 @@ fn texture_problem(t: &Texture, max_side: u32, features: wgpu::Features) -> Opti
             "is {w}×{h}; the device takes 1 to {max_side} per side"
         ));
     }
-    let (block_w, block_h, block_bytes) = block(format);
-    if !(w.is_multiple_of(block_w) && h.is_multiple_of(block_h)) {
+    let block = Block::of(format);
+    if !(w.is_multiple_of(block.width) && h.is_multiple_of(block.height)) {
         return Some(format!(
-            "is {w}×{h}, which is not whole {block_w}×{block_h} blocks"
+            "is {w}×{h}, which is not whole {}×{} blocks",
+            block.width, block.height
         ));
     }
     let levels = 32 - w.max(h).leading_zeros() as usize;
@@ -334,7 +348,7 @@ fn texture_problem(t: &Texture, max_side: u32, features: wgpu::Features) -> Opti
     }
     t.mips.iter().enumerate().find_map(|(level, mip)| {
         let blocks = |side: u32, block: u32| (side >> level).max(1).div_ceil(block) as usize;
-        let expected = blocks(w, block_w) * blocks(h, block_h) * block_bytes as usize;
+        let expected = blocks(w, block.width) * blocks(h, block.height) * block.bytes as usize;
         (mip.len() != expected).then(|| {
             format!(
                 "has {} bytes in mip {level} instead of {expected}",
@@ -347,7 +361,7 @@ fn texture_problem(t: &Texture, max_side: u32, features: wgpu::Features) -> Opti
 /// `t` must have passed [`texture_problem`].
 fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
     let format = gpu_format(t.format);
-    let (block_w, block_h, block_bytes) = block(format);
+    let block = Block::of(format);
     let size = |level: u32| wgpu::Extent3d {
         width: (t.width >> level).max(1),
         height: (t.height >> level).max(1),
@@ -376,8 +390,8 @@ fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
             mip,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(extent.width / block_w * block_bytes),
-                rows_per_image: Some(extent.height / block_h),
+                bytes_per_row: Some(extent.width / block.width * block.bytes),
+                rows_per_image: Some(extent.height / block.height),
             },
             extent,
         );
