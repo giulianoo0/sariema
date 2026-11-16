@@ -134,6 +134,14 @@ impl Probe {
         }
     }
 
+    /// The same parts with radii grown by `by` (shrunk when negative).
+    pub fn inflated(mut self, by: f32) -> Probe {
+        for r in &mut self.rounds {
+            r.r = (r.r + by).max(0.0);
+        }
+        self
+    }
+
     pub fn rounds(&self) -> &[Round] {
         &self.rounds[..self.len]
     }

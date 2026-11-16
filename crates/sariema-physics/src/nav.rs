@@ -7,7 +7,9 @@
 //! tested by placing the actor's own collider there, raised by the step
 //! height so ledges it can step onto do not block, instead of eroding voxels.
 //! A* on 8 neighbours with no corner cutting, then string pulling; every kept
-//! segment is checked by sweeping the raised collider along it.
+//! segment is checked by sweeping the raised collider along it. Cells keep one
+//! skin of clearance and segments are swept one skin thinner, so a path
+//! between cells never fails on a graze the controller would slide past.
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -375,7 +377,9 @@ impl NavGrid {
             y = self.height[n as usize];
         }
         let probe = self.collider.probe(a, yaw_of(d.x, d.z), step);
-        ctx.scene.sweep(&probe, d, STATIC).is_none()
+        ctx.scene
+            .sweep(&probe.inflated(-ctx.settings.collision.skin), d, STATIC)
+            .is_none()
     }
 
     /// Writes into `out` the waypoints from `from` to `to`, ending at `to`.

@@ -450,7 +450,7 @@ impl World {
                 a.ground,
                 a.knockback.is_none(),
             );
-            let snapped = if moved.ground.is_none() && grounded {
+            let snapped = if grounded || moved.ground.is_some() {
                 mover.snap(moved.position)
             } else {
                 None
