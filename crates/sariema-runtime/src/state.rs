@@ -105,10 +105,17 @@ impl State {
         self.time_scale.value()
     }
 
-    /// The clip `entity` plays and the time the animation module must
-    /// show it at, in seconds.
+    /// The clip `entity` plays and its time at the last step, in seconds:
+    /// what markers and the end of the clip are judged against.
     pub fn clip_time(&self, entity: Entity) -> Option<(u32, f32)> {
         self.clips.time(entity)
+    }
+
+    /// The clip time to draw at `alpha` between the last two steps
+    /// ([`Simulation::alpha`](crate::sim::Simulation::alpha)), interpolated
+    /// like every pose, so a slowed clip never shows a still frame.
+    pub fn clip_time_at(&self, entity: Entity, alpha: f32) -> Option<(u32, f32)> {
+        self.clips.time_at(entity, alpha)
     }
 
     pub fn happen(&mut self, h: Happening) {

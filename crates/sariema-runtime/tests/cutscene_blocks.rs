@@ -406,3 +406,31 @@ fn a_shot_can_aim_at_a_bone_and_an_impact_can_shake_the_camera() {
     );
     assert!(camera.shaking());
 }
+
+#[test]
+fn in_slow_motion_the_clip_time_drawn_grows_every_frame() {
+    let cutscene = format!(
+        r#"{{ "name": "slow", {ROLE_AT_ORIGIN}, "steps": [
+            {{ "time_scale": {{ "scale": 0.4 }} }},
+            {{ "clip": {{ "role": "hero", "clip": "trip", "speed": 0.5 }} }},
+            {{ "wait": 1 }} ] }}"#
+    );
+    let mut sim = playing(cutscene);
+    steps(&mut sim, 3);
+    let frame = Duration::from_nanos(16_666_667);
+    let mut drawn = Vec::new();
+    for _ in 0..60 {
+        sim.frame_with(frame, |_, _| {});
+        let (_, t) = sim.state().clip_time_at(entity(0), sim.alpha()).unwrap();
+        drawn.push(t);
+    }
+    let drawn = &drawn[5..];
+    for pair in drawn.windows(2) {
+        assert!(pair[1] > pair[0], "a still frame: {drawn:?}");
+    }
+    let (_, last) = sim.state().clip_time(entity(0)).unwrap();
+    assert!(
+        (drawn[drawn.len() - 1] - last).abs() <= STEP_SECONDS * 0.5,
+        "drawn within a step of the clip's own time"
+    );
+}

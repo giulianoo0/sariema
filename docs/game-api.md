@@ -300,9 +300,13 @@ world hashes and timing.
   subject; the camera lists those anchors for the animation module to
   resolve and aims at the subject's origin until it does.
 - **Clips**: `play_clip` asks the animation module for a clip at a `speed`.
-  The runtime keeps each actor's clip time in steps (`clip_time`); the
-  animation module seeks the clip to it instead of running it on its own
-  clock, and reports `clip_marker` and `clip_finished` from it.
+  The runtime keeps each actor's clip time in steps, and the animation
+  module seeks the clip to it instead of running it on its own clock:
+  `clip_time` is the time at the last step, which `clip_marker` and
+  `clip_finished` are judged against; `clip_time_at(alpha)` is the time to
+  draw, between the last two steps at the frame's `alpha`, like every pose.
+  In slow motion it still grows every frame, so a clip never shows a still
+  frame.
 - **Time scale**: `time_scale` plays the world slower or faster than real
   time, reached over `blend` seconds. The display frames' time is scaled
   before it becomes steps: a step stays 1/60 s of world time, so play stays
