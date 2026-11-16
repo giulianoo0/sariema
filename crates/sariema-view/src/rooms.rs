@@ -2,13 +2,16 @@
 
 //! The game's rooms on the GPU. Each frame the view keeps loaded the rooms
 //! the engine wants ([`Engine::wanted_rooms`]: the active one, the one a
-//! switch leaves, the preloaded ones, the neighbours), at most
+//! switch leaves, the ones beside it, the preloaded ones, the neighbours),
+//! at most
 //! [`ViewSettings::max_resident`], freeing the others. A room is decoded on
 //! a thread, or a share at a time where there are none, then uploaded a
 //! share at a time, so loading never takes a frame's whole budget; only a
-//! switch to a room not loaded yet loads it at once. While a switch lasts
-//! both rooms are drawn: whole and lit by a blend of the two (continuous),
-//! or dissolving into each other (dissolve). What the game changed in a
+//! switch to a room not loaded yet loads it at once. The rooms beside the
+//! active one, whose geometry continues it, are drawn with it. While a
+//! switch lasts both rooms are drawn: whole and lit by a blend of the two
+//! (continuous), or dissolving into each other (dissolve); the sky, the
+//! sun, the ambient light and the look blend either way. What the game changed in a
 //! room (groups, piece states, lights, hinges, nodes bound to entities) is
 //! carried to the renderer when it changes.
 
@@ -104,6 +107,8 @@ struct RoomView {
     applied: Option<Applied>,
     /// By light, where its colour, intensity and range parameters are.
     light_params: Vec<[usize; 5]>,
+    /// Rooms drawn with this one.
+    beside: Vec<u32>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -149,6 +154,7 @@ impl Rooms {
                 base: None,
                 applied: None,
                 light_params: light_params(&r.index),
+                beside: r.beside.clone(),
             })
             .collect();
         Rooms {
@@ -390,19 +396,23 @@ impl Rooms {
                 .zip(scenery.room(r))
                 .map(|(b, s)| lit(b, s))
         };
+        let beside = &self.views.get(active).map_or(&[][..], |v| &v.beside[..]);
         let (lighting, look) = match (switch, lit(active)) {
             (Some(switch), Some(to)) => {
                 let p = switch.progress(alpha);
-                self.drawn.push(switch.from as u32);
-                let (from_presence, inverted) = match switch.kind {
-                    RoomTransition::Dissolve => (1.0 - p, true),
-                    _ => (1.0, false),
+                // A room beside the next one stays drawn whole, its light its own.
+                let (whole, inverted) = match switch.kind {
+                    _ if beside.contains(&(switch.from as u32)) => (true, false),
+                    RoomTransition::Dissolve => (false, true),
+                    _ => (true, false),
                 };
-                let to_presence = if inverted { p } else { 1.0 };
-                renderer.set_room_presence(active as u32, to_presence, false);
-                renderer.set_room_presence(switch.from as u32, from_presence, inverted);
-                renderer.set_room_light_scale(active as u32, p);
-                renderer.set_room_light_scale(switch.from as u32, 1.0 - p);
+                let lights_cross = !beside.contains(&(switch.from as u32));
+                self.drawn.push(switch.from as u32);
+                let (into, out) = (active as u32, switch.from as u32);
+                renderer.set_room_presence(into, if whole { 1.0 } else { p }, false);
+                renderer.set_room_presence(out, if whole { 1.0 } else { 1.0 - p }, inverted);
+                renderer.set_room_light_scale(into, if lights_cross { p } else { 1.0 });
+                renderer.set_room_light_scale(out, if lights_cross { 1.0 - p } else { 1.0 });
                 match lit(switch.from) {
                     Some(from) => blend(&from, &to, p),
                     None => to,
@@ -415,6 +425,13 @@ impl Rooms {
             }
             (_, None) => return,
         };
+        for &b in beside.iter() {
+            if resident(b as usize) && !self.drawn.contains(&b) {
+                self.drawn.push(b);
+                renderer.set_room_presence(b, 1.0, false);
+                renderer.set_room_light_scale(b, 1.0);
+            }
+        }
         renderer.set_drawn(&self.drawn);
         if self.lighting.as_ref() != Some(&lighting) {
             renderer.set_lighting(Some(lighting.clone()));

@@ -1,0 +1,108 @@
+{
+ "exposicao": 1.0,
+ "comodos": {
+  "porch": {
+   "estado": "dia",
+   "hemi_ceu": "#BFD4F0",
+   "hemi_chao": "#5A4A3A",
+   "hemi_int": 0.6,
+   "sol": "#FFE2B8",
+   "sol_int": 1.6,
+   "sol_dir_three": [
+    -0.5,
+    1.0,
+    0.4
+   ],
+   "sol_sombra": true,
+   "luzes": [
+    {
+     "nome": "lamp",
+     "tipo": "ponto",
+     "cor": "#FFC890",
+     "int": 6,
+     "pos": [
+      3.0,
+      1.5,
+      2.0
+     ],
+     "dist": 5
+    }
+   ]
+  },
+  "hall": {
+   "estado": "noite",
+   "hemi_ceu": "#3A4A70",
+   "hemi_chao": "#141820",
+   "hemi_int": 0.4,
+   "sol": "#B8C8FF",
+   "sol_int": 0.5,
+   "sol_dir_three": [
+    0.3,
+    1.0,
+    -0.2
+   ],
+   "sol_sombra": false,
+   "luzes": [
+    {
+     "nome": "spot",
+     "tipo": "spot",
+     "cor": "#FFF0C8",
+     "int": 45,
+     "pos": [
+      3.0,
+      3.0,
+      3.5
+     ],
+     "alvo": [
+      3.0,
+      3.0,
+      0.0
+     ],
+     "cone": 70,
+     "dist": 9
+    },
+    {
+     "nome": "glow",
+     "tipo": "ponto",
+     "cor": "#80A0FF",
+     "int": 5,
+     "pos": [
+      5.0,
+      1.0,
+      1.5
+     ],
+     "dist": 4
+    }
+   ]
+  },
+  "attic": {
+   "estado": "noite",
+   "hemi_ceu": "#503A60",
+   "hemi_chao": "#181018",
+   "hemi_int": 0.35,
+   "sol": "#FFB0D0",
+   "sol_int": 0.4,
+   "sol_dir_three": [
+    0.0,
+    1.0,
+    0.5
+   ],
+   "sol_sombra": false,
+   "luzes": [
+    {
+     "nome": "candle",
+     "tipo": "ponto",
+     "cor": "#FFA060",
+     "int": 8,
+     "pos": [
+      3.0,
+      3.0,
+      1.2
+     ],
+     "dist": 6,
+     "tremido": "0.85-1.0 at ~8 Hz"
+    }
+   ]
+  }
+ }
+}

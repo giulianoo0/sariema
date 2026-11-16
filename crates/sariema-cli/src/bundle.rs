@@ -28,6 +28,9 @@ pub struct RoomEntry {
     /// A sound of the bank looped while the room is active.
     #[serde(default)]
     pub ambience: Option<String>,
+    /// Rooms whose geometry continues this one's, drawn with it.
+    #[serde(default)]
+    pub beside: Vec<String>,
 }
 
 /// The assets of the project in `dir`: `room` (the project's first room
@@ -50,26 +53,29 @@ pub fn assets(
         for &name in &names {
             let (pack, collision) = project::room_packs(dir, name, textures)?;
             let entry = rooms.get(name).cloned().unwrap_or_default();
-            let neighbours = (entry.neighbours.iter())
-                .map(|n| match names.iter().position(|&r| r == n) {
-                    Some(i) if i != names.iter().position(|&r| r == name).unwrap_or(usize::MAX) => {
-                        Ok(i as u32)
-                    }
-                    _ => Err(Failure::new(
-                        "E_SCHEMA",
-                        format!(
-                            "{}: game.rooms.{name} lists neighbour {n}, which is not another room of game.rooms",
-                            dir.join("sariema.json").display()
-                        ),
-                    )),
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+            let index = |list: &[String], what: &str| {
+                (list.iter())
+                    .map(|n| match names.iter().position(|&r| r == n) {
+                        Some(i) if names[i] != name => Ok(i as u32),
+                        _ => Err(Failure::new(
+                            "E_SCHEMA",
+                            format!(
+                                "{}: game.rooms.{name} lists {what} {n}, which is not another room of game.rooms",
+                                dir.join("sariema.json").display()
+                            ),
+                        )),
+                    })
+                    .collect::<Result<Vec<u32>, Failure>>()
+            };
+            let neighbours = index(&entry.neighbours, "neighbour")?;
+            let beside = index(&entry.beside, "beside")?;
             assets.rooms.push(GameRoom {
                 name: name.to_owned(),
                 index: RoomIndex::of(&pack),
                 room: Some(sariema_format::encode(&pack)),
                 collision,
                 neighbours,
+                beside,
                 ambience: entry.ambience,
             });
         }

@@ -30,6 +30,8 @@ pub struct RoomAssets {
     pub index: RoomIndex,
     /// Rooms by index, nearest first.
     pub neighbours: Vec<u32>,
+    /// Rooms by index drawn with this one, their geometry continuing it.
+    pub beside: Vec<u32>,
     pub ambience: Option<String>,
 }
 
@@ -66,6 +68,7 @@ impl Assets {
                     collision,
                     index: r.index,
                     neighbours: r.neighbours,
+                    beside: r.beside,
                     ambience: r.ambience,
                 })
             })

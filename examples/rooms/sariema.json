@@ -1,0 +1,40 @@
+{
+  "name": "rooms",
+  "assets_root": "../collision",
+  "rooms": {
+    "porch": "rooms/porch.json",
+    "hall": "rooms/hall.json",
+    "attic": "rooms/attic.json"
+  },
+  "actors": {
+    "hero": "../climb/actors/hero.json"
+  },
+  "audio": "../audio/audio.json",
+  "game": {
+    "logic": "game",
+    "toolchain": "1.100.0",
+    "room": "porch",
+    "rooms": {
+      "porch": {
+        "beside": [
+          "hall"
+        ],
+        "ambience": "wind"
+      },
+      "hall": {
+        "beside": [
+          "porch"
+        ],
+        "neighbours": [
+          "attic"
+        ]
+      },
+      "attic": {
+        "neighbours": [
+          "hall"
+        ],
+        "ambience": "wind"
+      }
+    }
+  }
+}

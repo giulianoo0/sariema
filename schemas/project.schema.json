@@ -45,7 +45,8 @@
             "additionalProperties": false,
             "properties": {
               "neighbours": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Rooms of `game.rooms` (or the start room) to keep loaded while this one is active, nearest first." },
-              "ambience": { "type": "string", "minLength": 1, "description": "A sound of the bank looped while the room is active, crossfaded with the next room's at a switch." }
+              "ambience": { "type": "string", "minLength": 1, "description": "A sound of the bank looped while the room is active, crossfaded with the next room's at a switch." },
+              "beside": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Rooms whose geometry continues this one's, in the same coordinates: loaded and drawn with it, lit by their own lights, so walking from one into the other shows no edge." }
             }
           }
         },

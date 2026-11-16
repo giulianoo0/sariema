@@ -526,3 +526,34 @@ fn a_headless_game_run_draws_the_frames_asked_for_without_changing_what_happens(
         "the frames show the room, the hero and the HUD"
     );
 }
+
+#[test]
+fn the_rooms_example_walks_into_the_hall_then_dissolves_into_the_attic() {
+    let tmp = TempDir::new().unwrap();
+    let pack = tmp.path().join("rooms.srmg");
+    let built = ok(&[
+        "build",
+        arg(&repo().join("examples/rooms")),
+        "-o",
+        arg(&pack),
+    ]);
+    assert_eq!(built["rooms"], json!(["porch", "attic", "hall"]));
+    let run = || ok(&["run", "--headless", "--game", arg(&pack), "--steps", "600"]);
+    let played = run();
+    assert_eq!(
+        story(&played),
+        [
+            "0 started",
+            "169 trigger_enter",
+            "170 room_switched",
+            "207 trigger_exit",
+            "319 arrived",
+            "379 timer_fired",
+            "380 room_switched",
+        ]
+    );
+    let again = run();
+    for hash in ["engine_hash", "physics_hash", "audio_hash"] {
+        assert_eq!(again[hash], played[hash], "{hash} differs between two runs");
+    }
+}

@@ -319,8 +319,9 @@ impl<L: Logic> Engine<L> {
     }
 
     /// The rooms to have loaded now, the most needed first: the active one,
-    /// the one a switch is leaving, the rooms the game asked to preload
-    /// (the latest first), then the active one's neighbours.
+    /// the one a switch is leaving, the ones beside it, the rooms the game
+    /// asked to preload (the latest first), then the active one's
+    /// neighbours.
     pub fn wanted_rooms(&self) -> Vec<usize> {
         let scenery = &self.sim.state().scenery;
         let active = scenery.active();
@@ -332,6 +333,9 @@ impl<L: Logic> Engine<L> {
         };
         if let Some(switch) = scenery.switch() {
             add(switch.from);
+        }
+        if let Some(room) = self.rooms.assets.get(active) {
+            room.beside.iter().for_each(|&r| add(r as usize));
         }
         scenery.preloads().iter().rev().for_each(|&r| add(r));
         if let Some(room) = self.rooms.assets.get(active) {

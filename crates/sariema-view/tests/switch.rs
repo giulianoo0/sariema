@@ -43,7 +43,7 @@ fn examples() -> PathBuf {
 /// `sill` and `hall`, the same room with its exposure lowered in the hall
 /// and, with `hall_red`, its materials reddened, so the two look apart; each
 /// the other's neighbour.
-fn rooms(hall_red: bool) -> Vec<RoomAssets> {
+fn rooms(hall_red: bool, beside: bool) -> Vec<RoomAssets> {
     let root = examples().join("collision");
     let room = |name: &str, neighbour: u32| {
         let text = std::fs::read_to_string(root.join(format!("rooms/{name}.json"))).unwrap();
@@ -63,13 +63,14 @@ fn rooms(hall_red: bool) -> Vec<RoomAssets> {
             collision: Some(Arc::new(build_collision(&source, &root).unwrap().unwrap())),
             index: RoomIndex::of(&pack),
             neighbours: vec![neighbour],
+            beside: if beside { vec![neighbour] } else { Vec::new() },
             ambience: None,
         }
     };
     vec![room("sill", 1), room("hall", 0)]
 }
 
-fn hero(hall_red: bool) -> (GameAssets, Assets) {
+fn hero(hall_red: bool, beside: bool) -> (GameAssets, Assets) {
     let text = std::fs::read_to_string(examples().join("climb/actors/hero.json")).unwrap();
     let actor = build_actor(
         &ActorSource::from_json(&text).unwrap(),
@@ -81,7 +82,7 @@ fn hero(hall_red: bool) -> (GameAssets, Assets) {
         ..GameAssets::default()
     };
     let assets = Assets {
-        rooms: rooms(hall_red),
+        rooms: rooms(hall_red, beside),
         actors: vec![("hero".into(), actor)],
         ..Assets::default()
     };
@@ -152,7 +153,11 @@ struct Frame {
 }
 
 fn play(settings: ViewSettings, frames: u64, hall_red: bool) -> Vec<Frame> {
-    let (drawn, assets) = hero(hall_red);
+    play_with(settings, frames, hall_red, false)
+}
+
+fn play_with(settings: ViewSettings, frames: u64, hall_red: bool, beside: bool) -> Vec<Frame> {
+    let (drawn, assets) = hero(hall_red, beside);
     let mut runtime = Settings::default();
     runtime.motion.builtin = false;
     let sim = Simulation::new(runtime, Vec::new(), script(), 1);
@@ -228,7 +233,7 @@ fn the_neighbour_loads_a_share_a_frame_before_the_switch() {
         frames[89].rooms.rooms_resident, 2,
         "both rooms are in before the switch"
     );
-    let hall = &rooms(true)[1];
+    let hall = &rooms(true, false)[1];
     let pack = sariema_format::decode(hall.room.as_deref().unwrap()).unwrap();
     let textures = pack
         .textures
@@ -334,4 +339,18 @@ fn a_continuous_switch_draws_both_rooms_and_blends_their_light() {
         (182..208).all(|n| frames[n].draws > alone),
         "both rooms are drawn while it lasts"
     );
+}
+
+#[test]
+fn rooms_beside_the_active_one_are_drawn_with_it_all_along() {
+    let alone = play(spread(), 240, false);
+    let beside = play_with(spread(), 240, false, true);
+    for n in [30, 60, 89, 100, 150, 200, 239] {
+        assert!(
+            beside[n].draws > alone[n].draws.min(alone[30].draws),
+            "frame {n}: {} draws beside, {} alone",
+            beside[n].draws,
+            alone[n].draws
+        );
+    }
 }

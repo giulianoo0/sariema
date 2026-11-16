@@ -81,6 +81,10 @@ pub struct GameRoom {
     /// The rooms, by index, a host keeps loaded while this one is active,
     /// nearest first.
     pub neighbours: Vec<u32>,
+    /// The rooms, by index, whose geometry continues this one's, drawn with
+    /// it whole and lit by their own lights while loaded: walking from one
+    /// into the other shows no edge.
+    pub beside: Vec<u32>,
     /// A sound of the bank looped while the room is active, crossfaded with
     /// the next room's at a switch.
     pub ambience: Option<String>,
@@ -216,8 +220,8 @@ fn validate_rooms(rooms: &[GameRoom]) -> Result<(), String> {
         ));
     }
     for (i, room) in rooms.iter().enumerate() {
-        if let Some(&n) =
-            (room.neighbours.iter()).find(|&&n| n as usize >= rooms.len() || n as usize == i)
+        if let Some(&n) = (room.neighbours.iter().chain(&room.beside))
+            .find(|&&n| n as usize >= rooms.len() || n as usize == i)
         {
             return Err(format!(
                 "room {} has neighbour {n} of {} rooms",
