@@ -21,9 +21,35 @@ use common::{engine, entity, native, send, spawn_hero, wired};
 const START: [f32; 3] = [3.5, 0.0, -1.9];
 const TOP: [f32; 3] = [3.5, 0.9, -3.0];
 const LANDING: [f32; 3] = [3.5, 0.0, -4.4];
+/// In the air over the sill, whose top is at 0.9 m.
+const HIGH: [f32; 3] = [3.5, 1.3, -3.0];
 
-fn spans(length: f32, landing: [f32; 3]) -> Vec<ClipSpan> {
+/// Up on the sill, slowed on the top, down to `landing`; with `gap`, up in
+/// the air over the sill instead, waiting there between two spans.
+fn spans(length: f32, landing: [f32; 3], gap: bool) -> Vec<ClipSpan> {
     let at = |f: f32| f * length;
+    if gap {
+        return vec![
+            ClipSpan {
+                from: at(0.10),
+                until: at(0.30),
+                rate: 1.0,
+                to: Some(HIGH),
+                yaw: None,
+                ease: Ease::OutQuad,
+                arc: 0.0,
+            },
+            ClipSpan {
+                from: at(0.60),
+                until: at(0.85),
+                rate: 1.0,
+                to: Some(landing),
+                yaw: None,
+                ease: Ease::InQuad,
+                arc: 0.0,
+            },
+        ];
+    }
     vec![
         ClipSpan {
             from: at(0.15),
@@ -72,6 +98,10 @@ struct Run {
 /// The hero at `START` goes over the sill to `landing` from step 5, and
 /// walks south from step 200.
 fn run(landing: [f32; 3]) -> Run {
+    run_spans(landing, false)
+}
+
+fn run_spans(landing: [f32; 3], gap: bool) -> Run {
     let length = Rc::new(RefCell::new(0.0f32));
     let arrived = Rc::new(RefCell::new(None));
     let (len, got) = (length.clone(), arrived.clone());
@@ -85,7 +115,7 @@ fn run(landing: [f32; 3]) -> Run {
             0 => spawn_hero(out, START, 0.0),
             5 => {
                 let mut bytes = Vec::new();
-                spans(*len.borrow(), landing)
+                spans(*len.borrow(), landing, gap)
                     .iter()
                     .for_each(|s| s.put(&mut bytes));
                 send(
@@ -219,5 +249,34 @@ fn a_path_ending_above_the_floor_gives_the_body_back_to_gravity() {
     assert!(
         settled.y < 0.02 && trace[199].grounded,
         "it falls onto the floor once the path ends: {settled}"
+    );
+}
+
+#[test]
+fn between_two_spans_the_root_stays_pinned_where_the_first_left_it() {
+    let Run {
+        trace,
+        arrived,
+        duration,
+    } = run_spans(LANDING, true);
+    let gap: Vec<&Step> = (trace.iter())
+        .filter(|s| {
+            s.clock.is_some_and(|(c, t)| {
+                c == name_id("wave") && t > 0.31 * duration && t < 0.59 * duration
+            })
+        })
+        .collect();
+    assert!(gap.len() > 10, "the gap lasts {} steps", gap.len());
+    for s in &gap {
+        assert!(
+            s.root.distance(Vec3::from(HIGH)) < 1e-4,
+            "pinned in the air between the spans, not fallen onto the sill: {}",
+            s.root
+        );
+    }
+    let at = trace[arrived as usize].root;
+    assert!(
+        at.distance(Vec3::from(LANDING)) <= 0.011,
+        "the second span still lands where it was told: {at}"
     );
 }

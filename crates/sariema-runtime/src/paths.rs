@@ -4,8 +4,8 @@
 //! only within spans of the clip it plays, placed each step from the clip's
 //! time, so a slowed span, slow motion or a held first frame keep body and
 //! root together. The runtime moves the root; a collision module poses the
-//! actor there with its collider off, and gets it back on, pushed out of
-//! any overlap, when the last span ends.
+//! actor there with its collider off and keeps it posed, between spans too,
+//! until the last span ends and gets it back on, pushed out of any overlap.
 
 use glam::Vec3;
 use sariema_format::script::{ClipSpan, Ease, Entity, Event};
