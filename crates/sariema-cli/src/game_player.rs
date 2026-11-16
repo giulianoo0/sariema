@@ -14,6 +14,7 @@ use sariema_engine::{Engine, EngineSettings};
 use sariema_format::script::{GameAssets, decode_game};
 use sariema_runtime::game::WasmLogic;
 use sariema_runtime::input::{Key, RawInput};
+use sariema_runtime::sim::Logic;
 use sariema_ui::SafeArea;
 use serde_json::{Value, json};
 use winit::application::ApplicationHandler;
@@ -211,7 +212,7 @@ impl GamePlayer<'_> {
                     self.raw.set_key(key, state == ElementState::Pressed);
                 }
             }
-            WindowEvent::Focused(false) => self.raw = RawInput::default(),
+            WindowEvent::Focused(false) => let_go(&mut self.engine, &mut self.raw, self.cursor),
             WindowEvent::CursorMoved { position, .. } => {
                 let (x, y) = (position.x as f32, position.y as f32);
                 self.cursor = Some((x, y));
@@ -402,4 +403,76 @@ fn key(code: KeyCode) -> Option<Key> {
         C::Backspace => Key::Backspace,
         _ => return None,
     })
+}
+
+/// The window lost focus, so no release will reach it: every key and the
+/// mouse button are let go.
+fn let_go<L: Logic>(engine: &mut Engine<L>, raw: &mut RawInput, cursor: Option<(f32, f32)>) {
+    *raw = RawInput::default();
+    if let Some((x, y)) = cursor {
+        engine.pointer_up(MOUSE, x, y);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sariema_engine::Assets;
+    use sariema_format::script::Hud;
+    use sariema_runtime::input::Actions;
+    use sariema_runtime::settings::Settings;
+    use sariema_runtime::sim::{Simulation, Stop};
+
+    use super::*;
+
+    struct Idle;
+
+    impl Logic for Idle {
+        fn tick(&mut self, _: &[u8], _: &[u32], out: &mut Vec<u8>) -> Result<(), Stop> {
+            out.clear();
+            Ok(())
+        }
+    }
+
+    const STICK: &str = r#"{ "nodes": [
+      { "name": "zone", "absolute": true, "left": 0, "top": 0, "bottom": 0, "width": "50%",
+        "widget": { "joystick": { "base": "base", "pin": "pin" } },
+        "children": [
+          { "name": "base", "absolute": true, "left": 16, "bottom": 16, "width": 128, "height": 128,
+            "children": [ { "name": "pin", "absolute": true, "left": 36, "top": 36, "width": 56, "height": 56 } ] }
+        ] }
+    ] }"#;
+
+    #[test]
+    fn losing_focus_lets_go_of_the_keys_and_the_mouse() {
+        let assets = Assets {
+            room: None,
+            collision: None,
+            actors: Vec::new(),
+            sounds: None,
+            hud: Some(Hud {
+                description: STICK.into(),
+                files: Vec::new(),
+            }),
+        };
+        let sim = Simulation::new(Settings::default(), Vec::new(), Idle, 1);
+        let mut engine = Engine::new(sim, assets, EngineSettings::default()).unwrap();
+        engine.resize(1280.0, 720.0, SafeArea::default());
+        let actions = Actions::for_settings(&engine.state().settings.input);
+        let zone = engine.hud().ui.node("zone").unwrap();
+        let mut raw = RawInput::default();
+        raw.set_key(Key::W, true);
+        engine.pointer_down(MOUSE, 150.0, 560.0);
+        engine.pointer_move(MOUSE, 250.0, 560.0);
+        engine.step(&actions);
+        let held = engine.hud().ui.stick(zone).unwrap();
+        assert!(held[0] > 0.5, "the stick is pushed: {held:?}");
+        let_go(&mut engine, &mut raw, Some((250.0, 560.0)));
+        engine.step(&actions);
+        assert_eq!(raw, RawInput::default());
+        assert_eq!(
+            engine.hud().ui.stick(zone),
+            Some([0.0, 0.0]),
+            "the stick let go"
+        );
+    }
 }
