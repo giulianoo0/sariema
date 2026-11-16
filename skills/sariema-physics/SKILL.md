@@ -1,6 +1,6 @@
 ---
 name: sariema-physics
-description: Use when making a Sariema room walkable, placing action spots or scripted routes for a scene, when `sariema check` fails with E_SPOT_BLOCKED, E_SPOT_NO_GROUND, E_PATH_NONE or warns W_ACTOR_BOUNDS, when a character clips into a door, gets stuck, floats or cannot reach a spot, or when tuning how the character moves.
+description: Use when making a Sariema room walkable, placing action spots, scripted routes or traversals (climbing through a window, over a sill) for a scene, when `sariema check` fails with E_SPOT_BLOCKED, E_SPOT_NO_GROUND, E_PATH_NONE, E_TRAVERSAL_END or E_CONTACT_OFF_SURFACE or warns W_ACTOR_BOUNDS, when a character clips into a door, gets stuck, floats or cannot reach a spot, or when tuning how the character moves.
 ---
 
 # Sariema physics
@@ -26,6 +26,7 @@ Every command runs from the repository root; `sariema` is
 sariema build examples/collision --room hall -o /tmp/hall.srma   # also writes /tmp/hall.srmc
 sariema inspect /tmp/hall.srmc                                   # colliders by shape, disabled, triggers, spots, routes
 sariema check examples/collision                                 # every room; --room hall for one
+sariema check examples/collision --room sill                     # a traversal over a sill, with a foot contact
 sariema physics-map /tmp/hall.srmc -o /tmp/hall-map.png --path start:back
 sariema physics-map /tmp/hall.srmc -o /tmp/hall-cut.png --cut 0.5  # only what lies below 0.5 m
 ```
@@ -105,14 +106,63 @@ world.apply(Intent::SetColliderEnabled { collider: lamp, enabled: true });
 
 Step a fixed number of times per frame and interpolate between
 `previous_position` and `position` for drawing. Never move an actor by
-writing its position: use `Teleport`, which pushes it out of overlaps or
-reports `TeleportRejected`.
+writing its position. Use `Teleport`, which pushes it out of overlaps or
+reports `TeleportRejected`, or use `Pose` for a traversal.
+
+## Traversals and intended contact
+
+Climbing in through a window, vaulting a sill or dropping from a ledge is a
+traversal. A clip carries the body through places it could never walk.
+
+- **Collider off.** Each step, send `Intent::Pose` with the point the clip
+  has reached at that step's time. Seek the clip to the step clock; never
+  let it run free. A posed actor is not pushed out of geometry, gravity
+  does not pull it, and other actors do not push it. Triggers still see it.
+- **Ends on free floor.** The last pose must leave the collider clear and on
+  walkable ground. Then send `Stop` or `Move` to turn the collider back on.
+- **Intended contact is authored.** A foot hooked on the sill is a clip pose
+  plus a declared contact point on the sill. Place the actor so the foot
+  lands exactly there. Any other overlap with the room is an error.
+- **Hinged leaves are moving colliders.** A window leaf or door the actor
+  opens swings with the clip: a platform collider whose yaw the game sets
+  from the same clip time. Packs cannot declare hinges yet (see
+  `docs/physics.md`, known limits).
+
+Declare the geometry under `collision.traversals`, as in
+`examples/collision/rooms/sill.json`. `from` is the spot it starts at, and
+its actor is the one carried. The last of `points` is the end, facing
+`yaw_deg`. `contacts` are the points touched on purpose.
+
+```json
+"traversals": [
+  {
+    "name": "window",
+    "from": "start",
+    "points": [[3.5, 0.9, -2.7], [3.5, 0.0, -4.2]],
+    "yaw_deg": 180.0,
+    "contacts": [{ "name": "foot", "at": [3.5, 0.9, -3.2] }]
+  }
+]
+```
+
+Playing it is one `Pose` per step, then a release. The loop below poses
+once per point; a game poses at every step and interpolates between points
+by the clip's time.
+
+```rust
+let window = &pack.traversals[0];
+for point in &window.points {
+    world.apply(Intent::Pose { actor: hero, position: (*point).into(), yaw: window.yaw });
+    world.step(&mut events);
+}
+world.apply(Intent::Stop { actor: hero });
+```
 
 ## Reading `check`
 
-Each error names the room, the spot and the actor. The failure's code is the
-first error's; the message lists all of them, separated by `; `. A blocked
-spot also fails every route that starts there.
+Each error names the room, the spot or traversal, and the actor. The
+failure's code is the first error's, and the message lists every error,
+separated by `; `. A blocked spot also fails every route that starts there.
 
 | Code | What it means | Fix |
 |---|---|---|
@@ -121,6 +171,10 @@ spot also fails every route that starts there.
 | `E_SPOT_NO_GROUND` `... stands on nothing within 0.05 m` | Floating, or past the edge of the floor. | Lower the spot or add floor (a `primitives` box). |
 | `E_SPOT_NO_GROUND` `... steeper than 40°` | The ground under the spot is not walkable. | Move the spot to flatter ground. |
 | `E_PATH_NONE` `no path for hero from spot A to spot B` | Nothing walkable connects them: a closed door, a gap narrower than the collider, a step over 0.20 m, or B where the actor cannot stand. | `physics-map --path A:B` and look where the green ends. |
+| `E_TRAVERSAL_END` `traversal window: at the end, hero's collider is 0.500 m inside sill` | The traversal ends inside geometry; the collider would come back on inside it. | Move the last point to free floor beyond the sill. |
+| `E_TRAVERSAL_END` `... at the end, hero stands on nothing within 0.05 m` | The traversal ends in the air. | Put the last point's y on the floor. |
+| `E_CONTACT_OFF_SURFACE` `traversal window: contact foot is not within 0.02 m of a surface` | The declared contact floats: pose and set do not meet. | Put the contact on the sill, and the traversal's point where the pose's foot lands on it. `--contact-tolerance` sets the distance. |
+| `E_CONTACT_OFF_SURFACE` `... contact foot is 0.400 m inside sill` | The contact is buried in the set. | Move it to the surface. |
 | `W_ACTOR_BOUNDS` `... reaches 0.16 m past its collider at the left` | The model is wider than its collider, so it visibly enters walls. | Widen the collider or add a `head` sphere; `--bounds-margin` sets the threshold. |
 | `E_SCHEMA` `exclude lists sofa, which no room in show places` | A piece name that is not placed, a piece in two shape lists, a spot naming an unknown actor, a bad bake setting. | Fix the name or the value the message gives. |
 
@@ -167,3 +221,12 @@ defaults). The ones games change:
   when hidden) where nothing should block.
 - **Expecting props to be pushed.** Actors are kinematic: they slide along
   props and push each other, nothing tumbles.
+- **`Teleport` or `MoveTo` for a climb.** `Teleport` pushes the body out of
+  the sill (or is rejected), and `MoveTo` finds no path over it. Declare a
+  traversal and play it with `Pose`.
+- **Forgetting the release.** A posed actor stays where it was posed, with
+  no gravity and no collision, until `Stop`, `Move`, `MoveTo`, `Knockback`
+  or `Teleport`.
+- **A clip left running free during a traversal.** In slow motion or on a
+  slow frame, the body and the clip drift apart, and the foot misses the
+  sill. Drive the clip time from the step.

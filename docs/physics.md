@@ -48,6 +48,7 @@ step, in id order, and appends events to a buffer the caller owns.
 | `Stop` | Drop the stick and any scripted move. |
 | `Knockback { push, steps }` | Push over `steps` steps, fastest first; input ignored meanwhile. |
 | `Teleport { position, yaw }` | Place, then push out of overlaps; rejected if that fails. |
+| `Pose { position, yaw }` | Place exactly, collider off, for a traversal: no collision, gravity or pushing until the next `Move`, `MoveTo`, `Stop`, `Knockback` or `Teleport`. |
 | `SetColliderEnabled` | Enable or disable a collider. |
 | `SetSpeedScale` | Multiply the walk speed. |
 
@@ -127,6 +128,68 @@ nothing ever snaps through geometry. It emits `Arrived` within
 `arrive_distance` and `face_tolerance`, or `Blocked(Stuck)` after
 `stuck_steps` steps of less than `stuck_progress` of the expected travel.
 
+### Traversals and intended contact
+
+Walking is not the only way across a room. Climbing in through a window,
+vaulting a sill or dropping from a ledge are traversals: a clip carries the
+body over geometry it could never walk through. They follow five rules.
+
+1. **A traversal is a kinematic segment, with the collider off.** Each step,
+   the game samples the traversal at the clip's time and sends
+   `Intent::Pose`. The clip is sought to the step clock and never runs
+   free, so slow motion and frame hitches cannot desynchronise body and
+   clip. A posed actor is not pushed out of the sill, gravity does not pull
+   it, and other actors neither push it nor are pushed by it. Triggers
+   still see it.
+2. **A traversal ends on free floor.** At its last point, the actor's
+   collider must be clear of the room and stand on walkable ground. The
+   next `Move`, `MoveTo`, `Stop`, `Knockback` or `Teleport` turns the
+   collider back on, and walking resumes with collision from there.
+3. **Intended contact is authored, not penetration.** A foot hooked on the
+   sill is a pose of the clip plus a declared contact point where the foot
+   meets the sill. The traversal places the actor's feet so that the foot
+   lands exactly on that point. The contact is a fact of the animation, not
+   something the collider resolves.
+4. **Any other overlap is an error.** Apart from its declared contacts, the
+   actor's visual bounds must not enter static geometry, whether during the
+   traversal or at rest.
+5. **Hinged set pieces are moving colliders.** A window leaf or a door that
+   the actor opens is a platform collider, with its hinge at the origin of
+   its own frame. The game sets its `Pose` yaw each step from the same clip
+   time that drives the actor. The leaf swings over the clip's frames and
+   never pops open, and actors and queries see it where it is drawn.
+
+A room declares a traversal's geometry under `collision.traversals`, so
+`check` can prove it. The clip timing (which points the clip reaches at
+which time, easing and speed) belongs to the timeline that plays the clip,
+not to the collision pack. The fixture below is in
+`examples/collision/rooms/sill.json`: an opening whose sill is 0.9 m high,
+climbed from the spot `start` to free floor on the far side, with a foot
+resting on the sill on the way.
+
+```json
+"traversals": [
+  {
+    "name": "window",
+    "from": "start",
+    "points": [[3.5, 0.9, -2.7], [3.5, 0.0, -4.2]],
+    "yaw_deg": 180.0,
+    "contacts": [{ "name": "foot", "at": [3.5, 0.9, -3.2] }]
+  }
+]
+```
+
+- `from`: the spot the traversal starts at. Its actor is the one carried,
+  and `check` already proves it as a spot.
+- `points`: the feet along the way. The last point is where the actor
+  stands again, facing `yaw_deg`.
+- `contacts`: the declared points where the pose touches the room on
+  purpose.
+
+`check` reports `E_TRAVERSAL_END` when the end is not free floor, and
+`E_CONTACT_OFF_SURFACE` when a contact lies farther than
+`--contact-tolerance` from every surface, or deeper than that inside one.
+
 ### Queries and the camera
 
 `raycast`, `shapecast` (a capsule), `overlap`, `closest_point` and
@@ -157,7 +220,8 @@ grid allocates when built or rebuilt after a collider changes.
 
 A collision pack (`SRMC`, `sariema_format::collision`) holds a room's
 colliders, triggers, actor colliders, action spots (feet and facing, for one
-actor) and the routes scripts walk between spots. Encoding follows the room
+actor), the routes scripts walk between spots and the traversals scripts
+carry actors along. Encoding follows the room
 pack: magic, version, postcard body; `decode` validates numbers, sizes,
 indices and unique names and never panics.
 
@@ -210,21 +274,24 @@ fitted to its `visual_bounds` (with a head sphere around `head_bounds`).
 
 ```sh
 sariema build <project> --room <id> -o room.srma   # also writes room.srmc when the room has `collision`
-sariema inspect room.srmc                           # colliders by shape, disabled ones, triggers, actors, spots, routes
+sariema inspect room.srmc                           # colliders by shape, disabled ones, triggers, actors, spots, routes, traversals
 sariema check <project> [--room <id>]               # every room when --room is absent
 sariema physics-map room.srmc -o map.png [--path <from>:<to>] [--actor <name>] [--cut <height>]
 ```
 
 Every command takes `--json`.
 
-`check` places each spot's actor collider at the spot and reports, as one
-failure naming the room and the spot:
+`check` places each spot's actor collider at the spot, and the carried
+actor's collider at each traversal's end. It reports every problem as one
+failure, naming the room and the spot or traversal:
 
 | Code | Meaning |
 |---|---|
 | `E_SPOT_BLOCKED` | The collider is inside the room by more than `--penetration-tolerance`. When dropping it from a step's height lands it clear (a slope, a ledge), the message gives that height. |
 | `E_SPOT_NO_GROUND` | No walkable ground within `--ground-depth` below the feet, or the ground is steeper than `max_slope_deg`. |
 | `E_PATH_NONE` | A route's two spots have no path for the first spot's actor. |
+| `E_TRAVERSAL_END` | A traversal's last point is not free floor: the collider is inside the room, or there is no walkable ground under it, under the same rules as a spot. |
+| `E_CONTACT_OFF_SURFACE` | A traversal's declared contact point is farther than `--contact-tolerance` from every surface, or deeper than that inside one. |
 | `W_ACTOR_BOUNDS` (warning) | An actor's `visual_bounds` reach past its collider by more than `--bounds-margin`. |
 
 The failure's code is the first error's; the message lists every error.
@@ -299,7 +366,7 @@ Baking (`collision.bake` in the room description):
 | `hull_tolerance` | 0.05 m | How far a hull's faces may stand off the piece for the hull to be used. |
 
 `check`: `--penetration-tolerance` 0.01 m, `--ground-depth` 0.05 m,
-`--bounds-margin` 0.05 m. `physics-map`: `--pixels-per-metre` 40,
+`--bounds-margin` 0.05 m, `--contact-tolerance` 0.02 m. `physics-map`: `--pixels-per-metre` 40,
 `--max-side` 8192 px (larger rooms are drawn at fewer pixels per metre), no
 `--cut`, a 0.5 m border.
 
@@ -354,6 +421,19 @@ room with 135 colliders in 0.2 s.
   0.43 of the walk speed with the default 25° assist angle (0.20 without the
   assist): above the assist angle the plain slide takes over. A
   `corner_assist_angle_deg` of 37° raises that to about 0.58.
+- Traversals are checked at their end and at their declared contacts, not
+  along the way. Rule 4 during a traversal (no undeclared overlap of the
+  actor's visual bounds) needs the clip's pose in each frame, and those
+  poses live in actor packs, which this crate does not read. The next step
+  is to sample the clip along the traversal's timing and test each frame's
+  bounds against the room, allowing only the declared contacts. At rest,
+  rule 4 is covered by the collider check and `W_ACTOR_BOUNDS`.
+- Collision packs do not declare hinged pieces yet. `World::from_pack`
+  builds static colliders only, so a hinged leaf is a platform that only
+  `World::new` can create. The next step is a hinge (pivot and angle range)
+  in the pack, which `from_pack` builds as a platform, plus a binding from
+  clip time to hinge angle in the runtime.
+- `physics-map` does not draw traversals or contact points.
 - Actors push each other apart as vertical circles (radius of the body
   capsule, overlapping heights); head spheres do not push.
 - `check` uses the default controller settings; a game that tunes them should
