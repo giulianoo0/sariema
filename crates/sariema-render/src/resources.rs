@@ -5,8 +5,8 @@
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat3, Mat4, Vec3};
 use sariema_format::{
-    Background, CharacterLight, CutStyle, Cutaway, Fog, Group, Light, Material, RoomPack, Sun,
-    Texture, TextureFormat, Vertex,
+    Background, CharacterLight, CutAnchor, CutStyle, Cutaway, Fog, Group, Light, Material,
+    RoomPack, Sun, Texture, TextureFormat, Vertex,
 };
 
 use crate::scene::{Kind, Layouts};
@@ -18,10 +18,10 @@ use crate::{Gpu, RenderError};
 pub(crate) struct DrawUniform {
     model: [[f32; 4]; 4],
     /// Inverse transpose of the model's 3×3 part, columns padded to vec4;
-    /// the first's padding holds the presence.
+    /// the paddings hold the presence, 1 if it has a cut anchor and 1 if it
+    /// is single-sided but drawn with both sides.
     normal: [[f32; 4]; 3],
-    /// Its anchor across the floor, 1 if it has one, 1 if it is single-sided
-    /// but drawn with both sides.
+    /// Its cut anchor: a point of its wall, then the direction along it.
     cut: [f32; 4],
 }
 
@@ -90,9 +90,10 @@ impl RoomCut {
         past > -MARGIN && (radius == 0.0 || away < radius + MARGIN)
     }
 
-    /// Whether a box reaching the cut rises above it, with a margin for rounding.
+    /// Whether a box reaching the cut rises above it: a fragment is cut
+    /// only above the height, so what lies at or below it is drawn whole.
     fn rises(uniform: &CutUniform, max: Vec3) -> bool {
-        max.y > uniform.plane[3] - 1e-3
+        max.y > uniform.plane[3]
     }
 
     /// What the shader takes; off until a state with every number finite.
@@ -160,8 +161,7 @@ pub(crate) struct DrawItem {
     pub cut_shadow: bool,
     /// Single-sided, but drawn with both sides for its cutaway's cap.
     one_sided: bool,
-    /// Where its cutaway judges it whole, across the floor (x, z).
-    anchor: Option<glam::Vec2>,
+    anchor: Option<CutAnchor>,
     /// Whether its cutaway can change how it is drawn, or how its shadow
     /// is; otherwise it takes the pipelines of draws in no cutaway, which
     /// keep the early depth test.
@@ -184,13 +184,6 @@ impl DrawItem {
     /// Whether it uses a dithered pipeline: opaque and partly present.
     pub fn dithered(&self) -> bool {
         self.presence.abs() < 1.0 && self.kind.is_opaque()
-    }
-
-    /// The `cut` of its uniform.
-    fn cut_vec(&self) -> [f32; 4] {
-        let anchor = self.anchor.unwrap_or_default();
-        let anchored = self.anchor.is_some() as u8 as f32;
-        [anchor.x, anchor.y, anchored, self.one_sided as u8 as f32]
     }
 
     /// Its kind drawn outside a cut, with its material's own sides.
@@ -376,7 +369,6 @@ impl Room {
         }
     }
 
-    /// Whether it has cutaways.
     pub fn has_cutaways(&self) -> bool {
         !self.cuts.is_empty()
     }
@@ -393,13 +385,12 @@ impl Room {
         for &d in &cut.draws {
             let item = &mut self.draws[d as usize];
             let (min, max) = match item.anchor {
-                Some(a) => (Vec3::new(a.x, 0.0, a.y), Vec3::new(a.x, 0.0, a.y)),
+                Some(a) => on_wall(a, item.min, item.max),
                 None => (item.min, item.max),
             };
             let reaches = RoomCut::reaches(&uniform, min, max);
             let rises = cut.fade || RoomCut::rises(&uniform, item.max);
-            // Its back faces show the cap wherever it reaches.
-            item.cutting = reaches && (rises || cut.cap.is_some());
+            item.cutting = reaches && rises;
             item.cutting_shadow = reaches && rises;
         }
         let bytes = &mut self.cut_bytes[at..at + size_of::<CutUniform>()];
@@ -436,8 +427,9 @@ impl Room {
 
     fn write_draw(&mut self, d: usize, model: Mat4) {
         let mut uniform = draw_uniform(&model.to_cols_array());
-        uniform.normal[0][3] = self.draws[d].presence;
-        uniform.cut = self.draws[d].cut_vec();
+        let item = &self.draws[d];
+        uniform.normal[0][3] = item.presence;
+        set_anchor(&mut uniform, item.anchor, item.one_sided);
         let at = d * self.draw_stride as usize;
         self.draw_bytes[at..at + size_of::<DrawUniform>()]
             .copy_from_slice(bytemuck::bytes_of(&uniform));
@@ -450,6 +442,34 @@ impl Room {
             None => (d, d),
         });
     }
+}
+
+fn set_anchor(uniform: &mut DrawUniform, anchor: Option<CutAnchor>, one_sided: bool) {
+    let a = anchor.unwrap_or(CutAnchor {
+        at: [0.0; 2],
+        along: [0.0; 2],
+    });
+    uniform.cut = [a.at[0], a.at[1], a.along[0], a.along[1]];
+    uniform.normal[1][3] = anchor.is_some() as u8 as f32;
+    uniform.normal[2][3] = one_sided as u8 as f32;
+}
+
+/// The box across the floor of the points of `a`'s wall behind the box
+/// `min..max`, at height 0.
+fn on_wall(a: CutAnchor, min: Vec3, max: Vec3) -> (Vec3, Vec3) {
+    let at = glam::Vec2::from(a.at);
+    let along = glam::Vec2::from(a.along);
+    let corners = [
+        (min.x, min.z),
+        (max.x, min.z),
+        (min.x, max.z),
+        (max.x, max.z),
+    ];
+    let points = corners.map(|(x, z)| at + along * (glam::Vec2::new(x, z) - at).dot(along));
+    let (lo, hi) = (points.iter()).fold((points[0], points[0]), |(lo, hi), &p| {
+        (lo.min(p), hi.max(p))
+    });
+    (Vec3::new(lo.x, 0.0, lo.y), Vec3::new(hi.x, 0.0, hi.y))
 }
 
 /// Byte offset of a draw's presence in its uniform: the w of the normal
@@ -670,7 +690,7 @@ impl PendingRoom {
         for (c, cutaway) in room.cutaways.iter().enumerate() {
             for (&d, a) in cutaway.draws.iter().zip(&cutaway.anchors) {
                 cut_of[d as usize] = Some(c);
-                anchor[d as usize] = a.map(glam::Vec2::from);
+                anchor[d as usize] = *a;
             }
         }
         // Its back faces show the cap through the cut.
@@ -683,9 +703,7 @@ impl PendingRoom {
         let mut draw_bytes = strided(
             (room.draws.iter().enumerate()).map(|(i, d)| {
                 let mut uniform = draw_uniform(&d.transform);
-                let at = anchor[i].unwrap_or_default();
-                let anchored = anchor[i].is_some() as u8 as f32;
-                uniform.cut = [at.x, at.y, anchored, one_sided[i] as u8 as f32];
+                set_anchor(&mut uniform, anchor[i], one_sided[i]);
                 uniform
             }),
             draw_stride,

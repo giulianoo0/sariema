@@ -5,7 +5,7 @@
 
 use sariema_format::demo::demo_room;
 use sariema_format::scenery::{RoomIndex, Target};
-use sariema_format::{Area, CutLine, CutStyle, Cutaway, RoomPack, decode, encode};
+use sariema_format::{Area, CutAnchor, CutLine, CutStyle, Cutaway, RoomPack, decode, encode};
 
 fn draw_named(room: &RoomPack, name: &str) -> u32 {
     let at = room
@@ -32,7 +32,13 @@ fn walls(room: &RoomPack) -> Cutaway {
         soft: 0.25,
         cap: Some([0.2, 0.21, 0.23]),
         cut_shadows: true,
-        anchors: vec![None, Some([1.0, 0.5])],
+        anchors: vec![
+            None,
+            Some(CutAnchor {
+                at: [1.0, 0.5],
+                along: [0.0, 1.0],
+            }),
+        ],
         style: CutStyle::Cut,
     }
 }
@@ -126,7 +132,26 @@ fn a_bad_cutaway_is_invalid() {
         (
             "an anchor not finite",
             vec![Cutaway {
-                anchors: vec![None, Some([f32::NAN, 0.0])],
+                anchors: vec![
+                    None,
+                    Some(CutAnchor {
+                        at: [f32::NAN, 0.0],
+                        along: [1.0, 0.0],
+                    }),
+                ],
+                ..good.clone()
+            }],
+        ),
+        (
+            "an anchor along a direction not of unit length",
+            vec![Cutaway {
+                anchors: vec![
+                    None,
+                    Some(CutAnchor {
+                        at: [0.0, 0.0],
+                        along: [0.5, 0.0],
+                    }),
+                ],
                 ..good.clone()
             }],
         ),

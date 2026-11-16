@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use common::write_glb;
 use sariema_format::{
-    AlphaMode, CharacterLight, Draw, Fog, LightKind, Look, Mobility, RoomPack, Shading,
+    AlphaMode, CharacterLight, CutAnchor, Draw, Fog, LightKind, Look, Mobility, RoomPack, Shading,
     TextureFormat, decode, encode, eval_sh9,
 };
 use sariema_import::{ImportError, RoomSource, build_room};
@@ -759,18 +759,21 @@ fn merged_pieces_in_a_cutaway_merge_apart_from_the_rest() {
     ));
     let cutaway = &r.cutaways[0];
     assert_eq!(cutaway.name, "front");
-    assert_eq!(cutaway.draws, [draw_index(&r, "a/front/mat0")]);
-    // The caixas' bottoms lie below the height, so they are drawn with the mesa.
+    assert_eq!(
+        cutaway.draws,
+        [
+            draw_index(&r, "a/front/mat0"),
+            draw_index(&r, "a/front/below/mat0")
+        ]
+    );
+    // The caixas' bottoms lie below the height, so they are drawn apart.
     assert_eq!(
         triangles(&r, draw(&r, "a/front/mat0")),
         20,
         "both caixas but their bottoms"
     );
-    assert_eq!(
-        triangles(&r, draw(&r, "a/mat0")),
-        12 + 4,
-        "the mesa and the bottoms"
-    );
+    assert_eq!(triangles(&r, draw(&r, "a/front/below/mat0")), 4);
+    assert_eq!(triangles(&r, draw(&r, "a/mat0")), 12, "the mesa");
     assert_eq!(cutaway.height, 0.4);
     assert_eq!(cutaway.line.areas[0].min, [0.0, -3.0]);
     assert_eq!(cutaway.line.areas[0].max, [3.0, 0.0]);
@@ -785,7 +788,7 @@ fn merged_pieces_in_a_cutaway_merge_apart_from_the_rest() {
 }
 
 #[test]
-fn whole_below_sets_which_triangles_stay_out_of_the_cut() {
+fn whole_below_sets_which_triangles_are_drawn_apart() {
     let r = build(cut(&["cai*"], json!({ "whole_below": -1.0 })));
     assert_eq!(
         triangles(&r, draw(&r, "a/front/mat0")),
@@ -793,13 +796,12 @@ fn whole_below_sets_which_triangles_stay_out_of_the_cut() {
         "every triangle in the cut"
     );
     assert_eq!(triangles(&r, draw(&r, "a/mat0")), 12);
-    // A caixa is a metre tall, so none of it rises above a metre.
+    // A caixa is a metre tall, so all of it lies below a metre: drawn
+    // apart, still in the cutaway for a height lowered under it.
     let r = build(cut(&["cai*"], json!({ "whole_below": 1.0 })));
-    assert!(
-        r.cutaways[0].draws.is_empty(),
-        "nothing rises above a metre"
-    );
-    assert_eq!(triangles(&r, draw(&r, "a/mat0")), 36);
+    assert_eq!(r.cutaways[0].draws, [draw_index(&r, "a/front/below/mat0")]);
+    assert_eq!(triangles(&r, draw(&r, "a/front/below/mat0")), 24);
+    assert_eq!(triangles(&r, draw(&r, "a/mat0")), 12);
 }
 
 #[test]
@@ -867,7 +869,7 @@ fn schema_rejects_malformed_cutaways() {
 }
 
 /// The cutaway's draws named `name` and their anchors.
-fn anchored<'a>(r: &'a RoomPack, prefix: &str) -> Vec<(&'a str, Option<[f32; 2]>)> {
+fn anchored<'a>(r: &'a RoomPack, prefix: &str) -> Vec<(&'a str, Option<CutAnchor>)> {
     let c = &r.cutaways[0];
     (c.draws.iter().zip(&c.anchors))
         .map(|(&d, &a)| (r.draws[d as usize].name.as_deref().unwrap(), a))
@@ -875,18 +877,21 @@ fn anchored<'a>(r: &'a RoomPack, prefix: &str) -> Vec<(&'a str, Option<[f32; 2]>
         .collect()
 }
 
+/// Room a's south wall, at z 0, running along x.
+const SOUTH: Option<CutAnchor> = Some(CutAnchor {
+    at: [0.0, 0.0],
+    along: [1.0, 0.0],
+});
+
 #[test]
-fn a_piece_on_a_wall_is_judged_whole_by_a_point_on_that_wall() {
+fn a_piece_on_a_wall_is_cut_where_that_wall_is() {
     // Room a's floor runs 0..3 m east and 0..3 m north; each caixa's centre
     // stands 0.75 m from the south edge, so within a metre it is on that wall.
     let r = build(cut(&["cai*"], json!({ "attach": 1.0 })));
-    let on_wall = anchored(&r, "a/front/");
+    let on_wall = anchored(&r, "a/front/caixa");
     assert_eq!(
         on_wall,
-        [
-            ("a/front/caixa", Some([0.75, 0.0])),
-            ("a/front/caixa.2", Some([2.25, 0.0]))
-        ]
+        [("a/front/caixa", SOUTH), ("a/front/caixa.2", SOUTH)]
     );
     assert_eq!(
         triangles(&r, draw(&r, "a/front/caixa")),
@@ -895,32 +900,71 @@ fn a_piece_on_a_wall_is_judged_whole_by_a_point_on_that_wall() {
     );
     // Within the default half metre, no edge holds them: cut where each part lies.
     let r = build(cut(&["cai*"], json!({})));
-    assert_eq!(anchored(&r, "a/front/"), [("a/front/mat0", None)]);
+    assert_eq!(
+        anchored(&r, "a/front/"),
+        [("a/front/mat0", None), ("a/front/below/mat0", None)]
+    );
 }
 
 #[test]
-fn pieces_that_touch_are_judged_as_one() {
-    let sala = with_edited("montagem", "montagem_min.json", "touching", |m| {
+fn a_piece_by_a_side_wall_goes_with_that_wall() {
+    let sala = with_edited("montagem", "montagem_min.json", "side", |m| {
         let instances = m["comodos"]["a"]["instancias"].as_array_mut().unwrap();
         let mut beside = instance("caixa", 0.0, None, 1.0);
-        (beside["x"], beside["y"], beside["z"]) = (json!(0.75), json!(1.75), json!(0.5));
+        (beside["x"], beside["y"], beside["z"]) = (json!(0.25), json!(1.5), json!(0.5));
         instances.push(beside);
     });
     let mut sala = with(sala, json!({}));
     sala["cutaways"] =
         json!([{ "name": "front", "pieces": ["cai*"], "height": 0.4, "attach": 1.0 }]);
     let r = build(sala);
-    let mut anchors = anchored(&r, "a/front/");
+    let mut anchors = anchored(&r, "a/front/caixa");
     anchors.sort_by(|a, b| a.0.cmp(b.0));
-    // The third stands on the first, north of it: both take the first's wall.
+    // The third stands a quarter metre from the west edge, x 0, which runs
+    // along z: the line crossing it there cuts it where it cuts that wall.
+    let west = Some(CutAnchor {
+        at: [0.0, 0.0],
+        along: [0.0, 1.0],
+    });
     assert_eq!(
         anchors,
         [
-            ("a/front/caixa", Some([0.75, 0.0])),
-            ("a/front/caixa.2", Some([2.25, 0.0])),
-            ("a/front/caixa.3", Some([0.75, 0.0]))
+            ("a/front/caixa", SOUTH),
+            ("a/front/caixa.2", SOUTH),
+            ("a/front/caixa.3", west)
         ]
     );
+}
+
+#[test]
+fn a_piece_hung_on_a_wall_of_a_room_with_a_cutaway_goes_in_it_unlisted() {
+    let sala = with_edited("montagem", "montagem_min.json", "hung", |m| {
+        let instances = m["comodos"]["a"]["instancias"].as_array_mut().unwrap();
+        for height in [0.5, -0.9, 0.1] {
+            let mut table = instance("mesa", 0.0, None, 1.0);
+            (table["x"], table["y"], table["z"]) = (json!(1.5), json!(0.25), json!(height));
+            instances.push(table);
+        }
+    });
+    let mut sala = with(sala, json!({}));
+    sala["cutaways"] = json!([{ "name": "front", "pieces": ["caixa"], "height": 0.4 }]);
+    let r = build(sala);
+    let tables: Vec<_> = (anchored(&r, "a/front/").into_iter())
+        .filter(|(n, _)| n.contains("mesa"))
+        .collect();
+    // A mesa is a 1 m box raised 1 m. The second hangs from 1 m up by the
+    // south wall: cut with it. The third reaches below the cut's 0.4 m
+    // there, the fourth stands on the third, and the first by no wall.
+    assert!(!tables.is_empty());
+    assert!(
+        tables.iter().all(|t| *t == ("a/front/mesa.2", SOUTH)),
+        "{tables:?}"
+    );
+
+    let mut sala = with(sala_min(), json!({}));
+    sala["cutaways"] = json!([{ "name": "front", "pieces": ["nothing*"], "height": 0.4 }]);
+    let e = build_err(sala);
+    assert!(e.to_string().contains("no placed piece matches"), "{e}");
 }
 
 #[test]

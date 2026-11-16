@@ -47,7 +47,9 @@ pub fn inspect(path: &Path) -> Result<Done, Failure> {
         .map(|c| {
             json!({
                 "name": c.name,
-                "draws": c.draws.len(),
+                "draws": (c.draws.iter())
+                    .map(|&d| room.draws[d as usize].name.as_deref().unwrap_or_default())
+                    .collect::<Vec<_>>(),
                 "height": c.height,
                 "areas": c.line.areas.len(),
                 "offset": c.line.offset,

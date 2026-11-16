@@ -20,10 +20,13 @@ struct Cut {
 
 @group(1) @binding(2) var<uniform> cut: Cut;
 
-// Where a point of the draw lies across the floor for the cut: on the wall
-// it belongs to, for a draw judged whole.
+// Where a point of the draw lies across the floor for the cut: for a draw
+// on a wall, the point of the wall behind it, so it goes with the wall.
 fn cut_ground(world: vec3<f32>) -> vec2<f32> {
-    return select(world.xz, draw.cut.xy, draw.cut.z > 0.0);
+    let at = draw.cut.xy;
+    let along = draw.cut.zw;
+    let on_wall = at + along * dot(world.xz - at, along);
+    return select(world.xz, on_wall, draw.normal_y.w > 0.0);
 }
 
 // How far into the cut a point is across the floor: 1 once a softness past
@@ -50,7 +53,7 @@ fn cut_drops(world: vec3<f32>, front: bool, threshold: f32) -> bool {
         return threshold < reach;
     }
     let above = reach > 0.0 && world.y > cut.plane.w + (1.0 - reach) / reach * cut.around.w;
-    return above || (!front && draw.cut.w > 0.0 && reach == 0.0);
+    return above || (!front && draw.normal_z.w > 0.0 && reach == 0.0);
 }
 
 // Whether a fragment shows the cap: the back of what is cut, seen through it.

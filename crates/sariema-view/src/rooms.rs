@@ -163,12 +163,13 @@ impl Rooms {
                 base: None,
                 applied: None,
                 light_params: light_params(&r.index),
-                height_params: (0..r.index.cutaways.len() as u32)
-                    .map(|c| {
-                        let target = Target::CutawayHeight(c);
-                        let at = r.index.params.iter().position(|p| p.target == target);
-                        at.expect("every cutaway has its height parameter")
+                height_params: (r.index.params.iter().enumerate())
+                    .filter_map(|(at, p)| match p.target {
+                        Target::CutawayHeight(c) => Some((c, at)),
+                        _ => None,
                     })
+                    .collect::<std::collections::BTreeMap<_, _>>()
+                    .into_values()
                     .collect(),
                 shown: r.index.params.iter().map(|p| p.value).collect(),
                 beside: r.beside.clone(),

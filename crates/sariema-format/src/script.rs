@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 #[macro_use]
 mod codegen;
 pub mod cutscene;
+mod previous;
 mod table;
 mod wire;
 
@@ -27,7 +28,7 @@ pub use wire::{
     Vec3, Wire, WireError, name_id, put_scene_value,
 };
 
-use crate::scenery::RoomIndex;
+use crate::scenery::{RoomIndex, Target};
 use cutscene::{Await, Block, Cutscene, Place, Point, Shot, Toward};
 
 /// Bytes of one parameter in a `scene_tween`'s `values`.
@@ -47,7 +48,7 @@ pub fn scene_values(values: &[u8]) -> Option<impl Iterator<Item = (u32, f32)> + 
 }
 
 pub const GAME_MAGIC: [u8; 4] = *b"SRMG";
-pub const GAME_VERSION: u32 = 3;
+pub const GAME_VERSION: u32 = 4;
 
 const HEADER_LEN: usize = GAME_MAGIC.len() + size_of::<u32>();
 
@@ -162,7 +163,8 @@ impl fmt::Display for GameFormatError {
             }
             GameFormatError::Version { found } => write!(
                 f,
-                "game pack version {found} is not supported (expected {GAME_VERSION})"
+                "game pack version {found} is not supported (reads {} and {GAME_VERSION})",
+                previous::VERSION
             ),
             GameFormatError::Truncated => write!(f, "game pack is truncated"),
             GameFormatError::Invalid(why) => write!(f, "game pack is invalid: {why}"),
@@ -195,19 +197,11 @@ pub fn decode_game(bytes: &[u8]) -> Result<GamePack, GameFormatError> {
         return Err(GameFormatError::Truncated);
     };
     let found = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
-    if found != GAME_VERSION {
-        return Err(GameFormatError::Version { found });
-    }
-    let (game, rest) = postcard::take_from_bytes::<GamePack>(body).map_err(|e| match e {
-        postcard::Error::DeserializeUnexpectedEnd => GameFormatError::Truncated,
-        other => GameFormatError::Invalid(other.to_string()),
-    })?;
-    if !rest.is_empty() {
-        return Err(GameFormatError::Invalid(format!(
-            "{} unexpected bytes after the game",
-            rest.len()
-        )));
-    }
+    let game = match found {
+        GAME_VERSION => read::<GamePack>(body)?,
+        previous::VERSION => read::<previous::GamePack3>(body)?.into(),
+        _ => return Err(GameFormatError::Version { found }),
+    };
     if game.batch_version != BATCH_VERSION {
         return Err(GameFormatError::BatchVersion {
             found: game.batch_version,
@@ -223,6 +217,48 @@ pub fn decode_game(bytes: &[u8]) -> Result<GamePack, GameFormatError> {
     Ok(game)
 }
 
+fn read<T: serde::de::DeserializeOwned>(body: &[u8]) -> Result<T, GameFormatError> {
+    let (game, rest) = postcard::take_from_bytes::<T>(body).map_err(|e| match e {
+        postcard::Error::DeserializeUnexpectedEnd => GameFormatError::Truncated,
+        other => GameFormatError::Invalid(other.to_string()),
+    })?;
+    match rest.len() {
+        0 => Ok(game),
+        n => Err(GameFormatError::Invalid(format!(
+            "{n} unexpected bytes after the game"
+        ))),
+    }
+}
+
+/// Every parameter's light, node and cutaway in range, and each cutaway
+/// with one height parameter and a line [`crate::CutLine::check`] accepts.
+fn validate_index(index: &RoomIndex) -> Result<(), String> {
+    let mut heights = vec![0; index.cutaways.len()];
+    for p in &index.params {
+        let (what, i, len) = match p.target {
+            Target::Light(i, _) => ("light", i, index.lights.len()),
+            Target::Hinge(i) => ("node", i, index.nodes.len()),
+            Target::CutawayHeight(i) => ("cutaway", i, index.cutaways.len()),
+            _ => continue,
+        };
+        if i as usize >= len {
+            return Err(format!("parameter {} names {what} {i} of {len}", p.name));
+        }
+        if let Target::CutawayHeight(i) = p.target {
+            heights[i as usize] += 1;
+        }
+    }
+    for (c, n) in index.cutaways.iter().zip(heights) {
+        if n != 1 {
+            return Err(format!("cutaway {} has {n} height parameters", c.name));
+        }
+        c.line
+            .check()
+            .map_err(|why| format!("cutaway {} {why}", c.name))?;
+    }
+    Ok(())
+}
+
 fn validate_rooms(rooms: &[GameRoom]) -> Result<(), String> {
     let mut ids: Vec<(u32, &str)> = rooms
         .iter()
@@ -236,6 +272,7 @@ fn validate_rooms(rooms: &[GameRoom]) -> Result<(), String> {
         ));
     }
     for (i, room) in rooms.iter().enumerate() {
+        validate_index(&room.index).map_err(|why| format!("room {}: {why}", room.name))?;
         if let Some(&n) = (room.neighbours.iter().chain(&room.beside))
             .find(|&&n| n as usize >= rooms.len() || n as usize == i)
         {

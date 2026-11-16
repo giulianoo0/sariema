@@ -11,7 +11,7 @@ use common::downlevel;
 use image::RgbaImage;
 use sariema_core::{Camera, room_camera};
 use sariema_format::demo::demo_room;
-use sariema_format::{Aabb, CutLine, CutStyle, Cutaway, Draw, Material, RoomPack};
+use sariema_format::{Aabb, CutAnchor, CutLine, CutStyle, Cutaway, Draw, Material, RoomPack};
 use sariema_render::{CutState, Headless, Quality};
 
 const W: u32 = 320;
@@ -68,10 +68,18 @@ fn walled(cap: Option<[f32; 3]>, soft: f32, cut_shadows: bool) -> RoomPack {
     room
 }
 
-/// `walled` with a magenta lintel 2 m up, across the wall's thickness and
-/// 0.2 m past it on either side, in the same cutaway; the wall and the
-/// lintel judged whole at `anchor` when given.
-fn lintelled(anchor: Option<[f32; 2]>, style: CutStyle, soft: f32) -> RoomPack {
+/// The front wall, which runs along x, through `at`.
+fn front(at: [f32; 2]) -> Option<CutAnchor> {
+    Some(CutAnchor {
+        at,
+        along: [1.0, 0.0],
+    })
+}
+
+/// `walled` with a magenta lintel 2 m up, 2 m long from x −2.25, across the
+/// wall's thickness and 0.2 m past it on either side, in the same cutaway;
+/// the wall and the lintel judged by `anchor` when given.
+fn lintelled(anchor: Option<CutAnchor>, style: CutStyle, soft: f32) -> RoomPack {
     let mut room = walled(None, soft, true);
     let magenta = Material {
         name: "lintel".into(),
@@ -260,7 +268,7 @@ fn a_piece_on_a_cut_wall_is_cut_whole_and_nothing_is_left_floating() {
         let state = Some(cut(0.3, 0.3));
         let whole = magenta(&render(&lintelled(None, CutStyle::Cut, 0.0), None, q));
         let by_part = magenta(&render(&lintelled(None, CutStyle::Cut, 0.0), state, q));
-        let anchored = lintelled(Some([-1.25, 0.4]), CutStyle::Cut, 0.0);
+        let anchored = lintelled(front([-1.25, 0.4]), CutStyle::Cut, 0.0);
         let by_wall = magenta(&render(&anchored, state, q));
         assert!(whole > 200, "{:?}: the lintel shows: {whole}", q.path);
         assert!(
@@ -273,7 +281,7 @@ fn a_piece_on_a_cut_wall_is_cut_whole_and_nothing_is_left_floating() {
             "{:?}: judged by its wall, it goes with it",
             q.path
         );
-        let behind = lintelled(Some([-1.25, 0.2]), CutStyle::Cut, 0.0);
+        let behind = lintelled(front([-1.25, 0.2]), CutStyle::Cut, 0.0);
         let kept = magenta(&render(&behind, state, q));
         assert_eq!(
             kept, whole,
@@ -287,7 +295,7 @@ fn a_piece_on_a_cut_wall_is_cut_whole_and_nothing_is_left_floating() {
 fn a_fading_cutaway_dissolves_what_it_reaches_whole() {
     for q in &paths() {
         let open = red(&render(&demo_room(), None, q));
-        let at = Some([-1.25, 0.4]);
+        let at = front([-1.25, 0.4]);
         let state = |line| Some(cut(line, 0.3));
         let gone = red(&render(&lintelled(at, CutStyle::Fade, 0.0), state(0.3), q));
         let lintel = magenta(&render(&lintelled(at, CutStyle::Fade, 0.0), state(0.3), q));
@@ -302,6 +310,116 @@ fn a_fading_cutaway_dissolves_what_it_reaches_whole() {
         assert!(
             half * 5 > open && half * 5 < open * 4,
             "{:?}: half: {half} of {open}",
+            q.path
+        );
+    }
+}
+
+/// A point anchor at the lintel's middle: the lintel judged whole there.
+fn at_middle() -> Option<CutAnchor> {
+    Some(CutAnchor {
+        at: [-1.25, 0.4],
+        along: [0.0, 0.0],
+    })
+}
+
+#[test]
+fn a_piece_on_a_wall_the_line_crosses_is_cut_where_its_wall_is() {
+    for q in &paths() {
+        // Cutting towards +x, the line crosses the wall and the lintel 0.25 m
+        // east of the lintel's middle.
+        let state = Some(CutState {
+            toward: [1.0, 0.0],
+            ..cut(-1.0, 0.3)
+        });
+        let whole = magenta(&render(&lintelled(None, CutStyle::Cut, 0.0), None, q));
+        let by_part = magenta(&render(&lintelled(None, CutStyle::Cut, 0.0), state, q));
+        let by_wall = magenta(&render(
+            &lintelled(front([0.0, 0.4]), CutStyle::Cut, 0.0),
+            state,
+            q,
+        ));
+        let by_point = magenta(&render(
+            &lintelled(at_middle(), CutStyle::Cut, 0.0),
+            state,
+            q,
+        ));
+        assert!(
+            0 < by_part && by_part < whole,
+            "{:?}: the line crosses it: {by_part} of {whole}",
+            q.path
+        );
+        assert_eq!(
+            by_wall, by_part,
+            "{:?}: each part goes with the wall behind it",
+            q.path
+        );
+        assert_eq!(
+            by_point, whole,
+            "{:?}: judged at its middle it would stand over the cut wall",
+            q.path
+        );
+    }
+}
+
+#[test]
+fn a_piece_on_a_wall_a_radius_crosses_is_cut_where_its_wall_is() {
+    for q in &paths() {
+        // The radius reaches from x −1 to 1 along the wall: the lintel's
+        // east half, not its middle.
+        let state = Some(CutState {
+            hero: [0.0, 0.4],
+            ..cut(-100.0, 0.3)
+        });
+        let radius = |anchor| {
+            let mut room = lintelled(anchor, CutStyle::Cut, 0.0);
+            room.cutaways[0].radius = 1.0;
+            room
+        };
+        let whole = magenta(&render(&radius(None), None, q));
+        let by_wall = magenta(&render(&radius(front([0.0, 0.4])), state, q));
+        let by_point = magenta(&render(&radius(at_middle()), state, q));
+        assert!(
+            0 < by_wall && by_wall < whole,
+            "{:?}: cut where the wall is: {by_wall} of {whole}",
+            q.path
+        );
+        assert_eq!(
+            by_point, whole,
+            "{:?}: judged at its middle it would stand over the cut wall",
+            q.path
+        );
+    }
+}
+
+#[test]
+fn a_height_lowered_under_a_draw_kept_apart_below_it_cuts_that_draw_too() {
+    for q in &paths() {
+        // The wall's foot, under 0.5 m, is a draw of its own, as an import
+        // keeps what lies under the height it is built with.
+        let mut room = walled(None, 0.0, true);
+        let wall = room.draws.len() - 1;
+        room.materials.push(Material {
+            name: "foot".into(),
+            base_color: [1.0, 0.0, 1.0, 1.0],
+            ..room.materials[1].clone()
+        });
+        let mut foot = room.draws[wall].clone();
+        foot.material = room.materials.len() as u32 - 1;
+        foot.transform[5] = 0.5;
+        room.draws[wall].transform[5] = 2.5;
+        room.draws[wall].transform[13] = 0.5;
+        for d in [&mut room.draws[wall], &mut foot] {
+            d.bounds = Aabb::around(&room.meshes[d.mesh as usize], &d.transform);
+        }
+        room.draws.push(foot);
+        room.cutaways[0].draws.push(room.draws.len() as u32 - 1);
+        room.cutaways[0].anchors.push(None);
+        let built = magenta(&render(&room, Some(cut(-100.0, 0.5)), q));
+        let lowered = magenta(&render(&room, Some(cut(-100.0, 0.1)), q));
+        assert!(
+            built > 100 && lowered * 2 < built,
+            "{:?}: the foot is cut too: {lowered} against {built}",
             q.path
         );
     }

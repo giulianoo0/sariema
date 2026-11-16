@@ -82,7 +82,11 @@ fn inspect_lists_a_rooms_cutaways_and_their_heights() {
     assert_eq!(code, 0, "{inspected}");
     let walls = &inspected["cutaways"][0];
     assert_eq!(walls["name"], "walls");
-    assert_eq!(walls["draws"], 1, "the crates merge into one draw");
+    assert_eq!(
+        walls["draws"],
+        json!(["a/walls/mat0", "a/walls/below/mat0"]),
+        "the crates merge into one draw, their part under the cut into another"
+    );
     assert_eq!(walls["areas"], 2);
     assert_eq!(walls["cut_shadows"], true);
     let params = inspected["params"].as_array().unwrap();

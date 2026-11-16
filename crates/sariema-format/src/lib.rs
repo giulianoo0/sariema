@@ -17,13 +17,19 @@ pub mod actor;
 pub mod collision;
 #[cfg(feature = "demo")]
 pub mod demo;
+mod previous;
 pub mod scenery;
 pub mod script;
 pub mod sound;
 pub mod stream;
 
 pub const MAGIC: [u8; 4] = *b"SRMA";
-pub const VERSION: u32 = 9;
+pub const VERSION: u32 = 10;
+
+/// The oldest room pack version [`decode`] reads. A pack of an earlier
+/// version than [`VERSION`] ends before the fields added since, and reads
+/// them as what a room without them drew.
+pub const OLDEST_VERSION: u32 = 6;
 
 pub(crate) const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
@@ -327,12 +333,22 @@ pub struct Cutaway {
     pub cap: Option<[f32; 3]>,
     /// Whether its draws cast their shadows cut as they are drawn, or whole.
     pub cut_shadows: bool,
-    /// By draw, a point across the floor (x, z) on the wall it belongs to.
-    /// Such a draw is judged whole by that point, so none of it is left
-    /// standing past the line while its wall is cut. `None` judges each part
-    /// of the draw where it lies, as a wall itself.
-    pub anchors: Vec<Option<[f32; 2]>>,
+    /// By draw, the wall it belongs to. `None` judges each part of the draw
+    /// where it lies, as a wall itself.
+    pub anchors: Vec<Option<CutAnchor>>,
     pub style: CutStyle,
+}
+
+/// The wall a draw of a cutaway belongs to, across the floor (x, z): each
+/// part of the draw is judged at the point of the wall behind it, so the
+/// draw is cut exactly where its wall is and none of it is left standing
+/// over a wall cut away.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CutAnchor {
+    /// A point of the wall.
+    pub at: [f32; 2],
+    /// Unit direction along the wall; zero judges the whole draw at `at`.
+    pub along: [f32; 2],
 }
 
 /// How a cutaway steps aside.
@@ -380,6 +396,20 @@ impl Area {
 }
 
 impl CutLine {
+    /// Numbers finite, the follow not negative and areas ordered; the error
+    /// says what is wrong.
+    pub fn check(&self) -> Result<(), String> {
+        let corners = self.areas.iter().flat_map(|a| a.min.iter().chain(&a.max));
+        let mut numbers = [&self.offset, &self.follow].into_iter().chain(corners);
+        if !numbers.all(|v| v.is_finite()) || self.follow < 0.0 {
+            return Err("has a line with a number not finite or a negative follow".into());
+        }
+        match (self.areas.iter()).find(|a| (0..2).any(|k| a.min[k] > a.max[k])) {
+            Some(a) => Err(format!("has area {a:?} turned inside out")),
+            None => Ok(()),
+        }
+    }
+
     /// Where the line goes for a hero at `hero` (x, z), `toward` being the
     /// unit direction across the floor towards the camera; `None` while
     /// the hero stands in none of its areas.
@@ -590,7 +620,7 @@ impl fmt::Display for FormatError {
             FormatError::Version { found } => {
                 write!(
                     f,
-                    "room pack version {found} is not supported (expected {VERSION})"
+                    "room pack version {found} is not supported (reads {OLDEST_VERSION} to {VERSION})"
                 )
             }
             FormatError::Truncated => write!(f, "room pack is truncated"),
@@ -622,36 +652,23 @@ pub fn encode(room: &RoomPack) -> Vec<u8> {
 /// allocation: postcard only reports a sequence length as a size hint when
 /// that many bytes remain, and serde caps preallocation at 1 MiB.
 pub fn decode(bytes: &[u8]) -> Result<RoomPack, FormatError> {
+    stream::RoomDecoder::decode(bytes)
+}
+
+/// The version in the header of a room pack this engine reads.
+pub(crate) fn header_version(bytes: &[u8]) -> Result<u32, FormatError> {
     let seen = bytes.len().min(MAGIC.len());
     if bytes[..seen] != MAGIC[..seen] {
         return Err(FormatError::BadMagic);
     }
-    let Some((header, body)) = bytes.split_first_chunk::<HEADER_LEN>() else {
+    let Some(header) = bytes.first_chunk::<HEADER_LEN>() else {
         return Err(FormatError::Truncated);
     };
     let found = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
-    if found != VERSION {
-        return Err(FormatError::Version { found });
+    match found {
+        OLDEST_VERSION..=VERSION => Ok(found),
+        _ => Err(FormatError::Version { found }),
     }
-    let (room, rest) = postcard::take_from_bytes::<RoomPack>(body).map_err(|e| match e {
-        postcard::Error::DeserializeUnexpectedEnd => FormatError::Truncated,
-        other => FormatError::Invalid(other.to_string()),
-    })?;
-    if !rest.is_empty() {
-        return Err(FormatError::Invalid(format!(
-            "{} unexpected bytes after the room",
-            rest.len()
-        )));
-    }
-    validate(&room)?;
-    Ok(room)
-}
-
-fn validate(room: &RoomPack) -> Result<(), FormatError> {
-    for (i, mesh) in room.meshes.iter().enumerate() {
-        validate_mesh(i, mesh)?;
-    }
-    validate_rest(room)
 }
 
 pub(crate) fn validate_mesh(i: usize, mesh: &Mesh) -> Result<(), FormatError> {
@@ -772,20 +789,17 @@ fn validate_cutaways(room: &RoomPack) -> Result<(), String> {
     let draws = (room.cutaways.iter()).map(|c| (format!("cutaway {}", c.name), &c.draws[..]));
     once_each("draw", room.draws.len(), draws)?;
     for c in &room.cutaways {
-        let CutLine {
-            areas,
-            offset,
-            follow,
-        } = &c.line;
+        c.line
+            .check()
+            .map_err(|why| format!("cutaway {} {why}", c.name))?;
         let cap = c.cap.iter().flatten();
-        let numbers = [&c.height, offset, follow, &c.radius, &c.soft]
+        let numbers = [&c.height, &c.radius, &c.soft]
             .into_iter()
-            .chain(cap.clone())
-            .chain(areas.iter().flat_map(|a| a.min.iter().chain(&a.max)));
-        let unsigned = [follow, &c.radius, &c.soft].into_iter().chain(cap);
+            .chain(cap.clone());
+        let unsigned = [&c.radius, &c.soft].into_iter().chain(cap);
         if !numbers.clone().all(|v| v.is_finite()) || unsigned.clone().any(|&v| v < 0.0) {
             return Err(format!(
-                "cutaway {} has a number not finite, or a negative radius, soft, follow or cap",
+                "cutaway {} has a number not finite, or a negative radius, soft or cap",
                 c.name
             ));
         }
@@ -797,12 +811,14 @@ fn validate_cutaways(room: &RoomPack) -> Result<(), String> {
                 c.draws.len()
             ));
         }
-        if c.anchors.iter().flatten().flatten().any(|v| !v.is_finite()) {
-            return Err(format!("cutaway {} has an anchor not finite", c.name));
-        }
-        if let Some(a) = areas.iter().find(|a| (0..2).any(|k| a.min[k] > a.max[k])) {
+        let unit = |[x, z]: [f32; 2]| (x * x + z * z == 0.0) || (x.hypot(z) - 1.0).abs() < 1e-3;
+        let bad = |a: &CutAnchor| {
+            let finite = a.at.iter().chain(&a.along).all(|v| v.is_finite());
+            !finite || !unit(a.along)
+        };
+        if let Some(a) = c.anchors.iter().flatten().find(|a| bad(a)) {
             return Err(format!(
-                "cutaway {} has area {a:?} turned inside out",
+                "cutaway {} has anchor {a:?}, not finite or not along a unit or zero direction",
                 c.name
             ));
         }

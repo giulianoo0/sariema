@@ -32,13 +32,14 @@ struct Draw {
     model: mat4x4<f32>,
     // Columns of the inverse transpose of the model's 3×3 part. The first's
     // w is the draw's presence: 1 drawn whole, 0 gone, between dissolving;
-    // negative, it dissolves in the complementary pattern.
+    // negative, it dissolves in the complementary pattern. The second's w is
+    // 1 when its cutaway judges it by the wall in `cut`; the third's is 1
+    // when it is single-sided but drawn with both sides for the cap.
     normal_x: vec4<f32>,
     normal_y: vec4<f32>,
     normal_z: vec4<f32>,
-    // For its cutaway: where it is judged across the floor in xy, z 1 when
-    // it is judged whole there, w 1 when it is single-sided but drawn with
-    // both sides for the cap.
+    // The wall it belongs to across the floor: a point of it in xy, the
+    // direction along it in zw.
     cut: vec4<f32>,
 }
 
