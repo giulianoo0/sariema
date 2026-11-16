@@ -557,3 +557,39 @@ fn the_rooms_example_walks_into_the_hall_then_dissolves_into_the_attic() {
         assert_eq!(again[hash], played[hash], "{hash} differs between two runs");
     }
 }
+
+#[test]
+fn the_door_example_opens_stops_on_the_hero_in_its_swing_and_shuts_once_it_walks_on() {
+    let tmp = TempDir::new().unwrap();
+    let pack = tmp.path().join("door.srmg");
+    let built = ok(&[
+        "build",
+        arg(&repo().join("examples/door")),
+        "-o",
+        arg(&pack),
+    ]);
+    assert_eq!(built["rooms"], json!(["house"]));
+    let run = || ok(&["run", "--headless", "--game", arg(&pack), "--steps", "420"]);
+    let played = run();
+    assert_eq!(
+        story(&played),
+        [
+            "0 started",
+            "49 trigger_enter",
+            "97 tween_done",
+            "111 arrived",
+            "169 timer_fired",
+            "198 hinge_blocked",
+            "231 timer_fired",
+            "246 tween_done",
+            "260 trigger_exit",
+            "318 timer_fired",
+            "320 arrived",
+            "390 tween_done",
+        ]
+    );
+    let again = run();
+    for hash in ["engine_hash", "physics_hash"] {
+        assert_eq!(again[hash], played[hash], "{hash} differs between two runs");
+    }
+}

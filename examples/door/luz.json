@@ -1,0 +1,19 @@
+{
+  "exposicao": 1.0,
+  "comodos": {
+    "house": {
+      "estado": "dia",
+      "hemi_ceu": "#C4D6EE",
+      "hemi_chao": "#5C4C3C",
+      "hemi_int": 0.6,
+      "sol": "#FFE6C4",
+      "sol_int": 1.5,
+      "sol_dir_three": [-0.45, 1.0, 0.55],
+      "sol_sombra": true,
+      "luzes": [
+        { "nome": "west_lamp", "tipo": "ponto", "cor": "#FFD8A8", "int": 5, "pos": [2.0, 2.5, 1.9], "dist": 5 },
+        { "nome": "east_lamp", "tipo": "ponto", "cor": "#FFD8A8", "int": 5, "pos": [6.0, 2.5, 1.9], "dist": 5 }
+      ]
+    }
+  }
+}

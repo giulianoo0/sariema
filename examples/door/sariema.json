@@ -1,0 +1,11 @@
+{
+  "name": "door",
+  "assets_root": ".",
+  "rooms": { "house": "rooms/house.json" },
+  "actors": { "hero": "../climb/actors/hero.json" },
+  "game": {
+    "logic": "game",
+    "toolchain": "1.100.0",
+    "room": "house"
+  }
+}
