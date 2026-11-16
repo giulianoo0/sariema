@@ -13,7 +13,7 @@ use clap::{Args, value_parser};
 use sariema_engine::{Engine, EngineSettings};
 use sariema_format::script::{Event, Value as Field, decode_game, name_id, records};
 use sariema_runtime::input::{InputLog, Replay};
-use sariema_runtime::outbox::{HostIn, HostOut};
+use sariema_runtime::outbox::HostOut;
 use serde_json::{Map, Value, json};
 
 use crate::RunArgs;
@@ -38,8 +38,12 @@ pub struct GameRun {
     #[arg(long, requires = "game")]
     pub seed: Option<u64>,
     /// JSON object of saved keys to byte arrays: the save store at the start.
-    #[arg(long, requires = "game")]
+    #[arg(long, requires_all = ["game", "headless"])]
     pub saves: Option<PathBuf>,
+    /// Directory the window keeps the game's saves in, as <pack name>.json
+    /// in the format of --saves [default: saves, beside the pack].
+    #[arg(long, requires = "game", conflicts_with = "headless")]
+    pub save_dir: Option<PathBuf>,
 }
 
 fn read_json(path: &Path) -> Result<Value, Failure> {
@@ -58,7 +62,7 @@ pub fn read_log(path: &Path) -> Result<InputLog, Failure> {
     serde_json::from_value(value).map_err(|e| fail(e.to_string()))
 }
 
-fn read_saves(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, Failure> {
+pub fn read_saves(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, Failure> {
     serde_json::from_value(read_json(path)?).map_err(|e| {
         Failure::new(
             "E_SCHEMA",
@@ -152,8 +156,10 @@ pub fn run(path: &Path, run: &RunArgs) -> Result<Done, Failure> {
         None => BTreeMap::new(),
     };
     let mut frames = Frames::new(run, assets.as_ref(), &mut engine, steps)?;
+    engine.answers_saves(true);
 
     let (mut events, mut host, mut logs) = (Vec::new(), Vec::new(), Vec::new());
+    let mut taken = Vec::new();
     let mut took = Vec::with_capacity(steps as usize);
     let mut fed = Duration::ZERO;
     for step in 0..steps {
@@ -166,26 +172,28 @@ pub fn run(path: &Path, run: &RunArgs) -> Result<Done, Failure> {
         if let Some(frames) = &mut frames {
             frames.after_step(step, &mut engine)?;
         }
-        let sim = engine.simulation_mut();
+        let sim = engine.simulation();
         for event in records::<Event>(sim.delivered().bytes()).flatten() {
             events.push(event_json(step, &event));
         }
         for line in sim.logic().log() {
             logs.push(json!({ "step": step, "level": line.level, "text": line.text }));
         }
-        for message in sim.take_host() {
-            host.push(host_json(step, &message));
+        taken.extend(engine.take_host());
+        for (sent, message) in taken.drain(..) {
+            host.push(host_json(sent, &message));
             match message {
                 HostOut::Save { key, value } => {
                     saves.insert(key, value);
                 }
-                HostOut::LoadSaves => sim.deliver(HostIn::Saves(
-                    saves.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
-                )),
+                HostOut::LoadSaves => {
+                    engine
+                        .answer_saves(saves.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+                }
                 _ => {}
             }
         }
-        if let Some(stop) = sim.stopped() {
+        if let Some(stop) = engine.simulation().stopped() {
             let last_error = logs
                 .iter()
                 .rev()

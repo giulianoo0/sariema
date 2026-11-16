@@ -7,6 +7,8 @@
 //! worklet's reports ask for, while the engine's audio feed runs between
 //! steps. A replay instead keeps the mixer in the engine and mixes with the
 //! steps, as `sariema run --headless --game` does, so its hashes match.
+//! The game's messages to the host wait for the page to take them; its
+//! loads wait for the page's answer when the page answers saves.
 
 use std::time::Duration;
 
@@ -18,6 +20,7 @@ use sariema_render::Renderer;
 use sariema_runtime::clock::Tick;
 use sariema_runtime::game::WasmLogic;
 use sariema_runtime::input::{InputLog, RawInput, Replay};
+use sariema_runtime::outbox::HostOut;
 use sariema_ui::SafeArea;
 use sariema_view::GameView;
 use serde_json::{Value, json};
@@ -52,6 +55,11 @@ pub struct GameHost {
     step_allocations: Vec<(u64, u64)>,
     /// Made by page frames' steps and audio feeds, likewise.
     frame_allocations: u64,
+    /// Whether the page answers the game's loads.
+    answers_saves: bool,
+    /// The host messages of replayed steps, taken each step as `sariema run
+    /// --headless` takes them.
+    replayed: Vec<(u64, HostOut)>,
 }
 
 fn allocations() -> u64 {
@@ -117,6 +125,8 @@ impl GameHost {
             shadows,
             step_allocations: Vec::new(),
             frame_allocations: 0,
+            answers_saves: false,
+            replayed: Vec::new(),
         };
         host.resize(size.0, size.1);
         Ok(host)
@@ -182,8 +192,10 @@ impl GameHost {
 
     /// Steps the game from where it is to step `to` with the actions of
     /// `log`, each step followed by the audio feed, as a headless run does,
-    /// and like it ends at a step that stops the game, naming it. A replay
-    /// goes on with the log it started with; another is `E_USAGE`.
+    /// and like it ends at a step that stops the game, naming it. Like a
+    /// headless run without saves, it answers the game's loads as no save at
+    /// once. A replay goes on with the log it started with; another is
+    /// `E_USAGE`.
     pub fn replay(&mut self, log: &str, to: u64) -> Result<(), StageError> {
         self.check()?;
         match &self.replay {
@@ -204,6 +216,8 @@ impl GameHost {
             }
         }
         let (_, replay) = self.replay.as_mut().expect("set above");
+        self.engine.answers_saves(false);
+        let mut stopped = Ok(());
         for step in self.engine.steps()..to {
             let before = allocations();
             self.engine.step(replay.actions(step));
@@ -212,16 +226,37 @@ impl GameHost {
                 self.step_allocations.push((step, made));
             }
             self.engine.feed_audio();
-            self.alpha = 1.0;
+            self.replayed.extend(self.engine.take_host());
             if let Some(stop) = self.engine.simulation().stopped() {
-                return Err(StageError::new(
+                stopped = Err(StageError::new(
                     stop.code,
                     format!("step {step}: {}", stop.message),
                 ));
+                break;
             }
         }
+        self.engine.answers_saves(self.answers_saves);
         self.alpha = 1.0;
-        Ok(())
+        stopped
+    }
+
+    /// The game's messages to the host since the last call, oldest first,
+    /// with the step that sent each.
+    pub fn take_host(&mut self) -> impl Iterator<Item = (u64, HostOut)> + '_ {
+        self.replayed.drain(..).chain(self.engine.take_host())
+    }
+
+    /// Whether the page answers the game's `save_load` with
+    /// [`GameHost::answer_saves`]; without, each is answered as no save at
+    /// once, and with, once it waits `host.save_load_timeout_s` unanswered.
+    pub fn answers_saves(&mut self, yes: bool) {
+        self.answers_saves = yes;
+        self.engine.answers_saves(yes);
+    }
+
+    /// Answers the oldest load waiting; false when none waits.
+    pub fn answer_saves(&mut self, saves: Vec<(String, Vec<u8>)>) -> bool {
+        self.engine.answer_saves(saves)
     }
 
     fn check(&self) -> Result<(), StageError> {

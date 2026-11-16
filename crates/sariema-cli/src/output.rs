@@ -21,6 +21,7 @@ pub struct Done {
     pub text: String,
 }
 
+#[derive(Debug)]
 pub struct Failure {
     pub code: &'static str,
     pub message: String,

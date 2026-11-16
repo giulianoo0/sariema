@@ -27,6 +27,7 @@ mod physics_map;
 mod player;
 mod project;
 mod run;
+mod save_dir;
 mod scaffold;
 mod simulate;
 mod spot_check;

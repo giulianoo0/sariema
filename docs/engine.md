@@ -41,7 +41,8 @@ on (`E_SETTINGS`), since every actor would move twice.
 | 7 | Collision, after | the measurement's put-backs | the actor moved back before the next step |
 | 8 | Sound | the step's sound and music requests, the camera | mixer commands for sounds already decoded; the rest left to the feed |
 | 9 | HUD | the game's `ui_*` commands, the screen state, the dialogue, who holds control | the screen for the next frames |
-| 10 | Rejections | what the modules refused | `rejected` events for the game's next step |
+| 10 | Host | the step's messages to the host | the host queue; a load no host will answer, answered as no save |
+| 11 | Rejections | what the modules refused | `rejected` events for the game's next step |
 
 1. **Input.** `Engine::step(actions)` takes them as they are (a replay);
    `Engine::frame(dt, raw)` maps the raw keys, pad and sticks through the
@@ -103,9 +104,12 @@ on (`E_SETTINGS`), since every actor would move twice.
    though the runtime keeps it until it ends, and a refused text leaves its
    node empty. A cutscene's line that breaks either fails the load with
    that code.
-10. **Rejections** from the collision module, the mixer and the screen are
-    reported to the game as `rejected` events the next step; `REJECTED`
-    lists their codes.
+10. **Host.** The step's messages to the host join the host queue
+    ([below](#messages-to-the-host)); a `save_load` no host will answer is
+    answered as no save.
+11. **Rejections** from the collision module, the mixer, the screen and the
+    host queue are reported to the game as `rejected` events the next step;
+    `REJECTED` lists their codes.
 
 ## The audio feed
 
@@ -121,6 +125,34 @@ frame, and the feed mixes that step after starting them. With
 with `audio.predecode_streams` they are decoded whole when the bank loads
 and neither the step nor the feed allocates. Refusals from the feed reach
 the game at the next step, as the step's do.
+
+## Messages to the host
+
+The game's `host_ready`, `host_exit`, `host_orientation`, `host_send`,
+`save` and `save_load`, and its stop, wait in a queue the host empties with
+`Engine::take_host()` after its steps, every frame; each comes with the
+step that sent it. The queue holds `host.max_messages` messages and
+`host.max_bytes` bytes of keys, values, topics and payloads: a message past
+either is refused with `rejected` `E_HOST_QUEUE_FULL`, so a host that never
+empties it holds a bounded amount. The game's stop always gets in.
+
+Every `save_load` is answered, so a game may wait for `save_load_done`:
+
+- A host that keeps saves calls `Engine::answers_saves(true)` and answers
+  each `load_saves` it takes with `Engine::answer_saves`, at once or frames
+  later, as a WebView app's store does after a round trip. A load it leaves
+  unanswered for `host.save_load_timeout_s` (5 s of game time) is answered
+  as no save and the engine logs a warning (the `log` crate); an answer
+  after that is dropped (`answer_saves` returns false).
+- A host without a save handler, as the engine starts, has each load
+  answered as no save at the step it was asked.
+
+| Host | Saves | `host_exit` | The other messages |
+|---|---|---|---|
+| `run --headless --game` | the `--saves` store, answered after the step; the store is printed at the end | listed | listed under `host` |
+| `run --game`, the window | `<pack name>.json` in `--save-dir` (default: `saves` beside the pack), the format of `--saves`, written when a frame's steps saved | closes the window | let go |
+| `bench` | none: each load is answered as no save | let go | let go |
+| `@sariema/web` | the page's: `on("host")` gives every message, `on("saveLoad")` with `answerSaves` answers loads ([web.md](web.md#host-messages-and-saves)) | the page's | the page's |
 
 ## Allocations
 
@@ -214,6 +246,9 @@ each module's own settings stay in its crate.
 | `hud.line_fill`, `hud.line_color` | black at 0.7, white | the line's box and text |
 | `hud.hide_in_cutscenes` | true | the game's HUD steps aside while a cutscene holds control and its bars are up |
 | `hud.max_text_bytes` | 4096 | bytes one `say` line or `ui_text` may hold, since the step shapes it; a longer one is `E_UI_TEXT_TOO_LONG` |
+| `host.max_messages` | 256 | messages the host queue keeps until the host takes them; one more is `E_HOST_QUEUE_FULL` |
+| `host.max_bytes` | 4 MiB | bytes of keys, values, topics and payloads it keeps, the most one tick can send; past it is `E_HOST_QUEUE_FULL` |
+| `host.save_load_timeout_s` | 5 | seconds of game time a `save_load` waits for a host that answers saves before it is answered as no save |
 | `hud.width`, `hud.height` | 1280, 720 | the screen until the host gives one |
 
 ## Determinism
@@ -234,13 +269,15 @@ to the compiler.
   the steps, the events and the hashes; with `--screenshot` (and
   `--filmstrip N`) the frames the window would show at the steps it keeps,
   drawn after those steps without changing any hash.
-- `sariema run --game pack.srmg`: the window. Keys go through the game's
-  input settings, the mouse is the HUD's pointer, and the sound plays on
-  the default output device; with none (`E_AUDIO_DEVICE`) the game runs
-  silent and the report says why.
+- `sariema run --game pack.srmg [--save-dir DIR]`: the window. Keys go
+  through the game's input settings, the mouse is the HUD's pointer, and
+  the sound plays on the default output device; with none
+  (`E_AUDIO_DEVICE`) the game runs silent and the report says why. Saves
+  go to `DIR/<pack name>.json` (`saves` beside the pack by default), which
+  the report names; `host_exit` closes the window.
 - `sariema bench pack.srmg [--input log.json]`: each timed frame is one step
   and its frame; it reports the step, the HUD and the HUD pass's passes,
-  draws and uploads apart.
+  draws and uploads apart. The game's messages to the host are let go.
 - `@sariema/web`'s `loadGame` (`crates/sariema-web`): a page plays a game
   pack, keys through the input settings and pointers (touch included) to
   the HUD, the sound through an AudioWorklet with the mixer taken;

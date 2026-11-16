@@ -370,6 +370,12 @@ async function climbChecks(name, page) {
     native: lateNative.stopped,
   });
 
+  const kept = await page.evaluate(() => window.suite.saves(200));
+  const loadedAt = Number(kept.echoed.find((e) => e.endsWith("loaded best"))?.split(" ")[0]);
+  check(name, "the page keeps a game's save and answers its load frames later", kept.answered === true && kept.sent.includes("1 load_saves") && kept.sent.includes("2 save") && JSON.stringify(kept.kept) === '{"best":[12]}' && loadedAt > 4 && kept.echoed.includes(`${loadedAt} done`), kept);
+  const unheard = await page.evaluate(() => window.suite.saves(null));
+  check(name, "with no listener for loads a load is answered as no save at once", unheard.answered === false && JSON.stringify(unheard.echoed) === JSON.stringify(["2 done"]), unheard);
+
   const cost = await page.evaluate(() => window.suite.climbStepCost(900, 7));
   numbers.browsers[name] = { step_ms: spread(cost) };
   check(name, "times the climb's step", cost.length === 7, { median_ms: Number(median(cost).toFixed(4)), native_ms: Number(numbers.native_step_ms.median.toFixed(4)) });

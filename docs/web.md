@@ -26,6 +26,8 @@ page (JS)                                   engine (wasm, crates/sariema-web)
                                               at alpha
   pointer / keyboard events ─────────────►  a game's HUD and input settings,
                                               or the Stage's UI
+  on("host"), answerSaves ◄──────────────►  Engine.take_host, answer_saves:
+                                              the game's messages and loads
   ResizeObserver, devicePixelRatio ──────►  Engine.resize
   visibilitychange: stop, suspend audio
   webglcontextlost / device lost ─────────►  frame() returns −1: open_gpu, then
@@ -76,6 +78,9 @@ them). `docs/engine.md` has the order of a step.
   step.
 - **Cutscenes, fades and bars** are the engine's, drawn at the step's
   value (the fade contract in `docs/engine.md`).
+- **Host messages and saves** reach the page after the frame's steps; the
+  page keeps saves and answers loads, or every load is answered as no
+  save ([below](#host-messages-and-saves)).
 - **A lost GPU** moves the game to a new device: `open_gpu` opens one on
   the canvas and the running engine adopts it (`Engine.adopt`), loading
   into it the room and actors its game host kept, so the game goes on at
@@ -322,6 +327,61 @@ fetched); `rebuild()` tries again. Packs are fetched as they stream in; a Conten
 size hint, since a compressed response from another origin shows its
 compressed length and hides its encoding.
 
+## Host messages and saves
+
+The game's messages to its host reach the page as `host` events after the
+frame's steps, each with the `step` that sent it:
+
+| `type` | Fields | For the page |
+|---|---|---|
+| `ready` | | the game is ready to be shown |
+| `exit` | | the game asks to close; the page decides |
+| `orientation` | `orientation` | the orientation the game wants |
+| `save` | `key`, `value` (`Uint8Array`) | a value to keep under the key |
+| `load_saves` | | the game asks for every saved key |
+| `message` | `topic`, `payload` (`Uint8Array`) | anything the game and the app agree on |
+| `stopped` | `code`, `message` | the game stopped for good |
+
+The package keeps no saves: storage is the app's. A page that keeps them
+listens for `saveLoad` and answers it with `answerSaves`, an object of keys
+to bytes:
+
+```ts
+const saves = JSON.parse(localStorage.getItem("saves") ?? "{}");
+sariema.on("host", (m) => {
+  if (m.type !== "save") return;
+  saves[m.key] = Array.from(m.value);
+  localStorage.setItem("saves", JSON.stringify(saves));
+});
+sariema.on("saveLoad", () => sariema.answerSaves(saves));
+await sariema.loadGame("/games/meadow/");
+```
+
+While anything listens for `saveLoad` the page answers the game's loads,
+at once as above or later, from an asynchronous store (IndexedDB) or from
+the app behind a WebView, which takes a round trip of a few frames. A load
+still unanswered after `host.save_load_timeout_s` (5 s of game time) is
+answered as no save, the engine logs a warning, and a later `answerSaves`
+returns false. With no listener, every load is answered as no save at the
+step it was asked. Either way a game that waits for `save_load_done`
+always starts. `replayGame` answers loads as no save at once whatever
+listens, as `sariema run --headless` without `--saves` does, so its hashes
+match; its messages reach `host` when it returns. Between frames the
+queue holds 256 messages and 4 MiB (`host.max_messages`, `host.max_bytes`);
+a message past them is refused with `E_HOST_QUEUE_FULL`.
+
+In a React Native WebView the app keeps the saves: the page forwards
+`host` events, and the app answers through `injectJavaScript`:
+
+```ts
+const bytes = (b?: Uint8Array) => (b ? Array.from(b) : undefined);
+sariema.on("host", (m) => window.ReactNativeWebView.postMessage(
+  JSON.stringify({ ...m, value: bytes("value" in m ? m.value : undefined), payload: bytes("payload" in m ? m.payload : undefined) }),
+));
+sariema.on("saveLoad", () => {});
+window.answerSaves = (saves) => sariema.answerSaves(saves); // webview.injectJavaScript(`answerSaves(${json})`)
+```
+
 ## Build, test, measure, serve
 
 Prerequisites: the toolchain of `rust-toolchain.toml` with the
@@ -370,7 +430,9 @@ log it is `E_USAGE` and stays; seeds out of range are `E_USAGE`, and one
 past 2⁵³ reaches the native hashes; its step is timed (900 steps, seven
 times); played live, its music reaches the worklet without an underrun at
 the default lead; a synthetic touch drag on the HUD's joystick moves the
-hero; a game whose logic never returns raises `E_GAME_BUDGET`, stops the
+hero; the page keeps a game's save and answers its load frames later,
+and with no listener for loads a load is answered at once; a game whose
+logic never returns raises `E_GAME_BUDGET`, stops the
 loop, and a timer fires on time after it, and one whose 30th tick never
 returns stops at the step and with the hashes it does natively; a GPU
 lost mid-game leaves the game at its step and hash, and it goes on
@@ -454,7 +516,9 @@ worklet.
   `mediaPlaybackRequiresUserAction={false}` and
   `allowsInlineMediaPlayback`, serve the game folder from an HTTPS origin
   or bundled files, and forward events to the app with
-  `sariema.on("ui", (e) => window.ReactNativeWebView.postMessage(JSON.stringify(e)))`.
+  `sariema.on("ui", (e) => window.ReactNativeWebView.postMessage(JSON.stringify(e)))`,
+  and the game's `host` messages and saves as
+  [above](#host-messages-and-saves).
   A WebView in a tab that is not visible is hidden to the page, which
   pauses the loop and the audio.
 

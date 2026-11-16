@@ -9,7 +9,9 @@
 //! sound bank with a beep, the UI example and its font, the goldens those
 //! scenes match, a game whose logic never returns (`forever.srmg`), one
 //! whose 30th tick never returns (`late.srmg`) with an input log of no
-//! input (`idle.json`), and `fixtures.json` listing the scenes. Each `.srma` in
+//! input (`idle.json`), one that saves, asks for its saves and sends back
+//! every event it reads (`saves.srmg`), and `fixtures.json` listing the
+//! scenes. Each `.srma` in
 //! `--packs` is drawn natively at the same size and quality, the reference
 //! kept beside it as `<pack>.png`: game rooms and their images stay in
 //! that folder, outside the repository.
@@ -26,6 +28,29 @@ use serde_json::{Value, json};
 
 const W: u32 = 960;
 const H: u32 = 540;
+
+/// Sends back every tick's events as a `host_send` on topic `events`, asks
+/// for its saves at its second tick and saves `best` = [12] at its third.
+const ECHO_SAVES: &str = r#"(module
+  (import "sariema" "submit" (func $submit (param i32 i32)))
+  (import "sariema" "events" (func $events (param i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (data (i32.const 0) "\a4\00")
+  (data (i32.const 16) "\a3\00\04\00\00\00best\01\00\00\00\0c")
+  (data (i32.const 1008) "\a5\00\06\00\00\00events")
+  (global $ticks (mut i32) (i32.const 0))
+  (func (export "sariema_tick")
+    (local $n i32)
+    (local.set $n (call $events (i32.const 1024) (i32.const 60000)))
+    (if (i32.gt_s (local.get $n) (i32.const 0))
+      (then
+        (i32.store (i32.const 1020) (local.get $n))
+        (call $submit (i32.const 1008) (i32.add (i32.const 16) (local.get $n)))))
+    (if (i32.eq (global.get $ticks) (i32.const 1))
+      (then (call $submit (i32.const 0) (i32.const 2))))
+    (if (i32.eq (global.get $ticks) (i32.const 2))
+      (then (call $submit (i32.const 16) (i32.const 15))))
+    (global.set $ticks (i32.add (global.get $ticks) (i32.const 1)))))"#;
 
 fn write(out: &Path, name: &str, bytes: &[u8]) {
     std::fs::write(out.join(name), bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -127,6 +152,8 @@ fn main() {
     );
     write(&out, "late.srmg", &encode_game(&late));
     write(&out, "idle.json", br#"{ "changes": [] }"#);
+    let saves = looping("saves", ECHO_SAVES);
+    write(&out, "saves.srmg", &encode_game(&saves));
     for (from, to) in [
         ("examples/ui/controls.json", "controls.json"),
         ("crates/sariema-ui/fonts/Nunito.ttf", "Nunito.ttf"),
@@ -173,6 +200,7 @@ fn main() {
         "forever": "forever.srmg",
         "late": "late.srmg",
         "idle": "idle.json",
+        "saves": "saves.srmg",
         "ui": { "description": "controls.json", "font": "../../crates/sariema-ui/fonts/Nunito.ttf", "font_file": "Nunito.ttf" },
     });
     write(

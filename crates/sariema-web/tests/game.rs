@@ -3,8 +3,9 @@
 //! A game pack played by the web host, natively: replays hash alike and
 //! keep the log they started with, a frame draws the game's room, a page
 //! frame runs the steps its time owes, a game that never returns is stopped
-//! by its budget, a replay ends at the step that stops its game, and a new
-//! renderer takes the game on where it was.
+//! by its budget, a replay ends at the step that stops its game, a new
+//! renderer takes the game on where it was, and the page takes the game's
+//! messages and answers its loads.
 
 mod common;
 
@@ -12,8 +13,9 @@ use std::time::Instant;
 
 use common::{H, Target, W};
 use sariema_format::demo::demo_room;
-use sariema_format::script::{BATCH_VERSION, GameAssets, GamePack, encode_game};
+use sariema_format::script::{BATCH_VERSION, Event, GameAssets, GamePack, encode_game, records};
 use sariema_render::{GOLDEN_MAX_DELTA, GOLDEN_MAX_RATIO, compare_images};
+use sariema_runtime::outbox::HostOut;
 use sariema_web::feed::FeedSettings;
 use sariema_web::game::GameHost;
 use sariema_web::stage::Stage;
@@ -26,6 +28,28 @@ const LATE: &str = r#"(module (memory (export "memory") 1) (global $ticks (mut i
       (global.set $ticks (i32.add (global.get $ticks) (i32.const 1)))
       (if (i32.eq (global.get $ticks) (i32.const 30)) (then (loop $l (br $l))))))"#;
 const NO_INPUT: &str = r#"{"changes":[]}"#;
+/// Sends back every tick's events as a `host_send` on topic `events`, asks
+/// for its saves at its second tick and saves `best` = [12] at its third.
+const ECHO: &str = r#"(module
+  (import "sariema" "submit" (func $submit (param i32 i32)))
+  (import "sariema" "events" (func $events (param i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (data (i32.const 0) "\a4\00")
+  (data (i32.const 16) "\a3\00\04\00\00\00best\01\00\00\00\0c")
+  (data (i32.const 1008) "\a5\00\06\00\00\00events")
+  (global $ticks (mut i32) (i32.const 0))
+  (func (export "sariema_tick")
+    (local $n i32)
+    (local.set $n (call $events (i32.const 1024) (i32.const 60000)))
+    (if (i32.gt_s (local.get $n) (i32.const 0))
+      (then
+        (i32.store (i32.const 1020) (local.get $n))
+        (call $submit (i32.const 1008) (i32.add (i32.const 16) (local.get $n)))))
+    (if (i32.eq (global.get $ticks) (i32.const 1))
+      (then (call $submit (i32.const 0) (i32.const 2))))
+    (if (i32.eq (global.get $ticks) (i32.const 2))
+      (then (call $submit (i32.const 16) (i32.const 15))))
+    (global.set $ticks (i32.add (global.get $ticks) (i32.const 1)))))"#;
 
 fn pack(wat: &str) -> Vec<u8> {
     encode_game(&GamePack {
@@ -180,4 +204,105 @@ fn a_replayed_step_allocates_nothing_once_steady() {
         .filter(|s| s[0].as_u64().unwrap() >= 60)
         .collect();
     assert!(late.is_empty(), "{steps}");
+}
+
+/// Each with the step that sent it.
+type Sent = Vec<(u64, HostOut)>;
+type Echoed = Vec<(u64, String)>;
+
+/// What the echo game sent its host, apart from its echoes, and the save
+/// events it echoed.
+fn taken(game: &mut GameHost) -> (Sent, Echoed) {
+    let (mut sent, mut saves) = (Vec::new(), Vec::new());
+    for (step, message) in game.take_host() {
+        let HostOut::Message { topic, payload } = &message else {
+            sent.push((step, message));
+            continue;
+        };
+        assert_eq!(topic, "events");
+        for event in records::<Event>(payload).map(Result::unwrap) {
+            match event {
+                Event::SaveLoaded { key, value } => saves.push((step, format!("{key}={value:?}"))),
+                Event::SaveLoadDone {} => saves.push((step, "done".into())),
+                _ => {}
+            }
+        }
+    }
+    (sent, saves)
+}
+
+/// Page frames of `steps` steps each, `frames` times, from where `game` is.
+fn frames(game: &mut GameHost, frames: u32, steps: u32) {
+    let at = game.steps() as f64 * 1000.0 / 60.0;
+    game.advance(at).unwrap();
+    for frame in 1..=frames {
+        game.advance(at + f64::from(frame * steps) * 1000.0 / 60.0)
+            .unwrap();
+    }
+}
+
+#[test]
+fn the_page_keeps_a_save_and_answers_the_load_steps_later() {
+    let target = Target::new();
+    let mut stage = target.stage("");
+    let mut game = host(&mut stage, &pack(ECHO));
+    game.answers_saves(true);
+    frames(&mut game, 10, 1);
+    assert_eq!(game.steps(), 10);
+    let (sent, saves) = taken(&mut game);
+    assert_eq!(
+        sent,
+        [
+            (1, HostOut::LoadSaves),
+            (
+                2,
+                HostOut::Save {
+                    key: "best".into(),
+                    value: vec![12]
+                }
+            )
+        ]
+    );
+    assert!(
+        saves.is_empty(),
+        "nothing before the page answers: {saves:?}"
+    );
+    assert!(game.answer_saves(vec![("best".into(), vec![12])]));
+    frames(&mut game, 3, 1);
+    let (_, saves) = taken(&mut game);
+    assert_eq!(saves, [(10, "best=[12]".into()), (10, "done".into())]);
+}
+
+#[test]
+fn a_load_the_page_never_answers_is_answered_as_no_save() {
+    let target = Target::new();
+    let mut stage = target.stage("");
+    let mut game = host(&mut stage, &pack(ECHO));
+    game.answers_saves(true);
+    frames(&mut game, 80, 4);
+    assert_eq!(game.steps(), 320);
+    let (_, saves) = taken(&mut game);
+    assert_eq!(saves, [(302, "done".into())]);
+}
+
+#[test]
+fn without_a_save_handler_a_load_is_answered_at_once() {
+    let target = Target::new();
+    let mut stage = target.stage("");
+    let mut game = host(&mut stage, &pack(ECHO));
+    frames(&mut game, 5, 1);
+    let (_, saves) = taken(&mut game);
+    assert_eq!(saves, [(2, "done".into())]);
+}
+
+#[test]
+fn a_replay_answers_loads_as_a_headless_run_without_saves_does() {
+    let target = Target::new();
+    let mut stage = target.stage("");
+    let mut game = host(&mut stage, &pack(ECHO));
+    game.answers_saves(true);
+    game.replay(NO_INPUT, 5).unwrap();
+    let (sent, saves) = taken(&mut game);
+    assert_eq!(sent[0], (1, HostOut::LoadSaves));
+    assert_eq!(saves, [(2, "done".into())]);
 }

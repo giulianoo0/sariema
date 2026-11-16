@@ -193,6 +193,11 @@ impl<L: Logic> Simulation<L> {
         std::mem::take(&mut self.state.outbox.host)
     }
 
+    /// Messages for the host, oldest first, keeping the queue's room.
+    pub fn drain_host(&mut self) -> std::vec::Drain<'_, HostOut> {
+        self.state.outbox.host.drain(..)
+    }
+
     pub fn step(&mut self, actions: &Actions) {
         self.step_with(actions, &mut ());
     }

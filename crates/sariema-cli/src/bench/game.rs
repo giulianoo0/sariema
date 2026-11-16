@@ -2,7 +2,8 @@
 
 //! A game pack's frame for `bench`: one engine step with the input log's
 //! actions and the audio feed, then the room, the actors and the HUD drawn
-//! at the step's end.
+//! at the step's end. The game's messages to the host are let go, and its
+//! loads answered as no save.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -92,6 +93,7 @@ impl GameFrame {
         let start = Instant::now();
         self.engine.feed_audio();
         let fed = start.elapsed();
+        self.engine.take_host().for_each(drop);
         if let Some(stop) = self.engine.simulation().stopped() {
             return Err(Failure::new(
                 stop.code,

@@ -27,6 +27,7 @@ use crate::RunArgs;
 use crate::output::{Done, Failure};
 use crate::player::PlayerSettings;
 use crate::run::frame_stats_json;
+use crate::save_dir::SaveDir;
 use crate::window::{FrameClock, Outcome, Screen, Stop, caught, window_error};
 use sariema_view::GameView;
 
@@ -68,6 +69,9 @@ pub fn play(path: &Path, args: &RunArgs, frames: Option<u32>) -> Result<Done, Fa
     } else {
         (load(pack, EngineSettings::default())?, Sound::None)
     };
+    let saves = SaveDir::open(path, args.game.save_dir.as_deref())?;
+    let mut engine = engine;
+    engine.answers_saves(true);
     let event_loop = EventLoop::new().map_err(window_error)?;
     let mut player = GamePlayer {
         args,
@@ -75,6 +79,7 @@ pub fn play(path: &Path, args: &RunArgs, frames: Option<u32>) -> Result<Done, Fa
         assets,
         engine,
         sound,
+        saves,
         view: None,
         screen: None,
         raw: RawInput::default(),
@@ -127,6 +132,7 @@ struct GamePlayer<'a> {
     assets: GameAssets,
     engine: Engine<WasmLogic>,
     sound: Sound,
+    saves: SaveDir,
     /// Once the window has a renderer.
     view: Option<GameView>,
     screen: Option<Screen>,
@@ -274,6 +280,10 @@ impl GamePlayer<'_> {
             .map_or_else(Default::default, |last| now - last);
         let tick = self.engine.frame(dt, &self.raw);
         self.dropped += u64::from(tick.dropped);
+        if self.saves.serve(&mut self.engine)? {
+            event_loop.exit();
+            return Ok(());
+        }
         if let Some(stop) = self.engine.simulation().stopped() {
             return Err(Failure::new(
                 stop.code,
@@ -343,6 +353,7 @@ impl GamePlayer<'_> {
                 "engine_hash": format!("{:016x}", self.engine.state_hash()),
                 "frame_stats": stats.as_ref().map(frame_stats_json),
                 "sound": self.sound.json(),
+                "saves": self.saves.file(),
             }),
             text,
         })

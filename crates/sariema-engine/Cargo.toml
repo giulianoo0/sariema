@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 glam.workspace = true
+log.workspace = true
 sariema-anim = { path = "../sariema-anim" }
 sariema-audio = { path = "../sariema-audio" }
 sariema-core = { path = "../sariema-core" }

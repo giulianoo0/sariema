@@ -286,6 +286,41 @@ window.suite = {
     return { codes, hashes: sariema.replayGame(playLog, steps) };
   },
 
+  /**
+   * The fixtures' echo game played live: what it sends its host, with the
+   * page keeping its save and, while it listens for loads, answering its
+   * load `answerAfterMs` later from that save; without listening, the load
+   * is answered at once.
+   */
+  async saves(answerAfterMs) {
+    const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    const LOADED = "50000400000062657374010000000c";
+    const DONE = "5100";
+    const kept = {};
+    const sent = [];
+    const echoed = [];
+    let answered = null;
+    const offHost = sariema.on("host", (m) => {
+      if (m.type === "save") kept[m.key] = Array.from(m.value);
+      if (m.type !== "message") return sent.push(`${m.step} ${m.type}`);
+      const h = hex(m.payload);
+      if (h.includes(LOADED)) echoed.push(`${m.step} loaded best`);
+      if (h.endsWith(DONE)) echoed.push(`${m.step} done`);
+    });
+    const listening = answerAfterMs !== null;
+    const offLoad = listening
+      ? sariema.on("saveLoad", () => setTimeout(() => (answered = sariema.answerSaves(kept)), answerAfterMs))
+      : () => {};
+    await sariema.playGame(at(manifest.saves), { audio: false });
+    sariema.start();
+    await sleep((answerAfterMs ?? 0) + 500);
+    sariema.stop();
+    if (!listening) answered = sariema.answerSaves(kept);
+    offHost();
+    offLoad();
+    return { sent, echoed, kept, answered };
+  },
+
   /** A game whose 30th tick never returns, replayed past it. */
   async lateBudget(steps) {
     await sariema.playGame(at(manifest.late), { audio: false });

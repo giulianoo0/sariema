@@ -10,6 +10,7 @@
 mod anim;
 mod assets;
 mod audio;
+mod host;
 mod hud;
 mod physics;
 mod settings;
@@ -17,11 +18,13 @@ mod view;
 
 use std::time::Duration;
 
+use host::Host;
 use sariema_format::script::cutscene::Block;
 use sariema_format::script::{Event, GamePack};
 use sariema_runtime::clock::Tick;
 use sariema_runtime::game::{LoadError, WasmLogic};
 use sariema_runtime::input::{Actions, RawInput};
+use sariema_runtime::outbox::{HostIn, HostOut};
 use sariema_runtime::sim::{Logic, Modules, Simulation};
 use sariema_runtime::state::State;
 use sariema_ui::SafeArea;
@@ -31,7 +34,7 @@ pub use assets::Assets;
 pub use audio::Sound;
 pub use hud::{Hud, KEEP_IN_CUTSCENES};
 pub use physics::{Physics, to_physics, to_runtime};
-pub use settings::{EngineSettings, HudSettings, SoundSettings};
+pub use settings::{EngineSettings, HostSettings, HudSettings, SoundSettings};
 pub use view::ActorView;
 
 /// Every code the modules wired in here give the game in a `rejected`
@@ -49,6 +52,7 @@ pub const REJECTED: &[&str] = &[
     "E_UI_ATLAS_FULL",
     "E_UI_ANIMATIONS",
     "E_UI_TEXT_TOO_LONG",
+    host::QUEUE_FULL,
 ];
 
 pub struct Engine<L> {
@@ -57,6 +61,7 @@ pub struct Engine<L> {
     physics: Option<Physics>,
     sound: Option<Sound>,
     hud: Hud,
+    host: Host,
     actions: Actions,
     touch: Actions,
     rejected: Vec<Event<'static>>,
@@ -189,6 +194,7 @@ impl<L: Logic> Engine<L> {
             physics,
             sound,
             hud,
+            host: Host::new(settings.host),
             rejected: Vec::new(),
             sim,
         })
@@ -261,8 +267,44 @@ impl<L: Logic> Engine<L> {
         }
         self.hud.step(s);
         self.rejected.append(&mut self.hud.rejected);
+        self.host.after_step(n, &mut self.sim, &mut self.rejected);
         for event in self.rejected.drain(..) {
             self.sim.report(event);
+        }
+    }
+
+    /// The game's messages to the host since the last call, each with the
+    /// step that sent it. A host takes them after its steps, every frame;
+    /// left there, they fill `host.max_messages` or `host.max_bytes` and the
+    /// game's next ones are refused with `E_HOST_QUEUE_FULL`.
+    pub fn take_host(&mut self) -> impl Iterator<Item = (u64, HostOut)> + '_ {
+        self.host.take()
+    }
+
+    /// Whether this host answers the game's `save_load` with
+    /// [`Engine::answer_saves`]. Off, as it starts, a load is answered as no
+    /// save at the step it was asked; on, it is answered as no save once it
+    /// has waited `host.save_load_timeout_s`. Turned off, the loads waiting
+    /// are answered as no save.
+    pub fn answers_saves(&mut self, yes: bool) {
+        self.host.answers_saves(yes, &mut self.sim);
+    }
+
+    /// Answers the oldest `save_load` still waiting with every saved key and
+    /// value; the game reads them at the next step. False when none waits,
+    /// as when it timed out: the game then had no save already.
+    pub fn answer_saves(&mut self, saves: Vec<(String, Vec<u8>)>) -> bool {
+        self.host.answer(saves, &mut self.sim)
+    }
+
+    /// A message from the host, read by the game at the next step; saves
+    /// answer a load as [`Engine::answer_saves`] does.
+    pub fn deliver(&mut self, message: HostIn) {
+        match message {
+            HostIn::Saves(saves) => {
+                self.answer_saves(saves);
+            }
+            message => self.sim.deliver(message),
         }
     }
 

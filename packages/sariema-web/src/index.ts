@@ -67,8 +67,31 @@ export interface UiEvent {
   [extra: string]: unknown;
 }
 
+/** A message the game sent its host, with the step that sent it. */
+export type HostMessage = { step: number } & (
+  | { type: "ready" }
+  | { type: "exit" }
+  | { type: "orientation"; orientation: string }
+  | { type: "save"; key: string; value: Uint8Array }
+  | { type: "load_saves" }
+  | { type: "message"; topic: string; payload: Uint8Array }
+  | { type: "stopped"; code: string; message: string }
+);
+
+/** Saved keys and their bytes, as `answerSaves` takes them. */
+export type Saves = Record<string, Uint8Array | ArrayLike<number>>;
+
 export interface Events {
   ui: UiEvent;
+  /** Every message the game sends its host, after the frame's steps: keep a `save`, act on `exit`, `message`... */
+  host: HostMessage;
+  /**
+   * The game asked for its saves: answer with `answerSaves`, now or later.
+   * While a listener is registered the page answers saves, and a load it
+   * leaves unanswered for `host.save_load_timeout_s` (5 s of game time) is
+   * answered as no save; with none, every load is answered as no save at once.
+   */
+  saveLoad: { step: number };
   /** The GPU was lost; the engine rebuilds itself and replays what was loaded. */
   lost: { backend: string };
   restored: { backend: string };
@@ -348,6 +371,29 @@ export class Sariema {
     }
     const seed = gameSeed(options.seed ?? 0);
     this.#call((e) => e.load_game(bytes, seed, rate));
+    this.#answerSaves();
+  }
+
+  /** Tells the game's engine whether the page answers its loads: whether anything listens for `saveLoad`. */
+  #answerSaves(): void {
+    this.#engine?.answers_saves((this.#listeners.get("saveLoad")?.size ?? 0) > 0);
+  }
+
+  /**
+   * Answers the game's oldest `save_load` waiting with every saved key, as
+   * the page kept them from `host` messages of type `save`. False when none
+   * waits, as when it timed out: the game then had no save already.
+   */
+  answerSaves(saves: Saves): boolean {
+    const pairs = Object.entries(saves).map(([key, value]) => [key, Uint8Array.from(value)]);
+    return this.#call((e) => e.answer_saves(pairs));
+  }
+
+  #takeHost(engine: Engine): void {
+    for (const message of engine.take_host() as HostMessage[]) {
+      this.#emit("host", message);
+      if (message.type === "load_saves") this.#emit("saveLoad", { step: message.step });
+    }
   }
 
   /**
@@ -357,7 +403,11 @@ export class Sariema {
    */
   replayGame(log: string | object, to: number): GameHashes {
     const text = typeof log === "string" ? log : JSON.stringify(log);
-    this.#call((e) => e.replay_game(text, to));
+    try {
+      this.#call((e) => e.replay_game(text, to));
+    } finally {
+      if (this.#engine) this.#takeHost(this.#engine);
+    }
     return this.gameHashes()!;
   }
 
@@ -445,7 +495,11 @@ export class Sariema {
     let set = this.#listeners.get(type);
     if (!set) this.#listeners.set(type, (set = new Set()));
     set.add(listener as (e: never) => void);
-    return () => set!.delete(listener as (e: never) => void);
+    if (type === "saveLoad") this.#answerSaves();
+    return () => {
+      set!.delete(listener as (e: never) => void);
+      if (type === "saveLoad") this.#answerSaves();
+    };
   }
 
   #emit<K extends keyof Events>(type: K, event: Events[K]): void {
@@ -491,7 +545,9 @@ export class Sariema {
       void this.#restore(wasRunning);
       return;
     }
-    const events = steps > 0 ? engine.take_events() : undefined;
+    if (steps === 0) return;
+    this.#takeHost(engine);
+    const events = engine.take_events();
     if (events) for (const event of JSON.parse(events) as UiEvent[]) this.#emit("ui", event);
   }
 

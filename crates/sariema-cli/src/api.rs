@@ -276,6 +276,11 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "cutscene_play names a cutscene the pack lacks",
     ),
     (
+        "E_HOST_QUEUE_FULL",
+        Kind::Rejected,
+        "a message to the host past the engine's host.max_messages or host.max_bytes, left untaken by the host",
+    ),
+    (
         "E_CUTSCENE_UNBOUND",
         Kind::Rejected,
         "cutscene_play before every role without a spawn was bound to a live entity",

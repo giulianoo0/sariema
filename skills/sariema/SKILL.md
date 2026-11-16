@@ -45,8 +45,11 @@ show without changing any hash; look at every PNG.
 
 The window takes the keys the input settings bind and the mouse as the
 HUD's pointer (joystick, buttons), and plays the sound on the default
-device. Its report gives `frames`, `steps`, `ms_per_frame` and `sound`;
-`sound.device: false` with `E_AUDIO_DEVICE` means it ran silent.
+device. Its report gives `frames`, `steps`, `ms_per_frame`, `sound` and
+`saves`; `sound.device: false` with `E_AUDIO_DEVICE` means it ran silent.
+It keeps the game's saves in `saves/<pack name>.json` beside the pack
+(`--save-dir` elsewhere), the format `run --headless --saves` reads, and
+closes on `host_exit`.
 `sariema bench meadow.srmg --input … --json` times a step and its frame,
 the HUD pass apart.
 

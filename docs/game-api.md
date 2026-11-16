@@ -413,8 +413,29 @@ without `--headless` the pack plays in a window.
 every saved key, answered by `save_loaded` events and one `save_load_done`.
 `host_ready`, `host_exit`, `host_orientation` and `host_send` are messages to
 the host; `host_message`, `orientation_changed` and `exit_requested` come
-back as events. `sariema run --headless --saves saves.json` starts with a
-save store, and prints the store at the end.
+back as events.
+
+Every `save_load` gets its `save_load_done`, so a game may wait for it
+before it starts:
+
+- a host without saves (the bench, a page that does not listen for loads)
+  answers it as no save at once: `save_load_done` the next step;
+- a host with saves answers when its store does, which in a WebView app
+  takes a round trip of a few frames; one that has not answered after
+  `host.save_load_timeout_s` (5 s of game time) is answered as no save, and
+  the engine logs it.
+
+Messages wait for the host in a queue of at most `host.max_messages` (256)
+messages and `host.max_bytes` (4 MiB); one past them is refused with
+`rejected` `E_HOST_QUEUE_FULL`. These are the engine's settings, which the
+host sets, not the game's ([the engine](engine.md#messages-to-the-host)).
+
+`sariema run --headless --saves saves.json` starts with a save store and
+prints the store at the end. `sariema run --game` keeps saves in
+`--save-dir` (`saves` beside the pack by default) as `<pack name>.json`, in
+the same format, so a window's saves replay headless; `host_exit` closes
+the window. A page gets every message from `on("host")` and answers loads
+from `on("saveLoad")` ([web.md](web.md#host-messages-and-saves)).
 
 ## Settings
 

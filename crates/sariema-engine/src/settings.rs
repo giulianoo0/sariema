@@ -26,6 +26,7 @@ pub struct EngineSettings {
     /// own buses; a host playing to a device sets its sample rate.
     pub mixer: MixerSettings,
     pub hud: HudSettings,
+    pub host: HostSettings,
 }
 
 impl Default for EngineSettings {
@@ -38,6 +39,32 @@ impl Default for EngineSettings {
             audio: SoundSettings::default(),
             mixer: MixerSettings::default(),
             hud: HudSettings::default(),
+            host: HostSettings::default(),
+        }
+    }
+}
+
+/// The queue of the game's messages to the host, and its save loads.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HostSettings {
+    /// Messages kept until the host takes them; one more is refused with
+    /// `E_HOST_QUEUE_FULL`.
+    pub max_messages: usize,
+    /// Bytes of keys, values, topics and payloads kept until the host takes
+    /// them; a message past it is refused with `E_HOST_QUEUE_FULL`. The
+    /// default holds the largest one tick can send, `vm.commands_bytes_per_step`.
+    pub max_bytes: usize,
+    /// Seconds of game time a `save_load` waits for a host that answers
+    /// saves; it is then answered as no save.
+    pub save_load_timeout_s: f32,
+}
+
+impl Default for HostSettings {
+    fn default() -> HostSettings {
+        HostSettings {
+            max_messages: 256,
+            max_bytes: 4 << 20,
+            save_load_timeout_s: 5.0,
         }
     }
 }

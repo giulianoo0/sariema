@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use glam::Mat4;
+use sariema_runtime::outbox::HostOut;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
@@ -27,6 +28,41 @@ const FAILED: u8 = 2;
 
 fn js(e: StageError) -> JsError {
     JsError::new(&e.to_string())
+}
+
+fn host_message(step: u64, message: HostOut) -> js_sys::Object {
+    let o = js_sys::Object::new();
+    let set = |key: &str, value: JsValue| {
+        js_sys::Reflect::set(&o, &key.into(), &value).expect("a plain object takes fields");
+    };
+    let bytes = |b: &[u8]| JsValue::from(js_sys::Uint8Array::from(b));
+    set("step", (step as f64).into());
+    let kind = match message {
+        HostOut::Ready => "ready",
+        HostOut::Exit => "exit",
+        HostOut::Orientation(orientation) => {
+            set("orientation", orientation.name().into());
+            "orientation"
+        }
+        HostOut::Save { key, value } => {
+            set("key", key.into());
+            set("value", bytes(&value));
+            "save"
+        }
+        HostOut::LoadSaves => "load_saves",
+        HostOut::Message { topic, payload } => {
+            set("topic", topic.into());
+            set("payload", bytes(&payload));
+            "message"
+        }
+        HostOut::Stopped { code, message } => {
+            set("code", code.into());
+            set("message", message.into());
+            "stopped"
+        }
+    };
+    set("type", kind.into());
+    o
 }
 
 #[wasm_bindgen(start)]
@@ -157,6 +193,46 @@ impl Engine {
     /// JSON: the game's steps and its engine, state, physics and audio hashes.
     pub fn game_hashes(&self) -> Option<String> {
         self.game.as_ref().map(|g| g.hashes().to_string())
+    }
+
+    /// The game's messages to the host since the last call, oldest first:
+    /// objects with the `step` that sent each, its `type` (`ready`, `exit`,
+    /// `orientation`, `save`, `load_saves`, `message` or `stopped`) and its
+    /// fields, bytes as `Uint8Array`s. Empty without a game.
+    pub fn take_host(&mut self) -> js_sys::Array {
+        let out = js_sys::Array::new();
+        if let Some(game) = &mut self.game {
+            for (step, message) in game.take_host() {
+                out.push(&host_message(step, message));
+            }
+        }
+        out
+    }
+
+    /// Whether the page answers the game's `save_load` with
+    /// [`Engine::answer_saves`]; without, a load is answered as no save at
+    /// once. See `docs/web.md`.
+    pub fn answers_saves(&mut self, yes: bool) {
+        if let Some(game) = &mut self.game {
+            game.answers_saves(yes);
+        }
+    }
+
+    /// Answers the game's oldest load waiting with `saves`, an array of
+    /// `[key, Uint8Array]` pairs; false when none waits, as after its
+    /// timeout.
+    pub fn answer_saves(&mut self, saves: js_sys::Array) -> Result<bool, JsError> {
+        let usage = |why: &str| js(StageError::new("E_USAGE", why));
+        let game = (self.game.as_mut()).ok_or_else(|| usage("no game is loaded"))?;
+        let mut entries = Vec::with_capacity(saves.length() as usize);
+        for pair in saves.iter() {
+            let pair = js_sys::Array::from(&pair);
+            let key = (pair.get(0).as_string()).ok_or_else(|| usage("a save's key is a string"))?;
+            let value = (pair.get(1).dyn_into::<js_sys::Uint8Array>())
+                .map_err(|_| usage("a save's value is a Uint8Array"))?;
+            entries.push((key, value.to_vec()));
+        }
+        Ok(game.answer_saves(entries))
     }
 
     /// `webgpu` or `webgl2`.

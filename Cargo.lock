@@ -2384,6 +2384,7 @@ name = "sariema-engine"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "log",
  "sariema-anim",
  "sariema-audio",
  "sariema-core",

@@ -83,9 +83,18 @@ Serve the folder holding the page and `dist/` (`npm run serve` serves the
 package directory). The canvas is sized by CSS; the engine sets its pixels
 from `devicePixelRatio`, capped at `maxPixelRatio` (1.5).
 
+The game's messages to its host (`save`, `load_saves`, `ready`, `exit`,
+`message`...) arrive as `sariema.on("host", m => ...)`. The package keeps
+no saves: keep each `save` yourself, and to answer the game's loads listen
+for `saveLoad` and call `sariema.answerSaves({ key: bytes, ... })`, then or
+later. Unanswered after 5 s of game time, or with nothing listening for
+`saveLoad`, a load is answered as no save, so the game never waits forever.
+`docs/web.md` (Host messages and saves) has an example.
+
 In a React Native WebView, forward events with
 `sariema.on("ui", (e) => window.ReactNativeWebView.postMessage(JSON.stringify(e)))`
-and set `mediaPlaybackRequiresUserAction={false}` and
+and the `host` ones likewise (their bytes as arrays), answer loads from the
+app through `injectJavaScript`, and set `mediaPlaybackRequiresUserAction={false}` and
 `allowsInlineMediaPlayback`.
 
 ## A phone on the same network
