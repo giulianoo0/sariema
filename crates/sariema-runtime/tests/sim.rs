@@ -497,3 +497,27 @@ fn a_zone_reports_an_actor_once_on_entry_and_once_on_exit() {
         [("enter", door), ("exit", door)]
     );
 }
+
+#[test]
+fn a_huge_time_scale_is_bounded_and_never_panics_the_host() {
+    let logic = native(|step, _, out| {
+        if step == 0 {
+            send(
+                out,
+                Command::TimeScale {
+                    scale: 1e30,
+                    blend: 0.0,
+                },
+            );
+        }
+    });
+    let settings = Settings::default();
+    let max = settings.max_time_scale;
+    let mut sim = Simulation::new(settings, vec![], logic, 0);
+    for _ in 0..3 {
+        sim.frame_with(Duration::from_millis(17), |_, _| {});
+    }
+    assert_eq!(sim.state().time_scale(), max);
+    let tick = sim.frame_with(Duration::MAX, |_, _| {});
+    assert_eq!(tick.steps, 5, "capped by max_steps_per_frame");
+}

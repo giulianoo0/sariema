@@ -22,6 +22,8 @@ pub struct MotionSettings {
     pub arrive_distance: f32,
     /// The hero's move axis turns with the camera's view.
     pub camera_relative: bool,
+    /// Metres per second a visible actor may move; faster is a jump.
+    pub max_visible_speed: f32,
 }
 
 impl Default for MotionSettings {
@@ -31,6 +33,7 @@ impl Default for MotionSettings {
             turn_rate: 540.0,
             arrive_distance: 0.01,
             camera_relative: true,
+            max_visible_speed: 20.0,
         }
     }
 }

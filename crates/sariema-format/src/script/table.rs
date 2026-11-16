@@ -81,7 +81,8 @@ batch_table! {
         /// Plays the world at `scale` times real time, reached over `blend`
         /// seconds of world time; below 1 is slow motion. A step stays 1/60 s
         /// of world time, so play stays deterministic: only how many steps
-        /// run per real second changes. At least `min_time_scale`.
+        /// run per real second changes. Kept within `min_time_scale` and
+        /// `max_time_scale`.
         0x0052 TimeScale time_scale { scale: f32, blend: f32 }
 
         /// Animates a property from its current value. A new tween or spring on
@@ -186,7 +187,8 @@ batch_table! {
         /// The host asks the game to wind down (back button, app leaving).
         0x0054 ExitRequested exit_requested {}
 
-        /// The engine refused a command; `code` says why.
+        /// The engine refused a command, or a record of a transform region
+        /// (`opcode` 0); `code` says why.
         0x0060 Rejected rejected { opcode: u16, code: Str, entity: Entity }
     }
 }

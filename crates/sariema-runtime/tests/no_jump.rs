@@ -5,12 +5,12 @@
 mod common;
 
 use glam::Vec3;
-use sariema_format::script::{Command, Ease, Entity, Event, Kind, Property};
+use sariema_format::script::{Command, Ease, Entity, Event, Kind, Property, records};
 use sariema_runtime::input::Actions;
 use sariema_runtime::settings::Settings;
-use sariema_runtime::sim::Simulation;
+use sariema_runtime::sim::{Logic, REGION_TRANSFORMS, Simulation, Stop};
 
-use common::{entity, native, send};
+use common::{entity, send};
 
 const ACTOR: Entity = Entity {
     index: 0,
@@ -63,25 +63,73 @@ struct Run {
     refused: Vec<(u64, String)>,
 }
 
-/// Runs the commands of `script[step]` at each step, the actor and the
-/// prop spawned at step 0 at the origin.
-fn run(script: Vec<Vec<Command<'static>>>) -> Run {
-    let steps = script.len() as u64 + 1;
-    let mut refused = Vec::new();
-    let logic = native(|step, events, out| {
-        for e in events {
-            if let Event::Rejected { code, .. } = e {
-                refused.push((step - 1, code.to_string()));
+/// A game that runs `script[step]` each step and, after the tick, writes
+/// the transform region `region(step)` gives: `(entity, x)` records.
+struct Scripted<F, R> {
+    step: u64,
+    script: F,
+    region: R,
+    bytes: Vec<u8>,
+    refused: Vec<(u64, String)>,
+}
+
+impl<F, R> Logic for Scripted<F, R>
+where
+    F: FnMut(u64, &mut Vec<u8>),
+    R: FnMut(u64) -> Vec<(Entity, f32)>,
+{
+    fn tick(&mut self, events: &[u8], _: &[u32], commands: &mut Vec<u8>) -> Result<(), Stop> {
+        commands.clear();
+        for e in records::<Event>(events) {
+            if let Ok(Event::Rejected { code, .. }) = e {
+                self.refused.push((self.step - 1, code.to_string()));
             }
         }
-        if step == 0 {
-            send(out, spawn(Kind::Actor, ACTOR));
-            send(out, spawn(Kind::Empty, PROP));
+        if self.step == 0 {
+            send(commands, spawn(Kind::Actor, ACTOR));
+            send(commands, spawn(Kind::Empty, PROP));
         }
-        for c in script.get(step as usize).into_iter().flatten() {
-            send(out, *c);
+        (self.script)(self.step, commands);
+        let records = (self.region)(self.step);
+        self.bytes.clear();
+        self.bytes
+            .extend_from_slice(&(records.len() as u32).to_le_bytes());
+        for (e, x) in records {
+            for v in [e.index, e.generation] {
+                self.bytes.extend_from_slice(&v.to_le_bytes());
+            }
+            for v in [x, 0.0, 0.0, 0.0] {
+                self.bytes.extend_from_slice(&v.to_le_bytes());
+            }
         }
-    });
+        self.step += 1;
+        Ok(())
+    }
+
+    fn regions(&self, each: &mut dyn FnMut(u32, &[u8])) {
+        each(REGION_TRANSFORMS, &self.bytes);
+    }
+}
+
+/// Runs the commands of `script[step]` at each step, the actor and the
+/// prop spawned at step 0 at the origin, and the region records of
+/// `region(step)`.
+fn run_with(
+    script: Vec<Vec<Command<'static>>>,
+    region: impl FnMut(u64) -> Vec<(Entity, f32)>,
+) -> Run {
+    let steps = script.len() as u64 + 1;
+    let logic = Scripted {
+        step: 0,
+        script: |step: u64, out: &mut Vec<u8>| {
+            for c in script.get(step as usize).into_iter().flatten() {
+                send(out, *c);
+            }
+        },
+        region,
+        bytes: Vec::new(),
+        refused: Vec::new(),
+    };
     let settings = Settings::default();
     let idle = Actions::for_settings(&settings.input);
     let mut sim = Simulation::new(settings, vec![], logic, 0);
@@ -90,8 +138,15 @@ fn run(script: Vec<Vec<Command<'static>>>) -> Run {
         sim.step(&idle);
         at.push(sim.state().world.current_pose(ACTOR).unwrap().position);
     }
-    drop(sim);
-    Run { at, refused }
+    sim.step(&idle);
+    Run {
+        at,
+        refused: sim.logic().refused.clone(),
+    }
+}
+
+fn run(script: Vec<Vec<Command<'static>>>) -> Run {
+    run_with(script, |_| Vec::new())
 }
 
 fn refused_at(step: u64) -> Vec<(u64, String)> {
@@ -240,4 +295,91 @@ fn placing_a_parent_that_carries_a_visible_actor_is_a_jump() {
         vec![set_transform(deep, 5.0)],
     ]);
     assert_eq!(r.refused, refused_at(2), "a grandchild is carried too");
+}
+
+#[test]
+fn a_tween_faster_than_a_visible_actor_may_move_is_a_jump() {
+    let tween = |duration| Command::Tween {
+        tween: 1,
+        entity: ACTOR,
+        property: Property::PositionX,
+        var: 0,
+        to: 50.0,
+        duration,
+        ease: Ease::Linear,
+    };
+    let r = run(vec![vec![], vec![tween(2.0 / 60.0)]]);
+    assert_eq!(r.refused, refused_at(1), "25 m a step");
+    assert!(r.at.iter().all(|p| p.x == 0.0));
+
+    let r = run(vec![vec![], vec![tween(4.0)]]);
+    assert!(r.refused.is_empty(), "12.5 m/s: {:?}", r.refused);
+}
+
+#[test]
+fn a_spring_or_a_walk_faster_than_a_visible_actor_may_move_is_a_jump() {
+    let spring = |frequency| Command::Spring {
+        tween: 1,
+        entity: ACTOR,
+        property: Property::PositionX,
+        var: 0,
+        to: 5.0,
+        frequency,
+        damping: 1.0,
+    };
+    let r = run(vec![vec![], vec![spring(50.0)]]);
+    assert_eq!(r.refused, refused_at(1));
+    assert_eq!(r.at[2].x, 0.0);
+    let r = run(vec![vec![], vec![spring(0.5)]]);
+    assert!(r.refused.is_empty(), "{:?}", r.refused);
+
+    let walk = |speed| Command::MoveTo {
+        entity: ACTOR,
+        target: [50.0, 0.0, 0.0],
+        speed,
+    };
+    let r = run(vec![vec![], vec![walk(200.0)]]);
+    assert_eq!(r.refused, refused_at(1));
+    assert_eq!(r.at[2].x, 0.0);
+    let r = run(vec![vec![], vec![walk(6.0)]]);
+    assert!(r.refused.is_empty(), "a run: {:?}", r.refused);
+}
+
+#[test]
+fn a_region_cannot_carry_a_visible_actor_away_at_once() {
+    let parent = Command::SetParent {
+        entity: ACTOR,
+        parent: PROP,
+    };
+    let r = run_with(vec![vec![], vec![parent], vec![], vec![]], |step| {
+        if step == 2 {
+            vec![(PROP, 50.0)]
+        } else {
+            Vec::new()
+        }
+    });
+    assert_eq!(r.refused, refused_at(2));
+    assert!(r.at.iter().all(|p| p.x == 0.0), "{:?}", r.at);
+
+    let follow = Command::Follow {
+        entity: ACTOR,
+        target: PROP,
+        offset: [0.0; 3],
+        lag: 0.0,
+    };
+    let r = run_with(vec![vec![], vec![follow], vec![], vec![]], |step| {
+        if step == 2 {
+            vec![(PROP, 50.0)]
+        } else {
+            Vec::new()
+        }
+    });
+    assert_eq!(r.refused, refused_at(2), "a rigid follower is carried too");
+    assert!(r.at.iter().all(|p| p.x == 0.0), "{:?}", r.at);
+
+    let r = run_with(vec![vec![], vec![parent], vec![], vec![], vec![]], |step| {
+        vec![(PROP, step as f32 * 0.1)]
+    });
+    assert!(r.refused.is_empty(), "a platform at 6 m/s: {:?}", r.refused);
+    assert!(r.at[4].x > 0.0);
 }

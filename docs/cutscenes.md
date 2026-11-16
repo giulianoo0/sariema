@@ -129,8 +129,10 @@ does not hold, `E_CUTSCENE_COVER`. A role hidden for at least one step (`hide`,
 then a block that surely takes a step: `wait` longer than 0, `wait_for` or
 `line`) may teleport freely; hiding and teleporting in the same instant hides
 nothing, since the viewer saw the role when that step began. At run time
-every command that would move a visible actor at once is refused with
-`E_TELEPORT_VISIBLE` (see [the game API](game-api.md#entities)).
+everything that would move a visible actor faster than
+`motion.max_visible_speed` is refused with `E_TELEPORT_VISIBLE` (see [the
+game API](game-api.md#entities)); a `walk` faster than that does not move
+the role.
 
 To move an actor across the scene: walk it; or hide it, wait, teleport it,
 show it; or fade out, teleport it with `"cover": "fade"`, fade in; or cut

@@ -88,22 +88,25 @@ free list: `ctx.spawn` takes a slot, `ctx.despawn` and the engine's
 
 Kinds: `empty`, `room_node`, `actor`, `light`, `camera`, `sound_emitter`,
 `ui_node`. Actors are what moves, walks, turns and plays clips. A visible
-actor never jumps. Every command that would move something at once asks the
-same rule: `set_transform`, `teleport`, a `tween` of a position or rotation
-that ends in one step, a rigid `follow` (lag 0) that is not already in
-place, a `set_parent` that changes the world placement. It is refused with
-`E_TELEPORT_VISIBLE` when the entity, or an actor it carries (a child at any
-depth, a rigid follower), was visible when the step began and is not placed
-yet this step, unless the screen is fully faded, the camera cut in the same
-step, or `teleport` says `force`. "At once" means more than
-`motion.arrive_distance` of distance or one step of `motion.turn_rate` of
-turning. Hiding and showing in the same step hides nothing: an actor hidden
-for a whole step may then be placed anywhere. A prop the game moves through
-a transform region carries its children as written; keep that motion
-continuous.
+actor never jumps: it never goes faster than `motion.max_visible_speed`
+(20 m/s) nor turns faster than `motion.turn_rate`. Everything that moves
+something asks the same rule first, with how far its next step goes:
+`set_transform` and `teleport` (always too far for an actor), `tween` (its
+fastest step), `spring` (a bound on its speed), `follow` (its first step),
+`move_to`, `move_intent`, `set_hero` and `set_speed_scale` (the speed),
+`set_parent` (the change of world placement), and each record of a transform
+region for an entity that carries others. It is refused with
+`E_TELEPORT_VISIBLE` when that would carry an actor too far in a step: the
+entity itself, a child at any depth (going as far) or a follower (going its
+lag's share), that was visible when the step began and is not placed yet
+this step. It is allowed when the screen is fully faded, the camera cut in
+the same step, or `teleport` says `force`. Hiding and showing in the same
+step hides nothing: an actor hidden for a whole step may then be placed
+anywhere.
 
 A refused command produces a `rejected` event with the opcode, the code and
-the entity; the game keeps running.
+the entity; a refused region record keeps the entity where it was and reports
+opcode 0. The game keeps running.
 
 ## The Rust SDK
 
@@ -302,8 +305,8 @@ world hashes and timing.
   before it becomes steps: a step stays 1/60 s of world time, so play stays
   deterministic, and everything that follows the steps (movement, tweens,
   clips, waits) slows together. Leftover frame time carries into the next
-  step. The scale never goes below `min_time_scale`, so the world never
-  stops.
+  step. The scale stays within `min_time_scale`, so the world never stops,
+  and `max_time_scale`.
 - **Screen**: `fade` to a colour, `letterbox`, and dialogue lines (`say`):
   an `auto` line ends after its duration, a `tap` line when the game sends
   `advance_line` (in a cutscene, on the `cutscene.advance_action` button);
@@ -346,10 +349,12 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `input.buttons` | the input table above | Buttons: name, keys and gamepad buttons. |
 | `max_entities` | 65536 | Entity slots a game may use; a spawn at a higher index is rejected with E_ENTITY_LIMIT. |
 | `max_steps_per_frame` | 5 | Fixed steps one display frame may run; the time beyond is dropped, so a stall slows the game instead of freezing it. |
+| `max_time_scale` | 4 | The fastest a time_scale may play the world; a larger scale is lowered to it. |
 | `min_time_scale` | 0.05 | The slowest a time_scale may play the world; a smaller scale is raised to it, so the world never stops. |
-| `motion.arrive_distance` | 0.01 | Metres from a walk target that count as arrived; a larger move in one step is a jump. |
+| `motion.arrive_distance` | 0.01 | Metres from a walk target that count as arrived. |
 | `motion.builtin` | true | The runtime moves actors itself; off when a collision module consumes the movement intents. |
 | `motion.camera_relative` | true | The hero's move axis turns with the camera's view direction. |
+| `motion.max_visible_speed` | 20 | Metres per second a visible actor may move, carried or driven by anything; a faster move is a jump. |
 | `motion.turn_rate` | 540 | Degrees per second an actor turns; nothing turns faster, and a larger turn in one step is a jump. |
 | `spring_rest` | 0.001 | A spring stops, exactly on its target, once its offset and velocity are both within this. |
 | `vm.commands_bytes_per_step` | 4194304 | Bytes of commands one tick may submit; more stops the game with E_GAME_BUDGET. |

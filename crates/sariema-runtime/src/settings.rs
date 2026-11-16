@@ -18,6 +18,7 @@ pub struct Settings {
     pub max_entities: u32,
     pub spring_rest: f32,
     pub min_time_scale: f32,
+    pub max_time_scale: f32,
     pub motion: MotionSettings,
     pub camera: CameraSettings,
     pub input: InputSettings,
@@ -32,6 +33,7 @@ impl Default for Settings {
             max_entities: 65_536,
             spring_rest: 1e-3,
             min_time_scale: 0.05,
+            max_time_scale: 4.0,
             motion: MotionSettings::default(),
             camera: CameraSettings::default(),
             input: InputSettings::default(),
@@ -92,6 +94,10 @@ pub const DOCS: &[(&str, &str)] = &[
         "Entity slots a game may use; a spawn at a higher index is rejected with E_ENTITY_LIMIT.",
     ),
     (
+        "max_time_scale",
+        "The fastest a time_scale may play the world; a larger scale is lowered to it.",
+    ),
+    (
         "min_time_scale",
         "The slowest a time_scale may play the world; a smaller scale is raised to it, so the world never stops.",
     ),
@@ -104,12 +110,16 @@ pub const DOCS: &[(&str, &str)] = &[
         "The runtime moves actors itself; off when a collision module consumes the movement intents.",
     ),
     (
+        "motion.max_visible_speed",
+        "Metres per second a visible actor may move, carried or driven by anything; a faster move is a jump.",
+    ),
+    (
         "motion.turn_rate",
         "Degrees per second an actor turns; nothing turns faster, and a larger turn in one step is a jump.",
     ),
     (
         "motion.arrive_distance",
-        "Metres from a walk target that count as arrived; a larger move in one step is a jump.",
+        "Metres from a walk target that count as arrived.",
     ),
     (
         "motion.camera_relative",

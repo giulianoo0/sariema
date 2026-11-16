@@ -40,12 +40,13 @@ impl Followers {
         self.list.is_empty()
     }
 
-    /// The followers that keep `target`'s position exactly.
-    pub fn rigid(&self, target: Entity) -> impl Iterator<Item = Entity> + '_ {
+    /// The followers of `target`, each with the fraction of a move of
+    /// `target` it makes in the next step.
+    pub fn of(&self, target: Entity) -> impl Iterator<Item = (Entity, f32)> + '_ {
         self.list
             .iter()
-            .filter(move |f| f.target == target && f.gain >= 1.0)
-            .map(|f| f.entity)
+            .filter(move |f| f.target == target)
+            .map(|f| (f.entity, f.gain))
     }
 
     /// `lag` is the half-life of the gap in seconds; 0 or less is rigid.

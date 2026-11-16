@@ -15,7 +15,7 @@ use glam::Vec3;
 use sariema_format::script::cutscene::Cutscene;
 use sariema_format::script::{Command, Controller, Entity, Event, Kind, records};
 
-use crate::apply::{Source, apply};
+use crate::apply::{Source, apply, may_jump, step_move};
 use crate::clock::{FixedClock, Tick};
 use crate::cutscene::Sequencer;
 use crate::events::{EventQueue, Happening};
@@ -115,7 +115,8 @@ impl<L: Logic> Simulation<L> {
     }
 
     fn world_time(&self, dt: Duration) -> Duration {
-        dt.mul_f64(f64::from(self.state.time_scale()))
+        Duration::try_from_secs_f64(dt.as_secs_f64() * f64::from(self.state.time_scale()))
+            .unwrap_or(Duration::MAX)
     }
 
     /// How far rendering is between the last two steps.
@@ -365,11 +366,28 @@ fn apply_transforms(s: &mut State, bytes: &[u8]) {
         if !(position.is_finite() && yaw.is_finite()) {
             continue;
         }
-        if let Ok(node) = s.world.node_mut(e)
-            && node.kind != Kind::Actor
-        {
-            node.local.position = position;
-            node.local.yaw = yaw;
+        let Some(node) = s.world.node(e).filter(|n| n.kind != Kind::Actor) else {
+            continue;
+        };
+        let was = node.local;
+        let carries = s.world.has_children(e) || s.followers.of(e).next().is_some();
+        let before = s.world.current_pose(e);
+        let local = &mut s.world.node_mut(e).expect("alive").local;
+        local.position = position;
+        local.yaw = yaw;
+        if !carries {
+            continue;
+        }
+        let (Some(a), Some(b)) = (before, s.world.current_pose(e)) else {
+            continue;
+        };
+        if let Err(r) = may_jump(s, e, step_move(s, a, b)) {
+            s.world.node_mut(e).expect("alive").local = was;
+            s.events.push(Event::Rejected {
+                opcode: 0,
+                code: r.code,
+                entity: r.entity,
+            });
         }
     }
 }

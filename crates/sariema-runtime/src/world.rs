@@ -278,9 +278,13 @@ impl World {
         }
     }
 
+    pub fn has_children(&self, e: Entity) -> bool {
+        self.is_alive(e) && self.slots[e.index as usize].children > 0
+    }
+
     /// The live entities whose parent is `e`.
     pub fn children(&self, e: Entity) -> impl Iterator<Item = Entity> + '_ {
-        let any = self.is_alive(e) && self.slots[e.index as usize].children > 0;
+        let any = self.has_children(e);
         self.entities()
             .take(if any { usize::MAX } else { 0 })
             .filter(move |(_, n)| n.parent == e)

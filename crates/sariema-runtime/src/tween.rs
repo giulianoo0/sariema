@@ -158,14 +158,8 @@ impl Tweens {
         damping: f32,
     ) -> Result<(), Reject> {
         let now = read(world, store, &target)?;
-        let velocity = match self.take(id, &target) {
-            Some(Anim {
-                drive: Drive::Spring { velocity, .. },
-                ..
-            }) => velocity,
-            Some(old) => (now - old.last) / STEP_SECONDS,
-            None => 0.0,
-        };
+        let velocity = self.velocity(id, &target, now);
+        self.take(id, &target);
         self.list.push(Anim {
             id,
             target,
@@ -177,6 +171,23 @@ impl Tweens {
             last: now,
         });
         Ok(())
+    }
+
+    /// The velocity a spring on `target`, or with `id`, starts with: the one
+    /// a spring there had, or the rate the animation there moved at.
+    pub fn velocity(&self, id: u32, target: &Target, now: f32) -> f32 {
+        match self
+            .list
+            .iter()
+            .find(|a| a.id == id || a.target.same(target))
+        {
+            Some(Anim {
+                drive: Drive::Spring { velocity, .. },
+                ..
+            }) => *velocity,
+            Some(old) => (now - old.last) / STEP_SECONDS,
+            None => 0.0,
+        }
     }
 
     pub fn active(&self, id: u32) -> bool {
