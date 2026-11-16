@@ -3,7 +3,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
     <title>Sariema probe</title>
     <link rel="icon" href="data:," />
     <style>
@@ -31,7 +34,9 @@
         padding: 16px;
         background: var(--bg);
         color: var(--fg);
-        font: 15px/1.45 system-ui, sans-serif;
+        font:
+          15px/1.45 system-ui,
+          sans-serif;
       }
       main {
         max-width: 760px;
@@ -45,6 +50,10 @@
         color: var(--muted);
         margin: 0 0 16px;
       }
+      ol {
+        margin: 0 0 16px;
+        padding-left: 20px;
+      }
       button {
         font: inherit;
         padding: 10px 16px;
@@ -54,6 +63,45 @@
         border: 1px solid var(--line);
         background: var(--fg);
         color: var(--bg);
+      }
+      button:disabled {
+        opacity: 0.55;
+      }
+      #status {
+        color: var(--fg);
+        min-height: 1.45em;
+      }
+      #status.busy::before {
+        content: "";
+        display: inline-block;
+        width: 0.8em;
+        height: 0.8em;
+        margin-right: 8px;
+        border: 2px solid var(--muted);
+        border-top-color: transparent;
+        border-radius: 50%;
+        vertical-align: -1px;
+        animation: spin 0.8s linear infinite;
+      }
+      #status.over {
+        position: fixed;
+        top: calc(env(safe-area-inset-top) + 12px);
+        left: 12px;
+        right: 12px;
+        z-index: 11;
+        padding: 8px 12px;
+        border-radius: 8px;
+        background: var(--bg);
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #status.busy::before {
+          animation: none;
+        }
       }
       table {
         width: 100%;
@@ -110,9 +158,18 @@
   <body>
     <main>
       <h1>Sariema probe</h1>
-      <p>What this browser offers the engine. The smoke test plays the demo game for a moment, its music included.</p>
-      <button id="smoke">Run the smoke test</button>
-      <button id="copy">Copy JSON</button>
+      <p>What this browser offers the engine.</p>
+      <ol>
+        <li>
+          Tap <b>Run the test</b> once. It plays the demo game with its music
+          for about 20 seconds, part of it full screen.
+        </li>
+        <li>Keep this tab in front and the screen on until it says Done.</li>
+        <li>Tap <b>Copy the result</b> and paste it where you were asked.</li>
+      </ol>
+      <button id="smoke">Run the test</button>
+      <button id="copy">Copy the result</button>
+      <p id="status" role="status" aria-live="polite">Ready.</p>
       <table id="summary"></table>
       <canvas id="stage"></canvas>
       <pre id="json"></pre>

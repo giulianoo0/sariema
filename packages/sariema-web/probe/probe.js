@@ -9,6 +9,9 @@
 const result = { probe: 1, at: new Date().toISOString() };
 const summary = document.getElementById("summary");
 const out = document.getElementById("json");
+const status = document.getElementById("status");
+const runButton = document.getElementById("smoke");
+const copyButton = document.getElementById("copy");
 
 // From wasm-feature-detect (Apache-2.0): a v128 constant, and an atomic load
 // on shared memory.
@@ -51,6 +54,7 @@ function show() {
     const shown = (f) => f && `${Math.round(f.fps)} fps, p95 ${f.interval_ms.p95.toFixed(1)} ms, ${f.size.join("×")}`;
     rows.push(["Frames", shown(result.smoke.frames) ?? "—"]);
     rows.push(["Frames, full screen", shown(result.smoke.frames_full_screen) ?? "—"]);
+    rows.push(["Audio underruns while measuring", result.smoke.audio_underruns_measuring]);
   }
   summary.replaceChildren(
     ...rows.map(([name, value]) => {
@@ -143,28 +147,36 @@ function webgl2() {
   return found;
 }
 
+function say(text, state = "busy") {
+  status.textContent = text;
+  status.className = state;
+}
+
 // Plays for `ms` and reads the frames the display shows (each interval
-// between animation frames) and the engine's own size, then times a burst of
-// draws of one frame: the CPU to encode and submit, and the wall time with
-// the GPU.
+// between animation frames) and the size the engine draws at, then times a
+// burst of draws of one frame: the CPU to encode and submit, and the wall
+// time with the GPU.
 async function frames(sariema, ms) {
   sariema.start();
   const at = [];
+  let size;
   await new Promise((done) => {
     const tick = (now) => {
       at.push(now);
+      if (at.length === 30) size = sariema.stats().size;
       if (now - at[0] < ms) requestAnimationFrame(tick);
       else done();
     };
     requestAnimationFrame(tick);
   });
+  size ??= sariema.stats().size;
   sariema.stop();
   const gaps = at.slice(1).map((t, i) => t - at[i]).sort((a, b) => a - b);
   const q = (p) => gaps[Math.min(gaps.length - 1, Math.floor(p * gaps.length))];
   const median = q(0.5);
   const burst = await sariema.bench(60);
   return {
-    size: sariema.stats().size,
+    size,
     fps: gaps.length / ((at[at.length - 1] - at[0]) / 1000),
     interval_ms: { p50: median, p95: q(0.95), p99: q(0.99), max: gaps[gaps.length - 1] },
     long_frames: gaps.filter((g) => g > median * 1.5).length,
@@ -194,11 +206,19 @@ function audio() {
   };
 }
 
+let running = false;
+
 async function smoke() {
+  if (running) return result;
+  running = true;
+  runButton.disabled = true;
+  copyButton.disabled = true;
+  runButton.textContent = "Running…";
   const s = { ok: false };
   result.smoke = s;
   const t0 = performance.now();
   try {
+    say("1 of 4 · Loading the engine and the demo…");
     const { mount } = await import("../index.js");
     const canvas = document.getElementById("stage");
     const sariema = await mount(canvas, { autoStart: false });
@@ -208,6 +228,7 @@ async function smoke() {
     const manifest = await sariema.loadGame(new URL("../demo/", import.meta.url));
     s.load_ms = performance.now() - t1;
     s.game_file = sariema.pick(manifest.game, "the game");
+    say("2 of 4 · Playing the demo with its music…");
     sariema.start();
     s.first_frame_ms = await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(performance.now() - t0))));
     await sariema.resumeAudio();
@@ -222,16 +243,40 @@ async function smoke() {
     s.ok = s.lit_fraction > 0.1 && s.stats.game.steps > 0;
     s.audio = await sariema.audioStats();
     s.audio_ok = s.audio.received > 0 && s.audio.peak > 0.05;
+    say("3 of 4 · Measuring the frames in the box (5 s)…");
     s.frames = await frames(sariema, 5000);
+    say("4 of 4 · Measuring the frames full screen (5 s)…", "busy over");
     canvas.classList.add("full");
     await settle();
     s.frames_full_screen = await frames(sariema, 5000);
-    canvas.classList.remove("full");
+    const after = await sariema.audioStats();
+    s.audio_underruns_measuring = after && s.audio ? after.underruns - s.audio.underruns : null;
   } catch (e) {
     s.error = String(e?.message ?? e);
+  } finally {
+    document.getElementById("stage").classList.remove("full");
   }
   show();
+  running = false;
+  runButton.disabled = false;
+  copyButton.disabled = false;
+  runButton.textContent = "Run again";
+  if (s.error) say(`Failed: ${s.error}. Tap Copy the result anyway.`, "no");
+  else say("Done. Tap Copy the result and paste it where you were asked.", "ok");
+  status.scrollIntoView({ block: "start", behavior: "smooth" });
   return result;
+}
+
+async function copy() {
+  const text = JSON.stringify(result, null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    copyButton.textContent = "Copied";
+    setTimeout(() => (copyButton.textContent = "Copy the result"), 2000);
+  } catch {
+    getSelection()?.selectAllChildren(out);
+    say("Copying was blocked. The result below is selected: copy it from there.", "no");
+  }
 }
 
 function pick(o, keys) {
@@ -245,7 +290,7 @@ result.audio = audio();
 result.webgpu = await webgpu().catch((e) => ({ available: false, why: String(e) }));
 show();
 
-document.getElementById("smoke").onclick = () => smoke();
-document.getElementById("copy").onclick = () => navigator.clipboard?.writeText(JSON.stringify(result, null, 2));
+runButton.onclick = () => smoke();
+copyButton.onclick = () => copy();
 if (new URLSearchParams(location.search).has("auto")) await smoke();
 window.probeResult = result;
