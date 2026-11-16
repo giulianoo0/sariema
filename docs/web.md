@@ -28,9 +28,10 @@ page (JS)                                   engine (wasm, crates/sariema-web)
                                               or the Stage's UI
   ResizeObserver, devicePixelRatio ──────►  Engine.resize
   visibilitychange: stop, suspend audio
-  webglcontextlost / device lost ─────────►  frame() returns −1: a game moves
-                                              to a new GPU (Engine.restored);
-                                              a Stage replays every load
+  webglcontextlost / device lost ─────────►  frame() returns −1: open_gpu, then
+                                              a game's engine adopts the GPU
+                                              (Engine.adopt); a Stage replays
+                                              every load
   AudioWorklet reports frames played ────►  Engine.mix: blocks due, posted
                                               back to the worklet
   fetch packs (streamed into one buffer)  ►  load_game / load_room / load_actor
@@ -75,19 +76,23 @@ them). `docs/engine.md` has the order of a step.
   step.
 - **Cutscenes, fades and bars** are the engine's, drawn at the step's
   value (the fade contract in `docs/engine.md`).
-- **A lost GPU** moves the game to a new device: `Engine.restored` keeps
-  the running engine and loads its room and actors again from the pack's
-  bytes the package kept, so the game goes on at the step it had reached,
-  hash unchanged.
+- **A lost GPU** moves the game to a new device: `open_gpu` opens one on
+  the canvas and the running engine adopts it (`Engine.adopt`), loading
+  into it the room and actors its game host kept, so the game goes on at
+  the step it had reached, hash unchanged. If the GPU cannot be opened
+  the engine stays as it was and a later `rebuild()` tries again.
 - **Replay.** `replayGame(log, to)` steps to `to` with an input log, each
   step followed by the audio feed, and returns the hashes `sariema run
-  --headless --game --input` prints. A game played with `audio: false`
+  --headless --game --input` prints. It goes on with the log it started
+  with; another log is `E_USAGE`. A game played with `audio: false`
   mixes its sound with the steps as that run does; with sound live,
   `engine_hash` still matches and `audio_hash` follows the device.
 - **A game that never returns** is stopped by its budget (`E_GAME_BUDGET`),
   as natively: the frame throws, the package stops its loop and emits
-  `error`, and the page goes on. The tick that ran out stalls the page
-  for its budget's worth of fuel (numbers below).
+  `error`, and the page goes on. A replay ends at the step that stopped
+  the game and names it (`step 29: ...`), the step `sariema run
+  --headless` stops at. The tick that ran out stalls the page for its
+  budget's worth of fuel ([numbers](#numbers)).
 
 ## Game logic in the browser
 
@@ -101,18 +106,24 @@ budget, the same canonical NaNs (`deterministic`) and the same host calls
 in Rust, so `engine_hash` matches native by construction (the browser
 tests show it in four configurations), and the climb's logic costs about
 1 µs a step of an 80 µs step — a game whose logic does heavy work pays
-for it: a tick of 20,000 float iterations takes 0.57–0.69 ms here against
-0.01 ms on the browser's JIT, so a logic that needs 2 ms natively would
-need about 18 ms in a page; that game needs the injected-gas path.
+for it: a tick of 20,000 float iterations takes 0.60–0.75 ms here against
+0.1 ms natively and 0.01 ms on the browser's JIT, so a logic that needs
+2 ms natively would need 12–15 ms in a page; that game needs the
+injected-gas path.
 
-The study (kept locally under the git-ignored `games/web/vm-bench`): the climb's
-ticks recorded natively (each step's event batch) and a synthetic tick
-were run four ways in Chromium and WebKit, seven repetitions each.
+The study is `tools/vm-bench`, run from the repository with
+
+```sh
+node tools/vm-bench/run.mjs
+```
+
+It builds `examples/climb`'s pack, records its first 900 ticks over its
+input log (each step's event batch) and times them under native wasmi,
+then runs those ticks and a synthetic tick in Chromium and WebKit, seven
+repetitions each, these ways:
 
 - **A**: wasmi compiled into a page's `.wasm` (the engine's build: opt
   level `s`, LTO, `wasm-opt -Oz`), with `VmSettings::default()`.
-- **A2**: the same built with the WebAssembly tail-call proposal on
-  (`-C target-feature=+tail-call`), so wasmi uses its tail-call dispatch.
 - **B**: the game's module instrumented at packaging as wasm-instrument's
   mutable-global mode does (Substrate's `pallet-contracts`; NEAR's
   `finite-wasm` charges at the same block boundaries): an exported `i64`
@@ -122,18 +133,18 @@ were run four ways in Chromium and WebKit, seven repetitions each.
 - **B0**: B without the gas, the browser's floor.
 
 Microseconds per tick, medians and [min–max] of seven runs (each run 900
-climb ticks on ten instances, or 60 synthetic ticks), load average 6.8–8.3
-from other work on the machine:
+climb ticks on ten instances, or 60 synthetic ticks), load average
+8.5–13.8 from other work on the machine:
 
 | Workload | Browser | Native wasmi | A | B | B0 |
 |---|---|---|---|---|---|
-| climb | Chromium | 0.27 [0.27–0.34] | 1.34 [1.23–1.79] | 0.24 [0.22–0.42] | 0.21 [0.19–0.27] |
-| climb | WebKit | ″ | 0.89 [0.78–1.67] | 0.33 [0.22–1.11] | 0.22 [0.22–0.33] |
-| synthetic | Chromium | 75 [75–84] | 687 [680–765] | 10 [8–15] | 10 [8–13] |
-| synthetic | WebKit | ″ | 567 [517–583] | ≤ 17 (timer) | ≤ 17 (timer) |
+| climb | Chromium | 0.27 [0.26–0.33] | 1.40 [1.30–1.83] | 0.30 [0.23–0.66] | 0.22 [0.20–0.26] |
+| climb | WebKit | ″ | 1.00 [0.89–1.89] | 0.33 [0.22–0.78] | 0.22 [0.22–0.33] |
+| synthetic | Chromium | 99 [76–176] | 748 [737–788] | 10 [8–17] | 10 [8–15] |
+| synthetic | WebKit | ″ | 600 [600–667] | ≤ 17 (timer) | ≤ 17 (timer) |
 
-A tick that never returns, stopped at the first tick's budget (200 M
-fuel): A in 486 ms (Chromium) and 307 ms (WebKit); B in 316 ms and 5,555 ms.
+A tick that never returns, on the first tick's budget: B's trap came in
+0.6 times A's stop in Chromium and 18 times it in WebKit.
 
 What decided it:
 
@@ -146,21 +157,28 @@ What decided it:
   id above 2³¹ missed and the climb never saw its action button: that
   class of bug is B's standing cost.
 - **Cost.** For the climb the logic is noise either way (A adds about
-  1.1 µs to a step of 80). On heavy logic B is 69 times faster in
-  Chromium and at least 33 in WebKit, whose timer reads 1 ms.
-- **Budget.** A's runaway first tick stalls 0.3–0.5 s; B's took 5.6 s in
-  WebKit.
-- **Size.** Injection grew the climb's module from 59.5 KB to 71.5 KB
+  1.1 µs to a step of 80). On heavy logic B is 75 times faster in
+  Chromium and at least 35 in WebKit, whose timer reads 1 ms.
+- **Budget.** A's runaway tick stalls the page for its fuel, as long as
+  the browser tests measure ([numbers](#numbers)); B's trap took 18
+  times longer in WebKit.
+- **Size.** Injection grew the climb's module from 60.9 KB to 73.2 KB
   (+20%, 937 sequences charged); wasmi adds to the engine's `.wasm`
   whether B is used or not, since native hosts keep it.
 
-A2 is out: with real tail calls the dispatch still recursed on the
-browser's stack and a long tick overflowed it. That is also why the
-workspace turns on wasmi's `auto-dispatch`: without it, wasm32 (no
-tail-call proposal) took the tail-call dispatch, which recursed once per
-instruction run, and any tick longer than a few thousand instructions
-threw `RangeError: Maximum call stack size exceeded` and left the engine
-borrowed; the loop dispatch it falls back to keeps the stack flat.
+A fourth way was tried and dropped: A built with the WebAssembly
+tail-call proposal on (`-C target-feature=+tail-call`), so wasmi takes its
+tail-call dispatch; the dispatch still recursed on the browser's stack and
+a long tick overflowed it. That is also why the workspace turns on
+wasmi's `auto-dispatch`: without it, wasm32 (no tail-call proposal) took
+the tail-call dispatch, which recursed once per instruction run, and any
+tick longer than a few thousand instructions threw `RangeError: Maximum
+call stack size exceeded` and left the engine borrowed; the loop dispatch
+it falls back to keeps the stack flat. It falls back the same way for a
+native wasmi built at opt-level 0 or 1 (a project depending on
+`sariema-vm` with its own unoptimised debug profile); this workspace builds
+wasmi at opt-level 3 in debug too, so its native builds always take the
+tail-call dispatch.
 
 ## Backends and render paths
 
@@ -284,8 +302,10 @@ sariema.on("ui", (e) => console.log(e.type, e.node));
 ```
 
 `loadGame(folder, { seed, audio })` and `playGame(pack, { seed, audio })`
-start a game from its first step (seed 0, as `sariema run --game`);
-`audio: false` mixes its sound with the steps instead of playing it.
+start a game from its first step (seed 0, as `sariema run --game`); a
+seed is a whole number from 0 to 2⁶⁴ − 1, a `bigint` past 2⁵³ − 1, and
+anything else is `E_USAGE`. `audio: false` mixes its sound with the steps
+instead of playing it.
 `replayGame(log, to)` steps it with an input log and returns its hashes;
 `gameHashes()` gives them at any time; `stats().game` gives its steps, the
 hero's position and why it stopped.
@@ -297,7 +317,8 @@ uploads and steps; `destroy()` lets go of the GPU and audio. On a lost
 WebGL context or WebGPU device the package moves a playing game to a new
 device on the same canvas, or makes a new engine and replays every load
 in order, emitting `lost` and `restored`, or `error` if that fails (for
-instance a pack that can no longer be fetched). Packs are fetched as they stream in; a Content-Length is only a
+instance a canvas that gives no context, or a pack that can no longer be
+fetched); `rebuild()` tries again. Packs are fetched as they stream in; a Content-Length is only a
 size hint, since a compressed response from another origin shows its
 compressed length and hides its encoding.
 
@@ -344,14 +365,20 @@ checks a rebuild that cannot fetch its room emits `error`; runs the probe
 page; and remounts without compressed textures to check the RGBA8 packs
 load. Then the climb: replayed with its input log it reaches the native
 `engine_hash`, `state_hash` and `physics_hash` at each of the four steps,
-and its frame there matches the native one; its step is timed (900 steps,
-seven times); played live, its music reaches the worklet without an
-underrun at the default lead; a synthetic touch drag on the HUD's joystick
-moves the hero; a game whose logic never returns raises `E_GAME_BUDGET`,
-stops the loop, and a timer fires on time after it; a GPU lost mid-game
-leaves the game at its step and hash, and it goes on drawing; and, on the
-counting build, its replayed steps allocate nothing from step 600 to
-1200. Results and the numbers land in `test/out/results.json`, the
+and its frame there matches the native one; asked to go on with another
+log it is `E_USAGE` and stays; seeds out of range are `E_USAGE`, and one
+past 2⁵³ reaches the native hashes; its step is timed (900 steps, seven
+times); played live, its music reaches the worklet without an underrun at
+the default lead; a synthetic touch drag on the HUD's joystick moves the
+hero; a game whose logic never returns raises `E_GAME_BUDGET`, stops the
+loop, and a timer fires on time after it, and one whose 30th tick never
+returns stops at the step and with the hashes it does natively; a GPU
+lost mid-game leaves the game at its step and hash, and it goes on
+drawing, also when the canvas first gives no context and a second restore
+succeeds; and, on the counting build, its replayed steps allocate at the
+steps and as often as natively, nothing from 600 to 1200 nor while only
+the HUD animates, and a second of live frames no more than the audio
+feed's steady second. Results and the numbers land in `test/out/results.json`, the
 browsers' climb frames in `test/out/renders/`. The tolerance is the
 goldens' own: no channel more than 6 apart, or at most 0.5% of pixels.
 `SARIEMA_BROWSERS=chromium-webgl2,webkit-webgpu` picks configurations;
@@ -504,21 +531,19 @@ actors, sounds and HUD); load average 8.0–9.9:
 The game folder is 448 KB a variant (`game.srmg`, ASTC; the climb's one
 texture makes the variants alike).
 
-**Allocations**, on the counting build: the climb's replayed steps from
-600 to 1200 allocate nothing in every browser. From 120 to 600, the steps
-in which the climb runs every event it has, they allocate 726 times on the
-web and 726 times natively, at the same places: the HUD's relayouts inside
-taffy (543, while the objective and the cinema bars move), the dialogue
-line's first shaping and glyphs (133), animation tracks cloned when the HUD
-plays one (17), and first growth in the cutscene, collision and zones. A
-second of live frames (steps and audio feed, the music streaming) makes
-44–49, about the 0.75 a step the music's stream decoder makes natively in
-the feed.
+**Allocations**, on the counting build: the climb's replayed steps
+allocate in every browser at the steps and as often as natively, 129
+times in 18 of its 1,200 steps, none after step 600 and none while the
+HUD only animates; `docs/engine.md` lists where. A second of live frames
+(steps and audio feed, the music streaming) makes 44–48, the music
+decoder's packets, as the feed makes natively (45 a second).
 
 **A logic that never returns** raises `E_GAME_BUDGET` after its first
-tick's 200 M fuel: 543–556 ms in Chromium, 321–349 ms in WebKit, the
-longest gap a 10 ms timer saw 298–522 ms; later ticks have a tenth of
-that budget.
+tick's 200 M fuel: 535–564 ms in Chromium, 320–361 ms in WebKit, the
+longest gap a 10 ms timer saw 298–525 ms (load average 8–12). A later
+tick's budget is a tenth of that, 20 M fuel, about 30–55 ms: two to three
+frames at 60 Hz. `vm.fuel_first_step` and `vm.fuel_per_step` in the
+project's settings set the two budgets, the same on every host.
 
 **Time to first frame** of an Origem room at the medium look, measured
 with the build before games, a phone-sized

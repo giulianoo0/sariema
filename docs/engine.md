@@ -115,6 +115,43 @@ with `audio.predecode_streams` they are decoded whole when the bank loads
 and neither the step nor the feed allocates. Refusals from the feed reach
 the game at the next step, as the step's do.
 
+## Allocations
+
+A step that only animates allocates nothing. The cinema bars are laid out
+once at their full height and scaled from their outer edges to the
+letterbox, the dialogue line moved with them by an offset; fades, tweens
+and springs write transforms and colours; a named animation plays from
+its tracks where they are kept. A step that changes content (a line
+shown, a text set, a node resized) lays the HUD out again inside taffy,
+which allocates as it lays out. So at load the engine shapes every line
+the pack's cutscenes hold, rasterising their glyphs and making room for
+the longest in the line's node, and lays the HUD out; a resize lays it out
+at once rather than in the next step.
+
+The climb, replayed over its input log and as long again with no input,
+allocates in 18 of its 1,200 steps, 129 times, all before step 600; every
+host makes the same counts at the same steps
+(`crates/sariema-cli/tests/climb-allocations.json`, checked natively by
+`cargo test -p sariema-cli --test allocations` and in every browser by
+the web package's tests):
+
+| Steps | Allocations | Where |
+|---|---|---|
+| 0 | 74 | the hero spawns: its body's walkable grid (the collision module builds it for an actor, so not before one exists), the world's and the logic's first buffers |
+| 186 | 12 | the cutscene starts: its run state and the hero's planned walk |
+| 340 | 20 | the cutscene's line shows: taffy lays the HUD out (15), the runtime keeps the line and the block's state (5) |
+| 214, 243, 436, 460 | 1 each | a cutscene block starts: its boxed state |
+| 20, 30, 31, 50, 65, 66, 98, 185, 213, 259, 266 | 19 | a buffer of the runtime, the collision world or the logic's host grows to a size it had not reached |
+
+The audio feed runs between steps. The music's stream decoder (symphonia)
+allocates for every packet it reads: a frame's bytes and its bit
+reservoir, which its API does not let a caller lend, about 45 a second for
+the climb's 44.1 kHz MP3. Opening the stream and decoding a sound loaded
+on demand add a burst once (660 in the climb's first second, 151 in its
+sixth); the resampler's kernel and output are sized before they are
+filled. `audio.predecode_streams` decodes the streams at load instead,
+after which neither the steps nor the feed allocate.
+
 ## A frame
 
 `Engine::frame(dt, raw)` runs the steps a display frame owes (the runtime's
