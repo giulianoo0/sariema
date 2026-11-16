@@ -53,9 +53,29 @@ fn le32(b: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]])
 }
 
+/// What a KTX2 file may hold before it is refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ktx2Settings {
+    /// Texels along the longer side; a file claiming more is refused before
+    /// anything is allocated.
+    pub max_side: u32,
+}
+
+impl Default for Ktx2Settings {
+    /// The largest 2D texture WebGPU's and Metal's limits allow.
+    fn default() -> Ktx2Settings {
+        Ktx2Settings { max_side: 16_384 }
+    }
+}
+
 /// Level 0 of the KTX2 file `bytes` as RGBA8, the texels as stored (so sRGB
-/// for a colour texture).
+/// for a colour texture), within [`Ktx2Settings::default`].
 pub fn decode_ktx2(bytes: &[u8]) -> Result<RgbaImage, String> {
+    decode_ktx2_with(bytes, &Ktx2Settings::default())
+}
+
+/// [`decode_ktx2`] within `settings`.
+pub fn decode_ktx2_with(bytes: &[u8], settings: &Ktx2Settings) -> Result<RgbaImage, String> {
     let file = File(bytes);
     if bytes.get(..IDENTIFIER.len()) != Some(&IDENTIFIER[..]) {
         return Err("not a KTX2 file".into());
@@ -72,6 +92,15 @@ pub fn decode_ktx2(bytes: &[u8]) -> Result<RgbaImage, String> {
     if width == 0 || height == 0 || depth > 0 || layers > 1 || faces != 1 {
         return Err(format!(
             "KTX2 of {width}×{height}×{depth}, {layers} layers and {faces} faces is not a 2D texture"
+        ));
+    }
+    let held = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|texels| texels.checked_mul(4));
+    if width.max(height) > settings.max_side || held.is_none() {
+        return Err(format!(
+            "KTX2 of {width}×{height} is larger than {} texels a side",
+            settings.max_side
         ));
     }
     let dfd = file.bytes(

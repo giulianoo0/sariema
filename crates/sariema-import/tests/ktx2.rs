@@ -13,7 +13,9 @@ use ctt_astcenc::bindings::{astcenc_image, astcenc_type_ASTCENC_TYPE_U8};
 use ctt_astcenc::{Context, Flags, Preset, Profile, Swizzle, config_init};
 use image::{Rgba, RgbaImage};
 use sariema_format::TextureFormat;
-use sariema_import::{TextureMode, decode_ktx2, encode_texture, load_kit};
+use sariema_import::{
+    Ktx2Settings, TextureMode, decode_ktx2, decode_ktx2_with, encode_texture, load_kit,
+};
 
 use common::write_glb;
 
@@ -613,6 +615,26 @@ fn broken_or_unsupported_files_are_errors_not_panics() {
         *b ^= (i as u8).wrapping_mul(37) | 1;
     }
     let _ = decode_ktx2(&noise);
+}
+
+#[test]
+fn a_texture_too_large_to_hold_is_an_error_before_anything_is_allocated() {
+    let good = uastc::encode(&source(16, 16, false), false).file;
+    let sized = |w: u32, h: u32| {
+        let mut f = good.clone();
+        f[20..24].copy_from_slice(&w.to_le_bytes());
+        f[24..28].copy_from_slice(&h.to_le_bytes());
+        f
+    };
+    for (w, h) in [(u32::MAX, u32::MAX), (1 << 20, 1 << 20), (65_536, 4)] {
+        let err = decode_ktx2(&sized(w, h)).unwrap_err();
+        assert!(err.contains(&format!("{w}×{h}")), "{err}");
+    }
+    let tight = Ktx2Settings { max_side: 8 };
+    let err = decode_ktx2_with(&good, &tight).unwrap_err();
+    assert!(err.contains("8"), "{err}");
+    assert!(decode_ktx2_with(&good, &Ktx2Settings { max_side: 16 }).is_ok());
+    assert_eq!(Ktx2Settings::default().max_side, 16_384);
 }
 
 fn basisu_kit(name: &str, ktx2: &[u8], fallback: Option<&[u8]>) -> std::path::PathBuf {
