@@ -16,6 +16,11 @@
       "type": "object",
       "description": "Room id to the path of its room description (schemas/room.schema.json), relative to the project directory.",
       "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "audio": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path of the game's sound description (schemas/audio.schema.json), relative to the project directory."
     }
   }
 }

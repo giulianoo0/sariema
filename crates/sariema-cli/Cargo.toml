@@ -15,6 +15,7 @@ clap.workspace = true
 image.workspace = true
 jsonschema.workspace = true
 pollster.workspace = true
+sariema-audio = { path = "../sariema-audio" }
 sariema-core = { path = "../sariema-core" }
 sariema-format = { path = "../sariema-format" }
 sariema-import = { path = "../sariema-import" }

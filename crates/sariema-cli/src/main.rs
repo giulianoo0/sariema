@@ -9,6 +9,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum, value_parser};
 use sariema_import::TextureMode;
 use sariema_render::Quality;
 
+mod audio;
 mod golden;
 mod output;
 mod pack;
@@ -67,6 +68,8 @@ enum Command {
         #[arg(long)]
         update: bool,
     },
+    /// Build, inspect and check sound banks; render cue lists offline.
+    Audio(audio::AudioArgs),
 }
 
 #[derive(Args)]
@@ -149,6 +152,7 @@ fn main() -> ExitCode {
         Command::Inspect { pack } => pack::inspect(pack),
         Command::Run(args) => run::run(args),
         Command::Test { dir, update } => golden::test(dir, *update),
+        Command::Audio(args) => audio::run(args),
     });
     output::emit(cli.json, outcome)
 }

@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sariema cue list",
+  "description": "Timed mixer commands for `sariema audio render`. Times are seconds on the mixer clock, which keeps running during a pause.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["duration_s", "cues"],
+  "properties": {
+    "duration_s": { "type": "number", "exclusiveMinimum": 0 },
+    "cues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["t", "do"],
+        "properties": {
+          "t": { "type": "number", "minimum": 0 },
+          "do": {
+            "enum": ["play", "stop", "voice", "music", "stinger", "music_stop", "bus", "master", "pause", "resume", "preload", "unload"]
+          }
+        },
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "required": ["sound"],
+            "properties": {
+              "t": true,
+              "do": { "const": "play" },
+              "sound": { "type": "string" },
+              "id": { "type": "string", "description": "Name later stop and voice cues use." },
+              "gain_db": { "type": "number" },
+              "pan": { "type": "number", "minimum": -1, "maximum": 1 },
+              "loop": { "type": "boolean", "description": "Default: when the sound has loop points." },
+              "fade_in_s": { "type": "number", "minimum": 0 },
+              "priority": { "type": "integer", "minimum": 0, "maximum": 255, "description": "Only voices of a priority at most this are stolen for it. Default 128." }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "t": true,
+              "do": { "const": "stop" },
+              "id": { "type": "string" },
+              "fade_s": { "type": "number", "minimum": 0 }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "t": true,
+              "do": { "const": "voice" },
+              "id": { "type": "string" },
+              "gain_db": { "type": "number" },
+              "pan": { "type": "number", "minimum": -1, "maximum": 1 },
+              "ramp_s": { "type": "number", "minimum": 0 }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "required": ["sound"],
+            "properties": {
+              "t": true,
+              "do": { "const": "music" },
+              "sound": { "type": "string" },
+              "fade_in_s": { "type": "number", "minimum": 0 },
+              "fade_out_s": { "type": "number", "minimum": 0 },
+              "loop": { "type": "boolean", "description": "Default true." }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "required": ["sound"],
+            "properties": {
+              "t": true,
+              "do": { "const": "stinger" },
+              "sound": { "type": "string" }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "t": true,
+              "do": { "const": "music_stop" },
+              "fade_s": { "type": "number", "minimum": 0 }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "required": ["bus", "gain_db"],
+            "properties": {
+              "t": true,
+              "do": { "const": "bus" },
+              "bus": { "type": "string" },
+              "gain_db": { "type": "number" },
+              "ramp_s": { "type": "number", "minimum": 0 }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "required": ["gain_db"],
+            "properties": {
+              "t": true,
+              "do": { "const": "master" },
+              "gain_db": { "type": "number" },
+              "ramp_s": { "type": "number", "minimum": 0 }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "t": true,
+              "do": { "enum": ["pause", "resume"] }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "required": ["sound"],
+            "properties": {
+              "t": true,
+              "do": { "enum": ["preload", "unload"] },
+              "sound": { "type": "string" }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
