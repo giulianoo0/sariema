@@ -1,63 +1,86 @@
-# Sariema
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/lockup-dark.svg">
+    <img src="assets/brand/lockup.svg" alt="Sariema" height="64">
+  </picture>
+</p>
 
-An open-source native game engine written in Rust on `wgpu`, built to be
-embedded in apps and to run games downloaded as data packages. The design is
+<p align="center">The game engine that fits inside your app: Rust on wgpu, games shipped as data packs with sandboxed WebAssembly logic.</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-B4532A"></a>
+  <img alt="Desktop" src="https://img.shields.io/badge/desktop-wgpu-4F6B3A">
+  <img alt="Web: WebGPU and WebGL2" src="https://img.shields.io/badge/web-WebGPU%20%7C%20WebGL2-4F6B3A">
+  <img alt="React Native: WebView" src="https://img.shields.io/badge/React%20Native-WebView-9AA284">
+</p>
+
+Status: early. A game steps at a fixed 1/60 s to the same `engine_hash` on
+desktop and in the browser: rendering, collision, animation, sound, HUD and
+cutscenes, with the logic as WebAssembly under a fuel budget. The design is
 in [docs/design.md](docs/design.md).
 
-Status: early. A room can be imported and rendered headless on desktop with
-clustered forward lighting, shadows and the post-processing chain, driven by
-the `sariema` command-line tool.
+## Quick start
 
-- `crates/sariema-format` — the packs: room (`SRMA`), collision (`SRMC`),
-  actor (`SRMK`), sound bank (`SRMS`) and game (`SRMG`, with the command and
-  event batch); types, encoding, validation.
-- `crates/sariema-import` — packaging-time import: compressed glTF kits and room
-  assembly from placement and lighting files (`schemas/room.schema.json`).
-- `crates/sariema-core` — the room camera.
-- `crates/sariema-physics` — deterministic character movement and collision, collision packs (`SRMC`) and `sariema check` ([docs/physics.md](docs/physics.md)).
-- `crates/sariema-render` — the wgpu renderer: clustered forward scene pass,
-  shadow atlas, post-processing chain, quality tiers, headless rendering and
-  image comparison.
-- `crates/sariema-anim` — skeletal animation: clip sampling, crossfades,
-  events and skinning palettes for actor packs (`SRMK`, see
-  [docs/actors.md](docs/actors.md)).
-- `crates/sariema-audio` — the mixer: buses, streamed music, ducking, loudness
-  checks and offline rendering of cue lists ([docs/audio.md](docs/audio.md)).
-- `crates/sariema-ui` — in-engine UI: flexbox tree, distance-field text, animation, touch widgets and a batched draw list ([docs/ui.md](docs/ui.md)).
-- `crates/sariema-runtime`, `crates/sariema-vm`, `crates/sariema-sdk` — games: the fixed-step simulation with cutscenes, the sandboxed WebAssembly machine, and the SDK the logic is written with ([docs/game-api.md](docs/game-api.md), `examples/hello-game`).
-- `crates/sariema-engine` — the engine as one: the runtime stepped with the
-  collision, animation, sound and HUD modules wired in, deterministic on
-  every platform ([docs/engine.md](docs/engine.md), `examples/climb`).
-- `crates/sariema-web` and `packages/sariema-web` — the engine in a web page or app WebView: whole games on WebGPU or WebGL2, with the same `engine_hash` as native, the typed `@sariema/web` package, browser tests and a probe page ([docs/web.md](docs/web.md)).
-- `crates/sariema-view` — what a host draws of a running game: its room, actors and HUD at the frame's `alpha`, shared by the window player, `run --headless` and the web host.
-- `crates/sariema-cli` — the `sariema` tool: `new`, `build`, `inspect`, `run`,
-  `test`, `check`, `physics-map`, `bench`, `audio`, `ui`, `api` and `web`, each with
-  `--json`. `examples/demo` is a room it can build; `examples/climb` is a
-  game it builds, replays headless and plays in a window or a browser.
+### The CLI
 
-Docs:
+The `sariema` tool makes, builds, runs and checks games, each command with
+`--json`. Game logic compiles to WebAssembly with the toolchain pinned in
+`rust-toolchain.toml`.
 
-- [docs/design.md](docs/design.md) — the public design.
-- [docs/physics.md](docs/physics.md) — character movement, collision packs and `sariema check`.
-- [docs/actors.md](docs/actors.md) — actor packs, skeletal animation and skinned drawing.
-- [docs/audio.md](docs/audio.md) — sound banks, the mixer and `sariema audio`.
-- [docs/ui.md](docs/ui.md) — the in-engine UI and `sariema ui render`.
-- [docs/performance.md](docs/performance.md) — `sariema bench` and what a frame costs.
-- [docs/engine.md](docs/engine.md) — the order of a step and every hand-off between the modules.
-- [docs/game-api.md](docs/game-api.md) — the game module, the step, commands and events.
-- [docs/cutscenes.md](docs/cutscenes.md) — cutscenes, their rules and directing.
-- [docs/web.md](docs/web.md) — browsers and WebViews: render paths, textures, audio, building, testing and serving.
+```sh
+git clone https://github.com/giulianoo0/sariema && cd sariema
+rustup target add wasm32-unknown-unknown
+cargo build --release -p sariema-cli
+export PATH="$PWD/target/release:$PATH"
 
-Agent skills, for an agent building a game with the engine:
+sariema new my-game --toolchain 1.100.0
+sariema build my-game -o my-game.srmg
+sariema run --game my-game.srmg                  # in a window
+sariema run --game my-game.srmg --headless --steps 120 --screenshot shot.png
+```
 
-- [skills/sariema](skills/sariema/SKILL.md)
-- [skills/sariema-game-scripting](skills/sariema-game-scripting/SKILL.md)
-- [skills/sariema-cutscenes](skills/sariema-cutscenes/SKILL.md)
-- [skills/sariema-physics](skills/sariema-physics/SKILL.md)
-- [skills/sariema-actors](skills/sariema-actors/SKILL.md)
-- [skills/sariema-audio](skills/sariema-audio/SKILL.md)
-- [skills/sariema-ui](skills/sariema-ui/SKILL.md)
-- [skills/sariema-web](skills/sariema-web/SKILL.md)
+### The web
+
+`packages/sariema-web` is the engine compiled to WebAssembly with a typed
+API, drawing on WebGPU or WebGL2. It needs `wasm-bindgen-cli` at the
+workspace's version and Node.
+
+```sh
+cargo install wasm-bindgen-cli --version 0.2.130 --locked
+cd packages/sariema-web
+npm install
+npm run build      # dist/: the engine, its API and examples/climb
+npm run serve      # http://127.0.0.1:8787/dist/probe/ plays the climb
+```
+
+```ts
+import { mount } from "@sariema/web";
+
+const sariema = await mount(canvas, { quality: "medium" });
+await sariema.loadGame("/games/climb/"); // a folder written by `sariema web`
+```
+
+### React Native
+
+Today an app runs the web package inside `react-native-webview`, pointed
+at a page that mounts it; [docs/web.md](docs/web.md#webview-notes) has the
+WebView settings and how events and saves cross to the app. A native
+Fabric component, with no WebView, is the design's goal.
+
+## Docs
+
+The site in `site/` (`npm install && npm run dev` there) serves
+[docs/](docs/) as they are. Start with [the engine](docs/engine.md) and
+[the game API](docs/game-api.md); the rest covers
+[physics](docs/physics.md), [actors](docs/actors.md),
+[cutscenes](docs/cutscenes.md), [audio](docs/audio.md), [UI](docs/ui.md),
+[the web](docs/web.md) and [performance](docs/performance.md). The logo,
+colours and their rules are in [docs/brand.md](docs/brand.md).
+
+For an agent building a game, the skills are in [skills/](skills/), starting
+with [skills/sariema](skills/sariema/SKILL.md).
+
+## Developing
 
 ```sh
 cargo test --workspace
