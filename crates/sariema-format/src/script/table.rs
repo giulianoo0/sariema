@@ -187,12 +187,6 @@ batch_table! {
         /// finite, and with E_TELEPORT_VISIBLE when a span would carry a
         /// visible actor faster than it may be seen to move.
         0x0021 ClipPath clip_path { entity: Entity, clip: u32, mode: ClipMode, blend: f32, from: f32, hold: f32, spans: Bytes }
-        /// Queues `clip` after the clip `entity` plays and those queued
-        /// after it: it begins once the one before has played `after`
-        /// seconds, or reached its end when `after` is 0, with the time left
-        /// over, so the seam shows no still frame. Plays at once when the
-        /// actor plays no clip. A `play_clip` or `clip_path` drops the queue.
-        0x0023 ClipNext clip_next { entity: Entity, clip: u32, mode: ClipMode, blend: f32, speed: f32, after: f32 }
         /// Plays the clip `entity` plays at `rate` from this step, going on
         /// from where it is: no restart and no crossfade, so a walk cycle
         /// follows the actor's pace without its feet sliding. 0 holds it
@@ -202,6 +196,12 @@ batch_table! {
         /// another clip or none, and with E_CLIP_RATE for a rate below 0 or
         /// not finite.
         0x0022 ClipRate clip_rate { entity: Entity, clip: u32, rate: f32 }
+        /// Queues `clip` after the clip `entity` plays and those queued
+        /// after it: it begins once the one before has played `after`
+        /// seconds, or reached its end when `after` is 0, with the time left
+        /// over, so the seam shows no still frame. Plays at once when the
+        /// actor plays no clip. A `play_clip` or `clip_path` drops the queue.
+        0x0023 ClipNext clip_next { entity: Entity, clip: u32, mode: ClipMode, blend: f32, speed: f32, after: f32 }
         /// `actor` holds `entity` (a room node, a light, an empty) at its
         /// socket or joint `socket`, a socket looked up first: the entity
         /// stays where it stands on the socket when `keep`, else sits at
