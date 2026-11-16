@@ -146,7 +146,7 @@ fn action_face(boxes: &[Drawn]) -> bool {
 }
 
 #[test]
-fn the_games_hud_steps_aside_while_a_cutscene_holds_control() {
+fn the_games_hud_steps_aside_until_the_cutscene_and_its_bars_are_gone() {
     let ended = std::rc::Rc::new(std::cell::Cell::new(None));
     let seen = ended.clone();
     let logic = native(move |n, events, out| {
@@ -162,20 +162,34 @@ fn the_games_hud_steps_aside_while_a_cutscene_holds_control() {
     });
     let mut engine = talk_engine(logic, assets(), EngineSettings::default());
     let actions = Actions::for_settings(&engine.state().settings.input);
-    let mut held = 0;
+    let screen = engine.hud().ui.screen();
+    let (mut held, mut back) = (0, 0);
     for _ in 0..140 {
         engine.step(&actions);
         let by = engine.state().control.by;
-        let shown = action_face(&drawn(&mut engine, 0.5));
-        match by {
-            Controller::Cutscene => {
-                assert!(!shown, "the HUD's button drawn during the cutscene");
-                held += 1;
-            }
-            _ => assert!(shown, "the HUD's button missing at step {}", engine.steps()),
+        let bars = engine.state().screen.letterbox.value() > 0.0;
+        let boxes = drawn(&mut engine, 0.5);
+        let shown = action_face(&boxes);
+        let under = bottom_bar(&boxes, screen.width, screen.height)
+            .is_some_and(|b| b.bounds[3] - b.bounds[1] > 0.5);
+        let step = engine.steps();
+        assert!(
+            !(shown && under),
+            "the HUD's button drawn under a bar at step {step}"
+        );
+        if by == Controller::Cutscene {
+            assert!(
+                !shown,
+                "the HUD's button drawn during the cutscene at step {step}"
+            );
+            held += 1;
+        } else if !bars {
+            assert!(shown, "the HUD's button missing at step {step}");
+            back += 1;
         }
     }
     assert!(held >= 60, "the cutscene held control: {held}");
+    assert!(back > 40, "the HUD came back: {back}");
     assert!(ended.get().is_some(), "the cutscene ended");
 }
 

@@ -389,8 +389,8 @@ without `--headless` the pack plays in a window.
   name, and `ui_play` plays one of its animations, so a game binds its
   events to the HUD (an objective that slides in on `trigger_enter`).
   While a cutscene holds control the engine hides the HUD and brings it
-  back after, as the game last set it; a root node in the group `cutscene`
-  stays.
+  back, as the game last set it, once the cinema bars are gone; a root
+  node in the group `cutscene` stays.
 - **Screen**: `fade` to a colour, `letterbox`, and dialogue lines (`say`):
   an `auto` line ends after its duration, a `tap` line when the game sends
   `advance_line` (in a cutscene, on the `cutscene.advance_action` button);

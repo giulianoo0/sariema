@@ -74,7 +74,7 @@ stick; a button node named like an input button (`action`) presses that
 button. Over the HUD the engine draws the cinema bars, the dialogue line
 riding above the bottom one (with the HUD's first font) and the fade.
 While a cutscene holds control the engine hides the HUD's root nodes and
-brings them back after; put `"groups": ["cutscene"]` on one that must stay.
+brings them back once its cinema bars are gone; put `"groups": ["cutscene"]` on one that must stay.
 Hide nothing yourself on `cutscene_started`. Check the frames in the game,
 not only the description:
 

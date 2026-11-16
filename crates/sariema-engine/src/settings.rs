@@ -105,9 +105,9 @@ pub struct HudSettings {
     /// Screen size until the host gives one.
     pub width: f32,
     pub height: f32,
-    /// Hides the game's HUD while a cutscene holds control; a node of its
-    /// root in the group [`KEEP_IN_CUTSCENES`](crate::KEEP_IN_CUTSCENES)
-    /// stays.
+    /// Hides the game's HUD while a cutscene holds control and until its
+    /// cinema bars are gone; a node of its root in the group
+    /// [`KEEP_IN_CUTSCENES`](crate::KEEP_IN_CUTSCENES) stays.
     pub hide_in_cutscenes: bool,
 }
 

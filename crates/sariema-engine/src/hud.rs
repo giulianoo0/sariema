@@ -206,8 +206,12 @@ impl Hud {
         }
     }
 
+    /// Hides the panels while a cutscene holds control, and until the
+    /// cinema bars it leaves behind are gone, so no bar ever covers them.
     fn step_aside(&mut self, s: &State) {
-        let aside = self.settings.hide_in_cutscenes && s.control.by == Controller::Cutscene;
+        let cutscene = s.control.by == Controller::Cutscene;
+        let bars = s.screen.letterbox.value() > 0.0;
+        let aside = self.settings.hide_in_cutscenes && (cutscene || (self.aside && bars));
         if aside == self.aside {
             return;
         }

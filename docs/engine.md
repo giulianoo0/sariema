@@ -86,9 +86,10 @@ collision pack the runtime's built-in mover is switched off
    device the host takes the mixer and commands play at once.
 9. **HUD.** The game's `ui_visible`, `ui_text`, `ui_value` and `ui_play`
    reach the screen. While a cutscene holds control the game's HUD steps
-   aside: each node of the HUD's root is hidden and shown again when
-   control returns, as the game last asked, unless it is in the group
-   `cutscene` (`"groups": ["cutscene"]`). Over the game's own nodes the
+   aside: each node of the HUD's root is hidden and shown again, as the
+   game last asked, once control has returned and the cinema bars the
+   cutscene left are gone, so no bar covers it. A node in the group
+   `cutscene` (`"groups": ["cutscene"]`) stays. Over the game's own nodes the
    engine draws its layer: the top cinema bar, the bottom one with the
    dialogue line (when the HUD has a font) riding `line_margin` above it,
    and the fade.
@@ -164,7 +165,7 @@ each module's own settings stay in its crate.
 | `hud.line_inset` | 0.12 | the line's space either side, a fraction of the screen's width |
 | `hud.line_padding`, `hud.line_radius` | [10, 18], 12 | the line's box, in UI pixels |
 | `hud.line_fill`, `hud.line_color` | black at 0.7, white | the line's box and text |
-| `hud.hide_in_cutscenes` | true | the game's HUD steps aside while a cutscene holds control |
+| `hud.hide_in_cutscenes` | true | the game's HUD steps aside while a cutscene holds control and its bars are up |
 | `hud.width`, `hud.height` | 1280, 720 | the screen until the host gives one |
 
 ## Determinism
