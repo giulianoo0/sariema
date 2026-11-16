@@ -14,8 +14,6 @@ mod pack;
 mod project;
 mod run;
 
-use output::{Failure, emit};
-
 #[derive(Parser)]
 #[command(
     name = "sariema",
@@ -46,6 +44,10 @@ enum Command {
     /// Show a pack's stats, lights, materials and loose draws.
     Inspect { pack: PathBuf },
     /// Draw a pack's room.
+    ///
+    /// The report's cpu_ms_per_frame is the CPU time to encode and submit a
+    /// frame and excludes GPU execution; wall_ms_per_frame waits for the GPU
+    /// to finish every frame.
     Run(RunArgs),
     /// Render each X.srma of a directory and compare it with X.golden.png beside it.
     Test {
@@ -107,26 +109,9 @@ fn fraction(s: &str) -> Result<f32, String> {
 fn main() -> ExitCode {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
-        Err(e) if !e.use_stderr() => e.exit(),
-        Err(e) => {
-            // Parsing failed, so `--json` is looked for in the raw arguments.
-            if !std::env::args_os().any(|a| a == "--json") {
-                let _ = e.print();
-                return ExitCode::from(1);
-            }
-            // The first paragraph names the problem; usage and tips follow.
-            let rendered = e.render().to_string();
-            let lines: Vec<&str> = rendered
-                .lines()
-                .map(str::trim)
-                .take_while(|l| !l.is_empty())
-                .collect();
-            let message = lines.join(" ");
-            let message = message.strip_prefix("error: ").unwrap_or(&message);
-            return emit(true, Err(Failure::new("E_USAGE", message)));
-        }
+        Err(e) => return output::parse_error(e, output::json_flag(std::env::args_os())),
     };
-    let outcome = match &cli.command {
+    let outcome = output::guarded(|| match &cli.command {
         Command::Build {
             project,
             room,
@@ -135,6 +120,6 @@ fn main() -> ExitCode {
         Command::Inspect { pack } => pack::inspect(pack),
         Command::Run(args) => run::run(args),
         Command::Test { dir, update } => golden::test(dir, *update),
-    };
-    emit(cli.json, outcome)
+    });
+    output::emit(cli.json, outcome)
 }

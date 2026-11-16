@@ -63,6 +63,16 @@ impl Headless {
         self.renderer.render(camera, time_s, &self.view);
     }
 
+    /// Blocks until the GPU has executed every frame drawn so far.
+    pub fn finish(&self) -> Result<(), RenderError> {
+        self.renderer
+            .gpu()
+            .device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map(drop)
+            .map_err(|e| RenderError::Device(e.to_string()))
+    }
+
     /// The last frame drawn, read back from the GPU.
     pub fn image(&self) -> RgbaImage {
         let (width, height) = (self.target.width(), self.target.height());

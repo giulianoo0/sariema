@@ -19,8 +19,8 @@ pub fn inspect(path: &Path) -> Result<Done, Failure> {
     let room = read(path)?;
     let lights: Vec<&str> = room.lights.iter().map(|l| l.name.as_str()).collect();
     let materials: Vec<&str> = room.materials.iter().map(|m| m.name.as_str()).collect();
-    // The importer names merged draws `<room>/<material>` and loose pieces
-    // `<room>.<piece>`, one draw per primitive.
+    // shortcut: the pack has no loose flag yet, so this relies on the importer naming
+    // merged draws `<room>/<material>`; a loose piece has one draw per primitive.
     let mut loose: Vec<&str> = room
         .draws
         .iter()

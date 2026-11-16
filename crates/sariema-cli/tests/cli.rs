@@ -87,6 +87,30 @@ fn headless_writes_screenshot_and_reports_zero_pipelines() {
 }
 
 #[test]
+fn run_reports_cpu_and_wall_time_per_frame() {
+    let tmp = TempDir::new().unwrap();
+    let pack = build_demo(tmp.path());
+    let shot = tmp.path().join("shot.png");
+    let (code, out) = sariema(&[
+        "run",
+        arg(&pack),
+        "--headless",
+        "--frames",
+        "4",
+        "--screenshot",
+        arg(&shot),
+        "--width",
+        "320",
+        "--height",
+        "180",
+    ]);
+    assert_eq!(code, 0, "{out}");
+    let cpu = out["cpu_ms_per_frame"].as_f64().unwrap();
+    let wall = out["wall_ms_per_frame"].as_f64().unwrap();
+    assert!(cpu > 0.0 && wall >= cpu, "{out}");
+}
+
+#[test]
 fn max_background_passes_at_the_ratio_and_fails_below_it() {
     let tmp = TempDir::new().unwrap();
     let pack = build_demo(tmp.path());
@@ -132,6 +156,36 @@ fn unknown_flag_is_error() {
     let (code, out) = sariema(&["build", "x", "--rom", "y"]);
     assert_eq!(code, 1);
     assert_eq!(error_code(&out), "E_USAGE");
+}
+
+#[test]
+fn json_after_double_dash_is_an_argument_not_the_flag() {
+    let cases: [&[&str]; 2] = [
+        &["inspect", "--", "--json"],
+        &["inspect", "--rom", "--", "--json"],
+    ];
+    for args in cases {
+        let out = cargo_bin_cmd!("sariema").args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        assert!(out.stdout.is_empty(), "{args:?}: {out:?}");
+    }
+}
+
+#[test]
+fn help_and_version_are_json_objects_in_json_mode() {
+    let (code, out) = sariema(&["run", "--help"]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["ok"], true);
+    assert!(
+        out["help"].as_str().unwrap().contains("--max-background"),
+        "{out}"
+    );
+    let (code, out) = sariema(&["--version"]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(
+        out,
+        json!({ "ok": true, "version": env!("CARGO_PKG_VERSION") })
+    );
 }
 
 #[test]
@@ -196,6 +250,62 @@ fn test_command_passes_then_fails_after_tamper() {
     assert_eq!(error_code(&out), "E_GOLDEN_MISMATCH");
     assert!(out["error"]["message"].to_string().contains("demo.srma"));
     assert_eq!(image::image_dimensions(&actual).unwrap(), (960, 540));
+
+    let (code, out) = sariema(&["test", arg(tmp.path()), "--update"]);
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = sariema(&["test", arg(tmp.path())]);
+    assert_eq!(code, 0, "{out}");
+    assert!(!actual.exists(), "a pass leaves no stale render behind");
+}
+
+#[test]
+fn reference_of_another_size_is_a_mismatch() {
+    let tmp = TempDir::new().unwrap();
+    build_demo(tmp.path());
+    image::RgbaImage::new(100, 100)
+        .save(tmp.path().join("demo.golden.png"))
+        .unwrap();
+    let (code, out) = sariema(&["test", arg(tmp.path())]);
+    assert_eq!(code, 1);
+    assert_eq!(error_code(&out), "E_GOLDEN_MISMATCH");
+    assert!(
+        out["error"]["message"].to_string().contains("100×100"),
+        "{out}"
+    );
+    let actual = tmp.path().join("demo.actual.png");
+    assert_eq!(image::image_dimensions(actual).unwrap(), (960, 540));
+}
+
+#[test]
+fn test_command_needs_a_pack_with_a_reference() {
+    let tmp = TempDir::new().unwrap();
+    let (code, out) = sariema(&["test", arg(tmp.path())]);
+    assert_eq!(code, 1);
+    assert_eq!(error_code(&out), "E_USAGE");
+
+    let pack = build_demo(tmp.path());
+    let (code, out) = sariema(&["test", arg(tmp.path())]);
+    assert_eq!(code, 1);
+    assert_eq!(error_code(&out), "E_USAGE");
+
+    let (code, out) = sariema(&["test", arg(tmp.path()), "--update"]);
+    assert_eq!(code, 0, "{out}");
+    std::fs::copy(&pack, tmp.path().join("other.srma")).unwrap();
+    let (code, out) = sariema(&["test", arg(tmp.path())]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["passed"], json!(["demo.srma"]));
+    assert_eq!(out["skipped"], json!(["other.srma"]));
+}
+
+#[test]
+fn update_writes_nothing_when_a_pack_fails() {
+    let tmp = TempDir::new().unwrap();
+    build_demo(tmp.path());
+    std::fs::write(tmp.path().join("zz.srma"), b"not a pack").unwrap();
+    let (code, out) = sariema(&["test", arg(tmp.path()), "--update"]);
+    assert_eq!(code, 1);
+    assert_eq!(error_code(&out), "E_PACK_BAD_MAGIC");
+    assert!(!tmp.path().join("demo.golden.png").exists());
 }
 
 #[test]
@@ -204,7 +314,7 @@ fn json_mode_prints_nothing_but_one_json_object() {
     let pack = tmp.path().join("demo.srma");
     let shot = tmp.path().join("shot.png");
     let demo = demo();
-    let commands: [&[&str]; 5] = [
+    let commands: [&[&str]; 7] = [
         &["build", arg(&demo), "--room", "demo", "-o", arg(&pack)],
         &["inspect", arg(&pack)],
         &[
@@ -222,6 +332,8 @@ fn json_mode_prints_nothing_but_one_json_object() {
         ],
         &["test", arg(tmp.path())],
         &["inspect", "nada.srma"],
+        &["run", "--help"],
+        &["--version"],
     ];
     for args in commands {
         let out = cargo_bin_cmd!("sariema")

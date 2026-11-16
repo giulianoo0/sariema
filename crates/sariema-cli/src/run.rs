@@ -20,11 +20,14 @@ pub fn run(args: &RunArgs) -> Result<Done, Failure> {
     headless.renderer().load_room(&room)?;
     let pipelines = headless.renderer().pipelines_created();
     let mut cpu = Duration::ZERO;
+    let started = Instant::now();
     for frame in 0..args.frames {
         let start = Instant::now();
         headless.draw(&camera, frame as f32 / 60.0);
         cpu += start.elapsed();
     }
+    headless.finish()?;
+    let wall = started.elapsed();
     let pipelines_created = headless.renderer().pipelines_created() - pipelines;
     let stats = headless.renderer().last_frame_stats();
     headless
@@ -45,12 +48,14 @@ pub fn run(args: &RunArgs) -> Result<Done, Failure> {
             ),
         ));
     }
-    let cpu_ms = cpu.as_secs_f64() * 1000.0 / args.frames as f64;
+    let per_frame_ms = |d: Duration| d.as_secs_f64() * 1000.0 / args.frames as f64;
+    let (cpu_ms, wall_ms) = (per_frame_ms(cpu), per_frame_ms(wall));
     Ok(Done {
         json: json!({
             "frames": args.frames,
             "screenshot": args.screenshot.display().to_string(),
             "cpu_ms_per_frame": cpu_ms,
+            "wall_ms_per_frame": wall_ms,
             "pipelines_created_during_frames": pipelines_created,
             "background_ratio": background,
             "frame_stats": {
@@ -63,7 +68,8 @@ pub fn run(args: &RunArgs) -> Result<Done, Failure> {
             },
         }),
         text: format!(
-            "{} frames into {}: {cpu_ms:.2} ms CPU per frame, {:.1}% background\n\
+            "{} frames into {}: {cpu_ms:.2} ms CPU and {wall_ms:.2} ms wall per frame, \
+             {:.1}% background\n\
              lights: {} in view, {} dropped, {} of {} clusters overflowed, {} shadows skipped",
             args.frames,
             args.screenshot.display(),

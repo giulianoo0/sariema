@@ -20,30 +20,57 @@ const HEIGHT: u32 = 540;
 
 /// With `update`, rewrites every reference instead of comparing.
 pub fn test(dir: &Path, update: bool) -> Result<Done, Failure> {
-    let (mut passed, mut updated, mut unreferenced) = (Vec::new(), Vec::new(), Vec::new());
-    let mut mismatches = Vec::new();
-    for path in packs(dir)? {
-        let name = path.file_name().expect("read_dir entry").to_string_lossy();
+    let packs = packs(dir)?;
+    if update {
+        update_all(dir, &packs)
+    } else {
+        compare_all(dir, &packs)
+    }
+}
+
+/// Renders every pack before writing any reference, so a pack that fails
+/// leaves all references as they were.
+fn update_all(dir: &Path, packs: &[PathBuf]) -> Result<Done, Failure> {
+    if packs.is_empty() {
+        return Err(Failure::new(
+            "E_USAGE",
+            format!("{}: no .srma pack to update", dir.display()),
+        ));
+    }
+    let images = packs
+        .iter()
+        .map(|path| render(path))
+        .collect::<Result<Vec<_>, _>>()?;
+    for (path, image) in packs.iter().zip(&images) {
         let golden = path.with_extension("golden.png");
-        if !update && !golden.exists() {
-            unreferenced.push(name.into_owned());
+        image.save(&golden).map_err(|e| Failure::io(&golden, e))?;
+    }
+    let updated: Vec<String> = packs.iter().map(|path| file_name(path)).collect();
+    Ok(Done {
+        json: json!({ "passed": [], "updated": updated, "skipped": [] }),
+        text: format!("updated {}", list(&updated)),
+    })
+}
+
+fn compare_all(dir: &Path, packs: &[PathBuf]) -> Result<Done, Failure> {
+    let (mut passed, mut skipped, mut mismatches) = (Vec::new(), Vec::new(), Vec::new());
+    for path in packs {
+        let name = file_name(path);
+        let golden = path.with_extension("golden.png");
+        if !golden.exists() {
+            skipped.push(name);
             continue;
         }
-        let image = render(&path)?;
-        if update {
-            image.save(&golden).map_err(|e| Failure::io(&golden, e))?;
-            updated.push(name.into_owned());
-            continue;
-        }
+        let image = render(path)?;
         let reference = image::open(&golden)
             .map_err(|e| Failure::io(&golden, e))?
             .to_rgba8();
+        let actual = path.with_extension("actual.png");
         let why = match compare_images(&image, &reference) {
-            Some(d)
-                if d.max_channel_delta <= GOLDEN_MAX_DELTA
-                    || d.differing_pixels_ratio <= GOLDEN_MAX_RATIO =>
-            {
-                passed.push(name.into_owned());
+            // A largest delta within GOLDEN_MAX_DELTA gives a ratio of 0, so the ratio decides.
+            Some(d) if d.differing_pixels_ratio <= GOLDEN_MAX_RATIO => {
+                remove_stale(&actual)?;
+                passed.push(name);
                 continue;
             }
             Some(d) => format!(
@@ -57,7 +84,6 @@ pub fn test(dir: &Path, update: bool) -> Result<Done, Failure> {
                 reference.height()
             ),
         };
-        let actual = path.with_extension("actual.png");
         image.save(&actual).map_err(|e| Failure::io(&actual, e))?;
         mismatches.push(format!(
             "{name} differs from {}: {why}; the render is in {}",
@@ -68,19 +94,36 @@ pub fn test(dir: &Path, update: bool) -> Result<Done, Failure> {
     if !mismatches.is_empty() {
         return Err(Failure::new("E_GOLDEN_MISMATCH", mismatches.join("; ")));
     }
+    if passed.is_empty() {
+        return Err(Failure::new(
+            "E_USAGE",
+            format!(
+                "{}: no pack with a reference was found (X.golden.png beside X.srma)",
+                dir.display()
+            ),
+        ));
+    }
     Ok(Done {
-        json: json!({
-            "passed": passed,
-            "updated": updated,
-            "no_reference": unreferenced,
-        }),
+        json: json!({ "passed": passed, "updated": [], "skipped": skipped }),
         text: format!(
-            "{} passed, {} updated; without a reference: {}",
+            "{} passed; skipped, without a reference: {}",
             passed.len(),
-            updated.len(),
-            list(&unreferenced)
+            list(&skipped)
         ),
     })
+}
+
+/// Deletes the render an earlier mismatch left at `path`, if any.
+fn remove_stale(path: &Path) -> Result<(), Failure> {
+    match fs::remove_file(path) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(Failure::io(path, e)),
+        _ => Ok(()),
+    }
+}
+
+fn file_name(path: &Path) -> String {
+    let name = path.file_name().expect("a read_dir entry has a name");
+    name.to_string_lossy().into_owned()
 }
 
 /// The directory's `.srma` files, sorted.
