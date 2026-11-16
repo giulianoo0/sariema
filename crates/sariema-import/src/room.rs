@@ -527,17 +527,24 @@ pub(crate) fn instance_primitives(
     inst: &Inst,
     room: &str,
 ) -> Result<Vec<KitPrimitive>, ImportError> {
-    Ok(instance_parts(piece, inst, room, |_| false)?.0)
+    Ok(instance_parts(piece, inst, room, |_| false)?.shown)
+}
+
+/// A placed piece's primitives, some hinged parts set apart.
+pub(crate) struct Parts<'k> {
+    pub shown: Vec<KitPrimitive>,
+    /// Each hinged part set apart, with the degrees the `giros` turn it.
+    pub apart: Vec<(&'k KitHinge, f32)>,
 }
 
 /// What [`instance_primitives`] gives, without the hinged parts `apart`
-/// picks, which come second with the degrees the `giros` turn them.
+/// picks.
 pub(crate) fn instance_parts<'k>(
     piece: &'k KitPiece,
     inst: &Inst,
     room: &str,
     apart: impl Fn(&KitHinge) -> bool,
-) -> Result<(Vec<KitPrimitive>, Vec<(&'k KitHinge, f32)>), ImportError> {
+) -> Result<Parts<'k>, ImportError> {
     let mut out: Vec<KitPrimitive> = (shown_primitives(piece, inst, room)?.iter())
         .map(|p| KitPrimitive {
             mesh: p.mesh.clone(),
@@ -564,7 +571,10 @@ pub(crate) fn instance_parts<'k>(
             });
         }
     }
-    Ok((out, kept))
+    Ok(Parts {
+        shown: out,
+        apart: kept,
+    })
 }
 
 /// The primitives the instance's `estado` shows, or the piece's start ones.

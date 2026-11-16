@@ -242,7 +242,7 @@ pub fn build_collision(
             let loose = source.loose.contains(&inst.peca);
             let turning =
                 |h: &KitHinge| loose && vertical_axis(transform * h.pivot, h.axis).is_some();
-            let (primitives, apart) = instance_parts(piece, inst, room, turning)?;
+            let parts = instance_parts(piece, inst, room, turning)?;
             let named = |list: &[String]| list.contains(&inst.peca);
             let kind = [
                 (Kind::Mesh, &collision.as_mesh),
@@ -269,8 +269,8 @@ pub fn build_collision(
                 });
                 Ok::<_, ImportError>(Some(colliders.len() as u32 - 1))
             };
-            bake(name.clone(), &primitives)?;
-            for (hinge, angle) in apart {
+            bake(name.clone(), &parts.shown)?;
+            for (hinge, angle) in parts.apart {
                 let frame = transform * hinge.pivot;
                 let Some(axis) = vertical_axis(frame, hinge.axis) else {
                     continue;
