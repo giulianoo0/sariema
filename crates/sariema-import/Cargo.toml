@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 bytemuck.workspace = true
 ctt-astcenc.workspace = true
+sariema-anim = { path = "../sariema-anim" }
 sariema-format = { path = "../sariema-format" }
 glam.workspace = true
 image.workspace = true
@@ -17,3 +18,6 @@ log.workspace = true
 meshopt.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+sariema-format = { path = "../sariema-format", features = ["demo"] }

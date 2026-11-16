@@ -104,7 +104,11 @@ pub fn load_kit(path: &Path) -> Result<Kit, ImportError> {
     })
 }
 
-fn image(gltf: &Gltf, index: usize, source: &gltf::Image) -> Result<KitImage, ImportError> {
+pub(crate) fn image(
+    gltf: &Gltf,
+    index: usize,
+    source: &gltf::Image,
+) -> Result<KitImage, ImportError> {
     let view = source
         .buffer_view
         .ok_or_else(|| invalid(format!("image {index} is not stored in the GLB")))?;
@@ -119,7 +123,7 @@ fn image(gltf: &Gltf, index: usize, source: &gltf::Image) -> Result<KitImage, Im
 
 /// The file's materials, then glTF's default material if some primitive names
 /// none, and the index such primitives use.
-fn materials(doc: &gltf::Document) -> Result<(Vec<Material>, u32), ImportError> {
+pub(crate) fn materials(doc: &gltf::Document) -> Result<(Vec<Material>, u32), ImportError> {
     let mut materials = doc
         .materials
         .iter()
@@ -397,7 +401,7 @@ impl Look<'_> {
     }
 }
 
-fn unorm8(value: f32) -> u8 {
+pub(crate) fn unorm8(value: f32) -> u8 {
     (value.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
@@ -414,12 +418,12 @@ fn flat_normals(mesh: &mut Mesh) {
     mesh.vertices = vertices;
 }
 
-fn extra<'a>(extras: &'a Option<Value>, key: &str) -> Option<&'a Value> {
+pub(crate) fn extra<'a>(extras: &'a Option<Value>, key: &str) -> Option<&'a Value> {
     extras.as_ref()?.get(key)
 }
 
 /// JavaScript truthiness: the game tests its extras flags with it.
-fn truthy(value: Option<&Value>) -> bool {
+pub(crate) fn truthy(value: Option<&Value>) -> bool {
     match value {
         None | Some(Value::Null) => false,
         Some(Value::Bool(b)) => *b,

@@ -78,6 +78,7 @@ impl Gltf<'_> {
             "VEC2" => 2,
             "VEC3" => 3,
             "VEC4" => 4,
+            "MAT4" => 16,
             _ => 1,
         };
         let elements = self.elements(index, accessor, components * size)?;
@@ -370,6 +371,42 @@ pub struct Document {
     pub nodes: Vec<Node>,
     pub scenes: Vec<Scene>,
     pub scene: Option<usize>,
+    pub skins: Vec<Skin>,
+    pub animations: Vec<Animation>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Skin {
+    pub joints: Vec<usize>,
+    pub inverse_bind_matrices: Option<usize>,
+}
+
+#[derive(Deserialize)]
+pub struct Animation {
+    pub name: Option<String>,
+    pub channels: Vec<AnimationChannel>,
+    pub samplers: Vec<AnimationSampler>,
+    pub extras: Option<Value>,
+}
+
+#[derive(Deserialize)]
+pub struct AnimationChannel {
+    pub sampler: usize,
+    pub target: AnimationTarget,
+}
+
+#[derive(Deserialize)]
+pub struct AnimationTarget {
+    pub node: Option<usize>,
+    pub path: String,
+}
+
+#[derive(Deserialize)]
+pub struct AnimationSampler {
+    pub input: usize,
+    pub output: usize,
+    pub interpolation: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -560,6 +597,7 @@ pub struct Node {
     pub name: Option<String>,
     pub children: Vec<usize>,
     pub mesh: Option<usize>,
+    pub skin: Option<usize>,
     matrix: Option<[f32; 16]>,
     translation: Option<[f32; 3]>,
     rotation: Option<[f32; 4]>,
@@ -568,6 +606,18 @@ pub struct Node {
 }
 
 impl Node {
+    /// Scale, rotation and translation; a `matrix` is decomposed.
+    pub fn trs(&self) -> (Vec3, Quat, Vec3) {
+        match self.matrix {
+            Some(m) => Mat4::from_cols_array(&m).to_scale_rotation_translation(),
+            None => (
+                self.scale.map_or(Vec3::ONE, Vec3::from),
+                self.rotation.map_or(Quat::IDENTITY, Quat::from_array),
+                self.translation.map_or(Vec3::ZERO, Vec3::from),
+            ),
+        }
+    }
+
     pub fn transform(&self) -> Mat4 {
         match self.matrix {
             Some(m) => Mat4::from_cols_array(&m),

@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sariema actor description",
+  "description": "Which glTF files make an actor and how to read them. File paths are relative to the project's assets root.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "model"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "model": {
+      "$ref": "#/$defs/path",
+      "description": "GLB with the meshes, the skin and clips. Without a skin it is a rigid prop with one joint."
+    },
+    "clips_from": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/path" },
+      "description": "More GLBs whose clips animate joints of the same names."
+    },
+    "loop": {
+      "$ref": "#/$defs/names",
+      "description": "Clip name patterns, with * for any run of characters, that loop. Without it a clip loops when its glTF extras.loop is true."
+    },
+    "feet": {
+      "$ref": "#/$defs/names",
+      "description": "Joints that touch the ground, for each clip's ground speed. Default: joints whose name contains foot."
+    },
+    "hidden": {
+      "$ref": "#/$defs/names",
+      "description": "Parts that start hidden, besides those whose node extras say visible or visivel_inicial false."
+    },
+    "sockets": {
+      "type": "object",
+      "description": "Socket name to the joint it follows and its offset in that joint's space. Empty nodes under joints become sockets too.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["joint"],
+        "properties": {
+          "joint": { "type": "string", "minLength": 1 },
+          "translation": { "$ref": "#/$defs/vec3" },
+          "rotation": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4,
+            "description": "Quaternion [x, y, z, w]."
+          }
+        }
+      }
+    },
+    "faces": {
+      "type": "object",
+      "description": "Face atlas name to the materials it moves and its grid. Cell c sits at origin + (c % columns, c / columns) × step in UV.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["materials", "grid", "frames"],
+        "properties": {
+          "materials": { "$ref": "#/$defs/names", "minItems": 1 },
+          "grid": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "[columns, rows]."
+          },
+          "origin": { "$ref": "#/$defs/vec2" },
+          "step": {
+            "$ref": "#/$defs/vec2",
+            "description": "UV offset from one cell to the next across and down. Default [1/columns, 1/rows]."
+          },
+          "frames": {
+            "$ref": "#/$defs/names",
+            "minItems": 1,
+            "description": "Frame names of consecutive cells from first_cell."
+          },
+          "first_cell": { "type": "integer", "minimum": 0 },
+          "start": { "type": "string", "description": "Frame shown at first. Default: the first frame." }
+        }
+      }
+    },
+    "clip_faces": {
+      "type": "object",
+      "description": "Clip name to face name to [seconds, frame name] pairs; each frame holds until the next.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "array",
+            "prefixItems": [{ "type": "number", "minimum": 0 }, { "type": "string" }],
+            "minItems": 2,
+            "items": false
+          }
+        }
+      }
+    },
+    "markers": {
+      "type": "object",
+      "description": "Clip name to marker name to its time in seconds.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": { "type": "number", "minimum": 0 }
+      }
+    },
+    "materials": {
+      "type": "object",
+      "description": "Material name to look settings.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "rim": { "type": "number", "minimum": 0 },
+          "drawn": { "type": "boolean" },
+          "additive": { "type": "boolean" }
+        }
+      }
+    },
+    "textures": { "enum": ["astc", "rgba8"], "description": "How to store colour textures. Default: astc." },
+    "keys": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How clips are stored.",
+      "properties": {
+        "translation_tolerance_m": { "type": "number", "minimum": 0, "description": "Default 0.0001." },
+        "rotation_tolerance_deg": { "type": "number", "minimum": 0, "description": "Default 0.01." },
+        "scale_tolerance": { "type": "number", "minimum": 0, "description": "Default 0.0001." },
+        "quantize_rotations": { "type": "boolean", "description": "Store rotations in 16-bit integers. Default true." },
+        "cubic_resample_fps": { "type": "number", "exclusiveMinimum": 0, "description": "Default 30." },
+        "bounds_fps": { "type": "number", "exclusiveMinimum": 0, "description": "Default 60." },
+        "ground_speed_fps": { "type": "number", "exclusiveMinimum": 0, "description": "Default 120." }
+      }
+    }
+  },
+  "$defs": {
+    "path": { "type": "string", "minLength": 1 },
+    "names": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "vec2": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+    "vec3": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }
+  }
+}
