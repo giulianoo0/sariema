@@ -1,6 +1,6 @@
 ---
 name: sariema-cutscenes
-description: Use when writing, directing or fixing a Sariema cutscene JSON (traversals bound to a clip with path spans, clips chained in a row, insert shots, slow motion, clip markers, camera shake), when sariema check or build fails with E_CUTSCENE_TELEPORT, E_CUTSCENE_COVER, E_CUTSCENE_START, E_CUTSCENE_ABSENT, E_CUTSCENE_SPAWN, E_CUTSCENE_RACE, E_CUTSCENE_SPEED, E_CUTSCENE_ROLE or E_SETTINGS, or when a cutscene_play is rejected with E_CUTSCENE_UNBOUND, E_CUTSCENE_UNKNOWN or E_CUTSCENE_BUSY.
+description: Use when writing, directing or fixing a Sariema cutscene JSON (traversals bound to a clip with path spans, clips chained in a row, insert shots, slow motion, clip markers, camera shake), when sariema check or build fails with E_CUTSCENE_TELEPORT, E_CUTSCENE_COVER, E_CUTSCENE_START, E_CUTSCENE_ABSENT, E_CUTSCENE_SPAWN, E_CUTSCENE_RACE, E_CUTSCENE_SPEED, E_CUTSCENE_PATH_CUT, E_CUTSCENE_ROLE or E_SETTINGS, or when a cutscene_play is rejected with E_CUTSCENE_UNBOUND, E_CUTSCENE_UNKNOWN or E_CUTSCENE_BUSY.
 ---
 
 # Sariema cutscenes
@@ -140,6 +140,7 @@ The message names the file, cutscene and step: `cutscene meet, steps[4].teleport
 | `E_CUTSCENE_ABSENT` | do not use a role after `despawn` |
 | `E_CUTSCENE_RACE` | move each role, and set each flag, in one `parallel` branch only |
 | `E_CUTSCENE_SPEED` | slow the `walk` (or `cutscene.start_walk_speed`), or widen the `path` span (or lower its `rate`), to `motion.max_visible_speed` or less; to cross faster, hide it or cut |
+| `E_CUTSCENE_PATH_CUT` | give the path's first `then` clip an `after` at or past the last span's end, or 0 (the clip's end) |
 | `E_SETTINGS` | in `game.settings`, keep `min_time_scale` and `max_time_scale` positive, the minimum no larger |
 | `E_CUTSCENE_ROLE` | declare the role under `roles` |
 | `E_SCHEMA` | the message names the field; `shot` needs `blend`, an `auto` line needs `duration` |
@@ -152,8 +153,9 @@ A `walk` goes at its own speed in world units, whatever the role's speed
 scale (`set_speed_scale` scales the player's axis and `move_intent` only),
 so it takes its length over its speed. With a collision module a start a
 few centimetres off in height only (the floor holds the actor) adds no
-time; one off along the ground by up to `start_blend_max` adds
-`start_blend` (0.25 s, 15 steps).
+time, up to `start_height` (0.25 m); one off along the ground by up to
+`start_blend_max` adds `start_blend` (0.25 s, 15 steps); one a storey up or
+down is eased or walked to in height too.
 
 ## Common mistakes
 

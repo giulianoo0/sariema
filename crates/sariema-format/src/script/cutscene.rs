@@ -198,7 +198,8 @@ pub struct Then {
     pub mode: u8,
     pub blend: f32,
     pub speed: f32,
-    /// Seconds of the clip before after which this one begins; 0 is its end.
+    /// Seconds into the clip before at which this one begins; 0 is that
+    /// clip's end.
     pub after: f32,
 }
 
