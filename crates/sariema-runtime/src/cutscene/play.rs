@@ -30,7 +30,6 @@ use crate::apply::{Source, apply};
 use crate::ease::ease;
 use crate::events::Happening;
 use crate::motion::yaw_of;
-use crate::no_jump;
 use crate::outbox::PhysicsIntent;
 use crate::paths;
 use crate::state::{CutsceneRequest, State};
@@ -372,7 +371,12 @@ fn begin_placing(s: &mut State, cutscene: &Cutscene, run: &mut Run) {
         let mut ctx = ctx!(s, cutscene, run, false);
         let at = ctx.position(e);
         let visible = ctx.s.world.node(e).is_some_and(|n| n.visible) || ctx.s.world.was_visible(e);
-        let distance = at.distance(to);
+        let floored = !ctx.s.settings.motion.builtin;
+        let distance = if floored {
+            (to - at).with_y(0.0).length()
+        } else {
+            at.distance(to)
+        };
         let placing = if !visible {
             ctx.place(e, to, yaw);
             Placing::Done
@@ -388,6 +392,9 @@ fn begin_placing(s: &mut State, cutscene: &Cutscene, run: &mut Run) {
             .into_iter()
             .enumerate()
             {
+                if floored && property == Property::PositionY {
+                    continue;
+                }
                 ctx.issue(Command::Tween {
                     tween: TWEENS + 3 * i as u32 + k as u32,
                     entity: e,
@@ -402,8 +409,7 @@ fn begin_placing(s: &mut State, cutscene: &Cutscene, run: &mut Run) {
             Placing::Easing
         } else {
             let since = ctx.s.happenings;
-            let fastest =
-                ctx.s.settings.motion.max_visible_speed / no_jump::walk_speed(ctx.s, e, 1.0);
+            let fastest = ctx.s.settings.motion.max_visible_speed;
             let walk = Command::MoveTo {
                 entity: e,
                 target: position,
@@ -431,7 +437,11 @@ fn place_step(s: &mut State, cutscene: &Cutscene, run: &mut Run) -> bool {
             Placing::Easing if easing => Placing::Easing,
             Placing::Walking { since } if !walked(s, e, since) => Placing::Walking { since },
             Placing::Easing | Placing::Walking { .. } => {
-                ctx!(s, cutscene, run, false).issue(Command::Face { entity: e, yaw });
+                let mut ctx = ctx!(s, cutscene, run, false);
+                if run.placing[i] == Placing::Easing {
+                    ctx.issue(Command::Stop { entity: e });
+                }
+                ctx.issue(Command::Face { entity: e, yaw });
                 Placing::Turning
             }
             Placing::Turning if !turned(s, e) => Placing::Turning,
@@ -751,7 +761,7 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
                 target: to.to_array(),
                 speed: *speed,
             };
-            if no_jump::walk_speed(ctx.s, e, *speed) > ctx.s.settings.motion.max_visible_speed {
+            if speed.abs() > ctx.s.settings.motion.max_visible_speed {
                 ctx.s.events.push(Event::Rejected {
                     opcode: walk.opcode(),
                     code: Reject::TeleportVisible.code(),

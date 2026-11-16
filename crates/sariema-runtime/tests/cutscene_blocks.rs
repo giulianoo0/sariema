@@ -546,10 +546,10 @@ fn a_walk_too_fast_to_be_seen_is_refused_and_ends_alike_played_or_skipped() {
 }
 
 const BRISK: &str = r#"{ "name": "brisk", "roles": { "hero": { "start": { "position": [0, 0, 0] } } },
-    "steps": [ { "walk": { "role": "hero", "to": [10, 0, 0], "speed": 15 } }, { "call": "after" } ] }"#;
+    "steps": [ { "walk": { "role": "hero", "to": [10, 0, 0], "speed": 25 } }, { "call": "after" } ] }"#;
 
 #[test]
-fn a_walk_scaled_past_the_visible_speed_is_refused_alike_played_or_skipped() {
+fn a_walk_past_the_visible_speed_is_refused_alike_played_or_skipped() {
     let mut wrong = Vec::new();
     for builtin in [true, false] {
         for skip in [None, Some(1)] {

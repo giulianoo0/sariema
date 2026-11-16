@@ -476,7 +476,6 @@ impl Physics {
                 target,
                 speed,
             } => {
-                let scale = speed_scale(s, entity);
                 self.end_traversal(entity);
                 let Some(m) = self.mapped_mut(entity) else {
                     return;
@@ -485,7 +484,7 @@ impl Physics {
                 let id = m.id;
                 self.world.apply(Intent::SetSpeedScale {
                     actor: id,
-                    scale: speed * scale,
+                    scale: speed,
                 });
                 self.world.apply(Intent::MoveTo {
                     actor: id,
@@ -498,7 +497,11 @@ impl Physics {
                 self.velocity(s, entity, velocity);
             }
             PhysicsIntent::SpeedScale { entity, scale } => {
-                if let Some(m) = self.mapped(entity) {
+                let velocity = matches!(
+                    s.motion.get(entity).map(|m| m.goal),
+                    Some(Goal::Velocity(_))
+                );
+                if let Some(m) = self.mapped(entity).filter(|_| velocity) {
                     let (id, speed) = (m.id, m.speed);
                     self.world.apply(Intent::SetSpeedScale {
                         actor: id,
