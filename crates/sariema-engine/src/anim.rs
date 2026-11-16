@@ -9,7 +9,6 @@ use glam::{Mat4, Vec3};
 use sariema_anim::{
     AnimSettings, Animator, ClipId, EventKind, JointId, Play, PlayMode, Rig, SocketId,
 };
-use sariema_core::STEP_SECONDS;
 use sariema_format::actor::ActorPack;
 use sariema_format::script::{Anchor, ClipMode, Entity, Event, Kind, name_id};
 use sariema_runtime::events::Happening;
@@ -77,8 +76,8 @@ struct Animated {
     entity: Entity,
     model: usize,
     animator: Animator,
-    /// The runtime clip it plays and that clip's time at the last step.
-    clip: Option<(u32, f32)>,
+    /// The runtime clip it plays.
+    clip: Option<u32>,
     /// Whether its pose has been evaluated at the end of this step.
     evaluated: bool,
 }
@@ -123,23 +122,21 @@ impl Animation {
             };
             let play = Play {
                 mode: Some(mode),
-                speed: 0.0,
+                speed: request.speed,
                 fade_s: Some(request.blend.max(0.0)),
                 restart: true,
                 ..Play::default()
             };
             a.animator.play(&model.rig, 0, clip, play);
-            a.clip = Some((request.clip, 0.0));
+            a.clip = Some(request.clip);
         }
         for slot in &mut self.actors {
             let Some(a) = slot else { continue };
             let model = &self.models[a.model];
-            if let (Some((clip, before)), Some((now_clip, now))) = (a.clip, s.clip_time(a.entity))
+            if let (Some(clip), Some((now_clip, now))) = (a.clip, s.clip_time(a.entity))
                 && clip == now_clip
             {
-                a.animator
-                    .set_speed(0, (now - before).max(0.0) / STEP_SECONDS);
-                a.clip = Some((clip, now));
+                a.animator.seek(0, f64::from(now));
             }
             a.animator.step(&model.rig);
             a.evaluated = false;

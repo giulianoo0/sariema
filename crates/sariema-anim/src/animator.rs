@@ -138,6 +138,8 @@ struct ClipState {
     mode: PlayMode,
     /// No step has advanced it yet, so an event at its start time is due.
     fresh: bool,
+    /// Where the next step takes it, instead of its speed.
+    seek: Option<f64>,
     done: bool,
     fade_s: f32,
 }
@@ -275,6 +277,7 @@ impl Animator {
             speed: play.speed.max(0.0),
             mode,
             fresh: true,
+            seek: None,
             done: false,
             fade_s,
         };
@@ -311,6 +314,16 @@ impl Animator {
     pub fn set_speed(&mut self, layer: usize, speed: f32) {
         if let Slot::Clip(state) = &mut self.layers[layer].to {
             state.speed = speed.max(0.0);
+        }
+    }
+
+    /// The next step takes the clip `layer` plays to `time` seconds instead
+    /// of advancing it by its speed, with the markers on the way. A looping
+    /// clip goes forward to `time` wrapped into it, through its end at most
+    /// once; any other clip goes to `time` clamped.
+    pub fn seek(&mut self, layer: usize, time: f64) {
+        if let Slot::Clip(state) = &mut self.layers[layer].to {
+            state.seek = Some(time);
         }
     }
 
@@ -452,7 +465,13 @@ fn advance(
         }
     };
     let mut start = state.time;
-    let mut end = start + f64::from(dt) * f64::from(state.speed);
+    let mut end = match state.seek.take() {
+        Some(time) if state.mode == PlayMode::Loop => {
+            start + (time.rem_euclid(duration) - start).rem_euclid(duration)
+        }
+        Some(time) => time,
+        None => start + f64::from(dt) * f64::from(state.speed),
+    };
     let mut include_start = std::mem::take(&mut state.fresh);
     loop {
         let wraps = state.mode == PlayMode::Loop && duration > 0.0 && end + tolerance >= duration;

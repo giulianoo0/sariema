@@ -240,6 +240,34 @@ fn a_step_past_several_wraps_reports_each() {
 }
 
 #[test]
+fn a_seek_takes_the_clip_to_its_time_with_the_markers_on_the_way() {
+    let rig = arm();
+    let mut a = animator(&rig);
+    let still = Play {
+        speed: 0.0,
+        ..instant()
+    };
+    let kinds = |a: &Animator| a.events().iter().map(|e| e.kind).collect::<Vec<_>>();
+    let (kick, looped) = (EventKind::Marker(0), EventKind::Looped);
+    a.play(&rig, 0, clip(&rig, "bend"), still);
+    a.seek(0, 0.4);
+    a.step(&rig);
+    assert_eq!((kinds(&a), a.clip_time(0)), (vec![], 0.4));
+    a.seek(0, 1.2);
+    a.step(&rig);
+    assert_eq!(kinds(&a), [kick, looped]);
+    assert!((a.clip_time(0) - 0.2).abs() < 1e-6, "{}", a.clip_time(0));
+    a.step(&rig);
+    assert!(kinds(&a).is_empty());
+    assert!((a.clip_time(0) - 0.2).abs() < 1e-6, "a seek lasts one step");
+    a.play(&rig, 0, clip(&rig, "wave"), still);
+    a.seek(0, 10.0);
+    a.step(&rig);
+    let (tap, end) = (EventKind::Marker(0), EventKind::Marker(1));
+    assert_eq!(kinds(&a), [tap, end, EventKind::Finished]);
+}
+
+#[test]
 fn a_marker_at_the_start_fires_on_the_first_step() {
     let rig = arm();
     let mut a = animator(&rig);
