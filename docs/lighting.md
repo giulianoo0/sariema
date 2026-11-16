@@ -218,16 +218,24 @@ room describes them in its description (`schemas/room.schema.json`):
 - **What belongs to a wall is cut with it.** A piece placed within
   `attach` metres (0.5 by default) of an edge of its room (the room's
   `n_celulas` in the placement) belongs to that edge's wall: a door, its
-  frame and leaf, a window, a picture, a lamp on the wall. It is judged
-  whole by a point on that wall, together with every piece of the cutaway
-  it touches. When its wall is past the line, all of it is cut by the same
-  plane, with the same cap, and what lies wholly above the cut goes.
-  When its wall is not past the line, all of it stays. None of it is left
-  standing past the line, or floating over a wall that came down. The
-  place a piece is put decides, not its bounds: a door's open leaf swings
-  well away from its wall. Such a piece draws on its own, not merged. A
-  piece placed further from every edge, such as a room's shell, is cut
-  where each part of it lies. Without `n_celulas` every piece is.
+  frame and leaf, a window, a picture, a lamp on the wall. Each part of it
+  is judged at the point of that wall behind it, so it is cut exactly
+  where the wall is, by the same plane and with the same cap, whichever
+  way the line or the radius crosses the wall. None of it is left standing
+  past the line, or floating over a wall that came down. The place a piece
+  is put decides, not its bounds: a door's open leaf swings well away from
+  its wall, and still goes with it. Such a piece draws on its own, not
+  merged. A piece placed further from every edge, such as a room's shell,
+  is cut where each part of it lies. Without `n_celulas` every piece is.
+- **What hangs on a wall goes with it unlisted.** A piece that no cutaway
+  lists, placed within `attach` of an edge of a room that holds pieces of
+  a cutaway, goes in that cutaway when it lies wholly above the part kept
+  whole (`whole_below`) and nothing left standing holds it up: a lamp, a
+  picture, a cabinet on the wall, and what stands on a shelf of the
+  cutaway. A piece holds up another when its top is within `rest` metres
+  (0.02 by default) of the other's bottom, under it, so a lamp on a table
+  left standing stays with the table. `sariema inspect` lists every draw
+  of each cutaway by name.
 - **The line** runs across the floor, square to the camera's view. What
   lies past it, towards the camera, is cut. With `areas` (rectangles of
   floor in x and z, such as each room of a house) it sits at the near edge,
@@ -265,10 +273,11 @@ room describes them in its description (`schemas/room.schema.json`):
   height and cap are not used. The line's `follow` sets how long it takes
   to go and to come back as the hero walks from room to room.
 - **`whole_below`**: triangles of merged pieces that lie wholly below it are
-  drawn with the rest of the room and never cut, so floors and the foot of
-  walls keep the GPU's early depth test. It is the height by default. Set
-  it lower if the game lowers the height under the one built, or below the
-  floor to keep every triangle in the cutaway.
+  drawn apart from the rest of the cutaway, a draw per room, wall and
+  material. They stay in it, so a height the game lowers under them cuts
+  them too; until it does, they take the ordinary pipelines, so floors and
+  the foot of walls keep the GPU's early depth test. It is the height by
+  default; below the floor, every triangle is drawn with the rest.
 
 Without a camera rig the line is placed for the room's camera, which looks
 down −Z. In `sariema run` and `sariema bench` with a room pack, the first
@@ -280,11 +289,12 @@ cutaways and their height parameters.
 A house whose walls come down to 0.4 m between the camera and the hero,
 with a dark cap: the line at the near edge of the hero's room, moved past
 the thickness of its walls (0.3 m for walls up to 0.3 m thick). That is
-the JSON above with one area per room, and the doors, windows, pictures
-and lamps on the walls listed with the shells:
+the JSON above with one area per room, and the doors and windows listed
+with the shells; the pictures and lamps hung on those walls go in by
+themselves:
 
 ```json
-"pieces": ["shell_*", "facade", "back_door", "window*", "picture*", "wall_lamp", "door_frame", "door_leaf*"]
+"pieces": ["shell_*", "facade", "back_door", "window*", "door_frame", "door_leaf*"]
 ```
 
 ### A door frame over the hero's head
@@ -316,19 +326,30 @@ Their fragment shader can discard, which turns the GPU's early depth test
 off for those draws. A draw whose bounds the cut cannot reach this frame
 takes the ordinary pipelines instead, with the same pixels. Measured with
 `sariema bench` on an Apple M5 at 1920×1080, medium quality, in two
-furnished rooms of a house with the hero inside (two runs of each case),
-with the shells, the façade and the pieces on the walls in one cutaway:
+furnished rooms of a house with the hero inside (two runs of each case,
+the machine otherwise busy), with the shells, the façade and the pieces on
+the walls in one cutaway:
 
-- The scene pass costs 0.10 to 0.16 ms more than without the cutaway
-  (0.71 to 0.78 ms without).
-- There are 56 to 58 more draws (98 to 100 without). The shells are merged
-  apart, and each piece on a wall is drawn on its own.
-- The shadows cost 0.002 ms more.
+- With the hero standing, the scene pass costs 0.12 to 0.18 ms more than
+  without the cutaway (0.71 to 0.80 ms without), and the shadows the same.
+- With the hero walking across the line and back (`--walk`), the scene
+  pass costs 0.08 to 0.14 ms more. With areas the cut moves only as the
+  hero crosses into another one, and redrawing the shadow maps it reaches
+  then costs under 0.003 ms a frame over the walk.
+- With a `radius` of 2 m, the cut moves on every step the hero takes, and
+  every shadow map its draws reach is redrawn each frame: the shadow
+  passes cost 0.045 ms more in one of the rooms (0.056 ms without; twice
+  the shadow maps drawn), and nothing more in the other, whose cut walls
+  cast into no shadow map along the walk. A line without areas, which
+  follows the hero, moves the cut as often.
+- There are 85 to 89 more draws a frame (98 to 100 without). The shells
+  are merged apart, their part under the cut drawn apart again by wall and
+  material, and each piece on a wall is drawn on its own.
 - The CPU's frame time stays within what two runs of the same case vary
-  (0.86 to 1.20 ms).
+  (0.90 to 1.16 ms).
 
-Keeping the floors in the cutaway (`whole_below` under the floor) made it
-0.52 ms. A room with cutaways holds one 64-byte uniform per cutaway and
+Keeping the floors with the rest of the cutaway (`whole_below` under the
+floor) made the scene pass 0.52 ms more. A room with cutaways holds one 64-byte uniform per cutaway and
 one that is off, each at the GPU's uniform offset alignment, written when
 a line, height or hero moves it. The fourteen scene pipelines and the one
 shadow pipeline of cutaways are made once.
@@ -341,10 +362,9 @@ shadow pipeline of cutaways are made once.
   light only actors receive. The fill's wrap follows its
   `DIFFUSE_LAMBERT_WRAP`, with `wrap` in place of the roughness and one
   normalising factor of `1 + wrap`.
-- **A stylised action game's character rim** (technique and numbers
-  only): the rim is on characters alone, power 5.2, intensity 1; scenery
-  has it off. Its characters are smooth and their rim white; the facets
-  of stylised hair want it tinted.
+- **A rim on characters alone** is common in stylised games: scenery has
+  it off. Smooth characters take a white rim; the facets of stylised hair
+  want it tinted.
 - **Light masks** (Godot's `light_cull_mask`, Filament's light channels,
   Unity's light layers) are how those engines keep a light on characters
   alone: a real light more in the clustered loop, shading or testing every
@@ -387,16 +407,13 @@ shadow pipeline of cutaways are made once.
   Godot's `BaseMaterial3D`, a material's alpha or a discard in Bevy.
   Top-down games mostly do one of two things. Some fade whatever stands on
   the ray from the camera to the hero. Others cut the walls down on the
-  camera's side, the house-building games' "walls cut away" view. Here walls
-  and everything on them are cut, as the second does, because the cut
-  follows the rooms. A ray test turns pieces on and off as the hero's head
+  camera's side. Here walls and everything on them are cut, as the second
+  does, because the cut follows the rooms. A ray test turns pieces on and off as the hero's head
   brushes their edges, and asks the CPU for a raycast against every piece
   each frame. The dither of `fade` is the stable screen-door pattern of
   Godot's distance fade, and needs no sorting.
-- **The house cut** (a web game's own house builder): walls south of the
-  hero's room discard above 0.4 m, back faces take a dark grey, and the
-  line is the room's south edge less 0.08 m, eased each frame. A
-  commercial top-down game studied for reference lowers the south walls
-  in its geometry instead: in 43 of 141 interiors they stand at 0 m or
-  0.56 m and the corner pillars stay whole. A cutaway does either: a
-  fixed height is a piece cut whatever the hero does.
+- **The house cut**: top-down games cut the walls on the camera's side
+  low, about 0.4 m, with a dark inside, at the near edge of the hero's
+  room less a little, eased as it moves; some lower those walls in their
+  geometry instead. A cutaway does either: a fixed height is a piece cut
+  whatever the hero does.
