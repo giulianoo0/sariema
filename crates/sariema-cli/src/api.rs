@@ -276,6 +276,16 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "clip_rate below 0 or not finite",
     ),
     (
+        "E_HOLD_ACTOR",
+        Kind::Rejected,
+        "hold names an actor as the thing to hold",
+    ),
+    (
+        "E_SOCKET_UNKNOWN",
+        Kind::Rejected,
+        "hold names a socket or joint the actor's model lacks",
+    ),
+    (
         "E_ROOM_UNKNOWN",
         Kind::Rejected,
         "room_preload or room_switch names a room the pack lacks",

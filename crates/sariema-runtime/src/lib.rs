@@ -13,6 +13,7 @@ pub mod events;
 pub mod follow;
 pub mod game;
 pub mod hash;
+pub mod hold;
 pub mod input;
 pub mod motion;
 mod no_jump;

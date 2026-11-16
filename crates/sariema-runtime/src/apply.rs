@@ -3,7 +3,7 @@
 //! Carries out one command against the state. Commands from the game and
 //! from the cutscene sequencer both come through here.
 
-use glam::Vec3;
+use glam::{EulerRot, Vec3};
 use sariema_core::STEP_SECONDS;
 use sariema_format::script::{Bus, Command, Entity, Event, Kind, Property, clip_spans};
 
@@ -19,7 +19,7 @@ use crate::paths;
 use crate::scenery::SceneReject;
 use crate::state::{CutsceneRequest, State};
 use crate::tween::{Target, steps_of};
-use crate::world::Reject;
+use crate::world::{Reject, Transform};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
@@ -43,6 +43,12 @@ pub const CLIP_NOT_PLAYING: &str = "E_CLIP_NOT_PLAYING";
 
 /// The code of a `clip_rate` below 0 or not finite.
 pub const CLIP_RATE: &str = "E_CLIP_RATE";
+
+/// The code of a `hold` of an actor.
+pub const HOLD_ACTOR: &str = "E_HOLD_ACTOR";
+
+/// The code of a `hold` at a socket or joint the actor's model lacks.
+pub const SOCKET_UNKNOWN: &str = "E_SOCKET_UNKNOWN";
 
 fn refuse(entity: Entity) -> impl Fn(Reject) -> Refusal {
     move |r| Refusal {
@@ -82,6 +88,7 @@ fn forget(s: &mut State, e: Entity) {
     s.paths.forget(e);
     s.tweens.forget(e);
     s.followers.forget(e);
+    s.holds.forget(e);
     s.motion.forget(e);
     if s.control.hero == e {
         s.control.hero = Entity::NONE;
@@ -357,6 +364,48 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             if let Some(code) = code {
                 return Err(Refusal { code, entity });
             }
+        }
+        C::Hold {
+            entity,
+            actor: holder,
+            socket,
+            offset,
+            keep,
+        } => {
+            let kind = s
+                .world
+                .node(entity)
+                .ok_or(refuse(entity)(Reject::Stale))?
+                .kind;
+            if holder.is_none() {
+                s.holds.release(entity);
+                return Ok(());
+            }
+            actor(s, holder)?;
+            if kind == Kind::Actor {
+                return Err(Refusal {
+                    code: HOLD_ACTOR,
+                    entity,
+                });
+            }
+            let pose = s
+                .world
+                .current_pose(entity)
+                .ok_or(refuse(entity)(Reject::Stale))?;
+            s.world
+                .set_parent(entity, Entity::NONE)
+                .map_err(refuse(entity))?;
+            let (yaw, pitch, roll) = pose.rotation.to_euler(EulerRot::YXZ);
+            s.world.node_mut(entity).map_err(refuse(entity))?.local = Transform {
+                position: pose.position,
+                yaw: yaw.to_degrees(),
+                pitch: pitch.to_degrees(),
+                roll: roll.to_degrees(),
+                scale: pose.scale,
+            };
+            s.tweens.forget(entity);
+            s.followers.unfollow(entity);
+            s.holds.hold(entity, holder, socket, v3(offset), keep);
         }
         C::PlaySound {
             sound,

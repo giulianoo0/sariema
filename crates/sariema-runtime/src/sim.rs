@@ -267,6 +267,7 @@ impl<L: Logic> Simulation<L> {
             });
         }
         modules.step(s);
+        s.holds.step(&mut s.world);
         s.followers.step(&mut s.world);
         let events = &mut s.events;
         let rest = s.settings.spring_rest;

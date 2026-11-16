@@ -202,6 +202,17 @@ batch_table! {
         /// another clip or none, and with E_CLIP_RATE for a rate below 0 or
         /// not finite.
         0x0022 ClipRate clip_rate { entity: Entity, clip: u32, rate: f32 }
+        /// `actor` holds `entity` (a room node, a light, an empty) at its
+        /// socket or joint `socket`, a socket looked up first: the entity
+        /// stays where it stands on the socket when `keep`, else sits at
+        /// `offset` from it, in the socket's frame and turned with it. Either
+        /// way it is placed each step on the socket rigidly, in metres of the
+        /// world whatever the actor's scale, and taken out of any parent,
+        /// follow or tween. `actor` NONE lets go: the entity stays where it
+        /// was. Refused with E_HOLD_ACTOR for an actor to hold, and with
+        /// E_SOCKET_UNKNOWN, a step later, for a socket or joint the actor's
+        /// model lacks; an actor drawn with no model keeps it where it is.
+        0x00E0 Hold hold { entity: Entity, actor: Entity, socket: u32, offset: Vec3, keep: bool }
     }
     events {
         /// The first event of the first tick.

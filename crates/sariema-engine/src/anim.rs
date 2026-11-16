@@ -3,14 +3,15 @@
 //! The animation stage of a step: each actor drawn with an actor pack gets
 //! an animator whose clip follows the runtime's clip clock; its markers and
 //! ends go back to the game, and the bones and sockets the camera aims at
-//! are resolved for it.
+//! and the actors hold things at are resolved for them.
 
 use glam::{Mat4, Vec3};
 use sariema_anim::{
     AnimSettings, Animator, ClipId, EventKind, JointId, Play, PlayMode, Rig, SocketId,
 };
 use sariema_format::actor::ActorPack;
-use sariema_format::script::{Anchor, ClipMode, Entity, Event, Kind, name_id};
+use sariema_format::script::{Anchor, ClipMode, Command, Entity, Event, Kind, name_id};
+use sariema_runtime::apply::SOCKET_UNKNOWN;
 use sariema_runtime::events::Happening;
 use sariema_runtime::state::State;
 
@@ -93,7 +94,17 @@ pub struct Animation {
     /// By entity slot.
     actors: Vec<Option<Animated>>,
     anchors: Vec<(Entity, Anchor, u32)>,
+    /// Each held entity, its actor and the socket holding it.
+    held: Vec<(Entity, Entity, u32)>,
 }
+
+const HOLD: Command<'static> = Command::Hold {
+    entity: Entity::NONE,
+    actor: Entity::NONE,
+    socket: 0,
+    offset: [0.0; 3],
+    keep: false,
+};
 
 impl Animation {
     pub fn new(models: Vec<Model>, settings: AnimSettings) -> Animation {
@@ -102,6 +113,7 @@ impl Animation {
             settings,
             actors: Vec::new(),
             anchors: Vec::new(),
+            held: Vec::new(),
         }
     }
 
@@ -181,6 +193,23 @@ impl Animation {
                 s.camera.set_anchor_point(entity, at);
             }
         }
+        self.held.clear();
+        self.held.extend(s.holds.sockets());
+        for k in 0..self.held.len() {
+            let (entity, actor, socket) = self.held[k];
+            match self.place(actor, Anchor::Origin, socket) {
+                Some(Some(at)) => s.holds.set_socket(entity, at),
+                Some(None) => {
+                    s.holds.release(entity);
+                    s.events.push(Event::Rejected {
+                        opcode: HOLD.opcode(),
+                        code: SOCKET_UNKNOWN,
+                        entity,
+                    });
+                }
+                None => {}
+            }
+        }
     }
 
     /// Keeps one animator per live actor drawn with a model, and none for
@@ -222,6 +251,29 @@ impl Animation {
     /// Where `e`'s bone or socket `name` is at the end of this step, in its
     /// own frame; a socket is looked up first when `anchor` says either.
     pub fn point(&mut self, e: Entity, anchor: Anchor, name: u32) -> Option<Vec3> {
+        Some(self.place(e, anchor, name)??.w_axis.truncate())
+    }
+
+    /// Where `e`'s bone or socket `name` is as of the last evaluation, in
+    /// its own frame, a socket looked up first.
+    pub fn socket(&self, e: Entity, name: u32) -> Option<Mat4> {
+        let a = self.actors.get(e.index as usize)?.as_ref()?;
+        let model = &self.models[a.model];
+        if a.entity != e {
+            return None;
+        }
+        let socket = model.sockets.iter().find(|(n, _)| *n == name);
+        let joint = model.joints.iter().find(|(n, _)| *n == name);
+        match (socket, joint) {
+            (Some(&(_, s)), _) => Some(a.animator.socket(&model.rig, s)),
+            (None, Some(&(_, j))) => Some(a.animator.joint_model(j)),
+            _ => None,
+        }
+    }
+
+    /// Like [`Animation::point`], the whole placement: `None` when `e` has
+    /// no animator, `Some(None)` when its model has no such place.
+    fn place(&mut self, e: Entity, anchor: Anchor, name: u32) -> Option<Option<Mat4>> {
         let a = self.actors.get_mut(e.index as usize)?.as_mut()?;
         if a.entity != e {
             return None;
@@ -238,9 +290,9 @@ impl Animation {
             (Anchor::Bone, _, Some(&(_, j))) => a.animator.joint_model(j),
             (Anchor::Origin, Some(&(_, s)), _) => a.animator.socket(&model.rig, s),
             (Anchor::Origin, None, Some(&(_, j))) => a.animator.joint_model(j),
-            _ => return None,
+            _ => return Some(None),
         };
-        Some(matrix.w_axis.truncate())
+        Some(Some(matrix))
     }
 
     /// Each animated actor, the index of its model and its animator.
