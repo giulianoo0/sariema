@@ -229,3 +229,36 @@ fn fast_actors_do_not_tunnel_through_a_3_cm_wall() {
         }
     }
 }
+
+/// The slowest step, as a share of the full step, of an actor holding north
+/// from `past` metres beyond the end of a wall across its way, until it is
+/// beyond the wall.
+fn slowest_step_round_a_wall_end(past: f32, assist_angle_deg: f32) -> f32 {
+    let mut room = Room::default();
+    room.floor(20.0)
+        .wall("wall", Vec2::new(-1.5, -1.1), Vec3::new(3.0, 2.0, 0.2), 0.0);
+    let mut settings = Settings::default();
+    settings.controller.corner_assist_angle_deg = assist_angle_deg;
+    let mut world = room.world(settings);
+    let id = actor(&mut world, Vec3::new(past, 0.0, 0.0));
+    let path = hold(&mut world, id, Vec2::new(0.0, -1.0), 120, &mut Vec::new());
+    let beyond = path
+        .iter()
+        .position(|p| p.z < -1.5)
+        .expect("never got past the wall");
+    path[..=beyond]
+        .windows(2)
+        .map(|w| (w[1] - w[0]).length() / (SPEED * DT))
+        .fold(f32::INFINITY, f32::min)
+}
+
+#[test]
+fn corner_assist_keeps_a_nearly_head_on_actor_moving_round_a_wall_end() {
+    let default = Settings::default().controller.corner_assist_angle_deg;
+    let assisted = slowest_step_round_a_wall_end(0.05, default);
+    let plain = slowest_step_round_a_wall_end(0.05, 0.0);
+    assert!(
+        assisted > 0.4 && plain < 0.25,
+        "assisted {assisted}, plain {plain}"
+    );
+}
