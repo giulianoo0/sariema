@@ -80,6 +80,54 @@ fn api_matches_its_schema_and_lists_every_command_the_decoder_accepts() {
     assert_eq!(listed.len(), COMMANDS.len());
 }
 
+/// Every `"E_…"` string in the workspace's sources, whatever crate gives it.
+fn codes_in_sources() -> BTreeSet<String> {
+    fn walk(dir: &Path, codes: &mut BTreeSet<String>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, codes);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let text = fs::read_to_string(&path).unwrap();
+                for (at, _) in text.match_indices("\"E_") {
+                    let code: String = text[at + 1..]
+                        .chars()
+                        .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_')
+                        .collect();
+                    codes.insert(code);
+                }
+            }
+        }
+    }
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut codes = BTreeSet::new();
+    for krate in fs::read_dir(&crates).unwrap() {
+        let src = krate.unwrap().path().join("src");
+        if src.is_dir() {
+            walk(&src, &mut codes);
+        }
+    }
+    codes
+}
+
+#[test]
+fn api_lists_every_error_code_in_the_sources() {
+    let api = ok(&["api"]);
+    let listed: BTreeSet<&str> = api["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["code"].as_str().unwrap())
+        .collect();
+    let found = codes_in_sources();
+    assert!(found.len() > 60, "the sources give {} codes", found.len());
+    let missing: Vec<&String> = found
+        .iter()
+        .filter(|c| !listed.contains(c.as_str()))
+        .collect();
+    assert!(missing.is_empty(), "not in sariema api: {missing:?}");
+}
+
 #[test]
 fn api_lists_every_error_code_the_engine_gives() {
     let api = ok(&["api"]);

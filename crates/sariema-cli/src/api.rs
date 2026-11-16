@@ -91,6 +91,56 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "the window surface could not be used",
     ),
     (
+        "E_ACTOR_NAME",
+        Kind::Failure,
+        "an actor has no clip, joint, material, face, frame or socket of that name; the message lists those it has",
+    ),
+    (
+        "E_UI_IMAGE",
+        Kind::Failure,
+        "a HUD image could not be read or decoded",
+    ),
+    (
+        "E_AUDIO_CHECK",
+        Kind::Failure,
+        "audio build or audio check with --strict found a warning",
+    ),
+    (
+        "E_AUDIO_DEVICE",
+        Kind::Failure,
+        "no audio output device, or its stream failed; a window plays on silent and says why",
+    ),
+    (
+        "E_SPOT_BLOCKED",
+        Kind::Failure,
+        "check: an action spot holds its actor's collider inside the room",
+    ),
+    (
+        "E_SPOT_NO_GROUND",
+        Kind::Failure,
+        "check: an action spot has no walkable ground under its actor's feet",
+    ),
+    (
+        "E_PATH_NONE",
+        Kind::Failure,
+        "check: a route's two spots have no path between them",
+    ),
+    (
+        "E_TRAVERSAL_END",
+        Kind::Failure,
+        "check: a traversal does not end on free floor",
+    ),
+    (
+        "E_CONTACT_OFF_SURFACE",
+        Kind::Failure,
+        "check: a traversal's contact point is not on a surface",
+    ),
+    (
+        "E_CONTACT_OUT_OF_REACH",
+        Kind::Failure,
+        "check: a traversal's contact point is out of the carried actor's reach",
+    ),
+    (
         "E_PROJECT_EXISTS",
         Kind::Failure,
         "new was given a directory that is not empty",
@@ -255,6 +305,11 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "more HUD animations at once than the HUD's settings allow",
     ),
     (
+        "E_HOST_QUEUE_FULL",
+        Kind::Rejected,
+        "a message to the host past the engine's host.max_messages or host.max_bytes, left untaken by the host",
+    ),
+    (
         "E_UI_TEXT_TOO_LONG",
         Kind::Rejected,
         "a ui_text or say line longer than the engine's hud.max_text_bytes; a cutscene's line that is fails the load",
@@ -274,11 +329,6 @@ const ERRORS: &[(&str, Kind, &str)] = &[
         "E_CUTSCENE_UNKNOWN",
         Kind::Rejected,
         "cutscene_play names a cutscene the pack lacks",
-    ),
-    (
-        "E_HOST_QUEUE_FULL",
-        Kind::Rejected,
-        "a message to the host past the engine's host.max_messages or host.max_bytes, left untaken by the host",
     ),
     (
         "E_CUTSCENE_UNBOUND",
