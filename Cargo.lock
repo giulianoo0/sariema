@@ -2104,6 +2104,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sariema-anim"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "sariema-format",
+]
+
+[[package]]
 name = "sariema-cli"
 version = "0.1.0"
 dependencies = [

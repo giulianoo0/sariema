@@ -13,6 +13,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+pub mod actor;
 #[cfg(feature = "demo")]
 pub mod demo;
 
