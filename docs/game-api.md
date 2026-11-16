@@ -174,23 +174,33 @@ The engine interprets WebAssembly on every platform. Two maintained
 interpreters were measured behind the same `Interpreter` trait
 (`crates/sariema-vm`), on the M1 load case (`crates/sariema-runtime/benches/swarm`:
 2,000 objects, each deciding every step whether to rest, pick a goal or
-steer toward it), on an Apple M-series Mac in release, median of 600 steps:
+steer toward it), on an Apple M-series Mac in release, median of the logic
+tick over 600 steps:
 
 | | wasmi 2.0 | tinywasm 0.12 beta |
 |---|---|---|
-| 2,000 `set_transform` commands per step | 1.42 ms | 7.54 ms |
-| 2,000 placements through a bulk region | 0.68 ms | 5.30 ms |
+| 2,000 `set_transform` commands per step | 0.51 ms | 2.01 ms |
+| 2,000 placements through a bulk region | 0.28 ms | 1.28 ms |
 
-wasmi is the engine's interpreter: about five times faster here, a stable
+The machine was shared with other builds; under heavier load the same runs
+measured up to 1.4 ms and 0.7 ms for wasmi and 7.5 ms and 5.3 ms for
+tinywasm, the ratio between them holding at four to eight.
+
+wasmi is the engine's interpreter: four to eight times faster here, a stable
 release, fuel metering and NaN canonicalisation built in, and it builds for
 `aarch64-apple-ios` and `aarch64-linux-android`. tinywasm stays behind the
-`tinywasm` feature of `sariema-vm` so the comparison can be re-run
-(`cargo run --release -p sariema-runtime --features tinywasm --example m1 -- swarm.srmg`).
-The swarm needs about 6.3 million units of wasmi fuel per step, so the
-default budget leaves about three times that.
+`tinywasm` feature of `sariema-vm` so the comparison can be re-run:
 
-Decoding the swarm's 52,000-byte batch of 2,000 commands takes 0.05 ms. The
-engine's native systems step 2,000 tweens in 0.06 ms. The target of at most
+```sh
+sariema build crates/sariema-runtime/benches/swarm -o swarm.srmg
+cargo run --release -p sariema-runtime --features tinywasm --example m1 -- swarm.srmg
+```
+
+The swarm needs about 6.3 million units of wasmi fuel per step, so the
+default budget of 20 million leaves about three times that. Its module
+uses 1.5 MB of linear memory. Decoding its 52,000-byte batch of 2,000
+commands takes 0.015 ms; the engine's native systems step 2,000 tweens in
+0.026 ms; a steady step allocates nothing on the host. The target of at most
 2 ms for game logic on the floor iPhone is not yet confirmed: no device run
 has been made.
 

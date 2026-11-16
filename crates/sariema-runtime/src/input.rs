@@ -223,10 +223,25 @@ impl RawInput {
 }
 
 /// The action state of one step.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Actions {
     pub axes: Vec<Vec2>,
     pub buttons: Vec<bool>,
+}
+
+// By hand so `clone_from` reuses the vectors: input copies actions every step.
+impl Clone for Actions {
+    fn clone(&self) -> Actions {
+        Actions {
+            axes: self.axes.clone(),
+            buttons: self.buttons.clone(),
+        }
+    }
+
+    fn clone_from(&mut self, source: &Actions) {
+        self.axes.clone_from(&source.axes);
+        self.buttons.clone_from(&source.buttons);
+    }
 }
 
 impl Actions {

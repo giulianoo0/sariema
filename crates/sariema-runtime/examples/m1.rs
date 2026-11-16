@@ -129,7 +129,7 @@ fn simulation<I: Interpreter>(
     let vm = Vm::load_with::<I>(&pack.wasm, settings.vm).expect("the swarm loads");
     let logic = Timed {
         inner: Wasm(vm),
-        spent: Vec::new(),
+        spent: Vec::with_capacity((WARM_UP + MEASURED) as usize + 1),
         keep: false,
         kept: Vec::new(),
     };
@@ -150,9 +150,9 @@ fn measure<I: Interpreter>(pack: &GamePack, settings: &Settings, region: bool) -
         sim.step(&actions);
     }
     assert!(sim.stopped().is_none(), "{:?}", sim.stopped());
+    let mut steps = Vec::with_capacity(MEASURED as usize);
     let live_before = LIVE.load(Ordering::Relaxed);
     let allocations_before = ALLOCATIONS.load(Ordering::Relaxed);
-    let mut steps = Vec::new();
     for _ in 0..MEASURED {
         let started = Instant::now();
         sim.step(&actions);
@@ -267,8 +267,8 @@ fn tweens() -> Value {
     for _ in 0..WARM_UP {
         sim.step(&actions);
     }
+    let mut steps = Vec::with_capacity(MEASURED as usize);
     let allocations_before = ALLOCATIONS.load(Ordering::Relaxed);
-    let mut steps = Vec::new();
     for _ in 0..MEASURED {
         let started = Instant::now();
         sim.step(&actions);
