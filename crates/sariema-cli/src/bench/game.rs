@@ -41,6 +41,8 @@ pub struct Parts {
     pub switching: bool,
     /// The step switched rooms.
     pub switched: bool,
+    /// Steps run so far, this frame's included.
+    pub steps: u64,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -124,6 +126,7 @@ impl GameFrame {
             rooms: self.view.rooms_frame(),
             switching: scenery.switch().is_some(),
             switched: scenery.active() != room,
+            steps: self.engine.steps(),
         })
     }
 

@@ -50,7 +50,11 @@ device. Its report gives `frames`, `steps`, `ms_per_frame` and `sound`;
 `sariema bench meadow.srmg --input … --json` times a step and its frame,
 the HUD pass apart; for a game of several rooms its `rooms` section splits
 the frames into steady, loading and switching ones and lists each switch's
-frame (`--no-threads` loads as the web does). To look at a switch, put a
+frame (`--no-threads` loads as the web does); `--timeline` adds every
+frame (steps, CPU, step, feed, decode, upload, collision work, and the
+thread's own CPU, which leaves out the time a busy machine paused it), to
+check that preloading a room never takes more than `world_ms_per_frame`
+of a frame. To look at a switch, put a
 filmstrip on it: `--filmstrip 6 --time 2.6 --span 1.0` draws six frames
 from 2.6 s over one second.
 
