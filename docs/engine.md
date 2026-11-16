@@ -101,8 +101,9 @@ on (`E_SETTINGS`), since every actor would move twice.
    and the fade. A `say` line or `ui_text` longer than `hud.max_text_bytes`
    is refused with `E_UI_TEXT_TOO_LONG`, and one whose glyphs no longer fit
    the HUD's glyph atlas with `E_UI_ATLAS_FULL`: a refused line is hidden,
-   though the runtime keeps it until it ends, and a refused text leaves its
-   node empty. A cutscene's line that breaks either fails the load with
+   though the runtime keeps it until it ends; a `ui_text` refused for its
+   length leaves the node's previous text, and one refused for the atlas
+   leaves the node empty. A cutscene's line that breaks either fails the load with
    that code.
 10. **Host.** The step's messages to the host join the host queue
     ([below](#messages-to-the-host)); a `save_load` no host will answer is

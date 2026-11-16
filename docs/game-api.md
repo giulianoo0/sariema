@@ -398,7 +398,8 @@ without `--headless` the pack plays in a window.
   node in the group `cutscene` stays. A text longer than the engine's
   `hud.max_text_bytes` (4096) is refused with `E_UI_TEXT_TOO_LONG`, and
   one whose glyphs overflow the HUD's glyph atlas with `E_UI_ATLAS_FULL`;
-  the node is left empty.
+  a text refused for its length leaves the node as it was, and one refused
+  for the atlas leaves it empty.
 - **Screen**: `fade` to a colour, `letterbox`, and dialogue lines (`say`):
   an `auto` line ends after its duration, a `tap` line when the game sends
   `advance_line` (in a cutscene, on the `cutscene.advance_action` button);
