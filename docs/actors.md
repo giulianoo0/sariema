@@ -190,9 +190,10 @@ its model matrix is the holder's model matrix times the holder's socket.
   map.
 - **Shadows**: `Quality::actor_shadow_slots` of the frame's shadow slots,
   the sun's first, also hold actors; such a slot is redrawn in the frames an
-  actor within its reach moves, appears or vanishes. An actor no such slot
-  holds gets a **disc shadow** on the plane through its origin, so every actor
-  has at least a disc.
+  actor within its reach moves, appears or vanishes. An actor whose bounds
+  lie outside the view of every such slot's map (beyond the box the sun's
+  map is fitted to, outside a spot's cone) gets a **disc shadow** on the
+  plane through its origin instead.
 - **Culling**: with `Quality::frustum_culling`, actors whose moved pack
   bounds lie outside the view are not drawn.
 - **Order**: room opaque draws, actors' opaque parts, discs, room blended
@@ -213,22 +214,34 @@ Settings:
 radius 0.22 × h, opacity 0.5, softness 0.6 (the outer 60 % of the radius
 fades), lift 0.01 m.
 
-### Without storage buffers in vertex shaders (OpenGL ES 3.1)
+### Without storage buffers in vertex shaders (WebGL2, OpenGL ES 3.1)
 
 WebGPU, Metal, Vulkan and DirectX 12 read storage buffers in vertex shaders.
-Many OpenGL ES 3.1 drivers do not (`GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS` is
-0), and wgpu then rejects the actor pipelines; `load_actor` returns
-`RenderError::Device` saying so. The fallback, not built, is the one Godot's
-Compatibility renderer and three.js use: the same rows in an `Rgba32Float`
-texture, one texel per row, read with `textureLoad` in the vertex shader.
-Only `skin.wgsl`'s `actor_matrix` and the upload change.
+WebGL2 has no storage buffers at all, and many OpenGL ES 3.1 drivers have
+none in the vertex stage (`GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS` is 0). wgpu
+then rejects the actor pipelines, and `load_actor` returns
+`RenderError::Device` saying so.
+
+The path for both, **not implemented yet**, is the one Godot's
+Compatibility renderer and three.js (on WebGL2 itself) use. The same rows go
+into an `Rgba32Float` texture, row `r` at texel
+`(r % width, r / width)`, and the vertex shader reads them with
+`textureLoad`. That is an unfiltered read, so WebGL2 needs no float-filtering
+extension, and every WebGL2 device has vertex texture units. Only
+`skin.wgsl`'s `actor_matrix`, the actor bind group and the upload change.
+
+WebGL2 needs more than the palette: the room's lights, cluster lists and
+shadow slots are storage buffers read in the fragment shader too.
 
 ### Limits known
 
 - A mirroring model matrix shows the inside of the meshes.
 - Actors' translucent parts are drawn in actor order, not sorted by distance.
 - The sun's map is fitted to the room's casters; an actor outside that box
-  casts nothing into it.
+  casts nothing into it and gets a disc instead.
+- Whether a map holds an actor is decided from the actor's bounds over all
+  its clips. An actor whose box only grazes the edge of a map counts as held
+  and gets no disc, even when its mesh casts nothing into the map.
 - There is no way to remove an actor yet; hide it.
 - The disc lies on the plane through the actor's origin; a jumping actor's
   disc rises with it until physics gives the ground height.
@@ -313,34 +326,41 @@ skipped uploads and the actors.
 | origem-base-s11, medium | 1.77 / 2.31 | 2.45 / 3.15 | 106 of 114 |
 | origem-base-s11, high | 1.78 / 2.06 | 2.13 / 2.86 | 106 of 114 |
 
-At this load the averages do not separate the two builds. Fifteen more
-interleaved pairs on `origem-base-s11` high gave a minimum of 2.06 against
-2.16 ms and a median of 3.30 against 2.92 ms, with "after" faster in 11 of
-the 15 pairs.
+These minimums do not show a CPU gain: every "after" minimum is 0.3 to
+0.7 ms above "before", and the medians go both ways. Fifteen more
+interleaved pairs on `origem-base-s11` high gave a minimum of 2.06 ms before
+against 2.16 ms after, and a median of 3.30 against 2.92 ms, with "after"
+faster in 11 of the 15 pairs. At this load the runs cannot tell a gain from
+a small loss. The absolute before and after waits for a rerun on a quiet
+machine with `sariema bench`, which the perf lane is adding.
 
-Sampled profiles hold up better under load, because they compare parts of
-the same frame. Each figure below is the share of the frame, in two 5 s
-samples per build:
+What the sampled profiles do show is less work in the parts this change
+touched. They compare parts of the same frame, so they hold up better under
+load. Each figure is a share of `Renderer::render`, from two 5 s samples per
+build:
 
-| room, quality | encoder finish | renderer's `prepare` | `write_buffer` | post | frame at equal finish cost |
-|---|---|---|---|---|---|
-| origem-s5, medium | 66 → 74 % | 12.9 → 6.0 % | 12.7 → 4.2 % | 3.1 → 1.1 % | 0.90× |
-| origem-s5, high | 60 → 67 % | 16.4 → 12.2 % | 12.9 → 7.6 % | 2.7 → 0.9 % | 0.90× |
-| origem-base-s11, medium | 56 → 72 % | 6.3 → 2.1 % | 6.2 → 0 % | 1.9 → 1.4 % | 0.78× |
-| origem-base-s11, high | 65 → 82 % | 13.1 → 3.8 % | 11.1 → 0 % | 3.0 → 1.7 % | 0.79× |
+| room, quality | encoder finish | renderer's `prepare` | `write_buffer` | post |
+|---|---|---|---|---|
+| origem-s5, medium | 66 → 74 % | 12.9 → 6.0 % | 12.7 → 4.2 % | 3.1 → 1.1 % |
+| origem-s5, high | 60 → 67 % | 16.4 → 12.2 % | 12.9 → 7.6 % | 2.7 → 0.9 % |
+| origem-base-s11, medium | 56 → 72 % | 6.3 → 2.1 % | 6.2 → 0 % | 1.9 → 1.4 % |
+| origem-base-s11, high | 65 → 82 % | 13.1 → 3.8 % | 11.1 → 0 % | 3.0 → 1.7 % |
 
-The last column holds the encoder's finish cost fixed and assumes this
-work did not change it. It did not touch the passes, and culling only
-lowers it, so the column is a conservative reading: the frame's CPU fell by
-about a tenth on s5 and a fifth on s11. s5 still writes its light data every
-frame because its lights flicker.
+On s11 no buffer is written in a settled frame. s5 still writes its light
+data every frame because its lights flicker.
 
-Applied to the quiet-machine figures from the Origem benchmark, this is an
-estimate of 0.83 / 0.89 ms (medium / high) on s5 and 0.87 / 0.95 ms on s11.
-three.js takes 0.33 and 0.14 ms, so the gap narrows from 2.8–8.6× to
-2.5–6.8× but stays. What is left is three quarters wgpu replaying passes
-into Metal. The next gain is fewer render passes (the post chain alone has
-18–22), not cheaper draws.
+The table's shares do not give the frame time. If wgpu's encoder finish
+cost the same in both builds, these reductions would come to about a tenth
+of the frame on s5 and a fifth on s11. That is a hypothesis: a larger
+finish share fits just as well with finish itself costing more, and the
+minimums above lean that way.
+
+In both builds most of the frame (56–82 %) is wgpu replaying the frame's
+20–25 render passes into Metal encoders. Fewer render passes (the post
+chain alone has 18–22) is therefore a larger lever than cheaper draws.
+Against three.js (0.33 ms on s5, 0.14 ms on s11, when the engine measured
+0.92–1.20 ms before this work), whether this work narrows the gap is for
+the same quiet rerun to show.
 
 ### Actors
 
