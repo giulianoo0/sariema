@@ -250,8 +250,10 @@ missing glyphs.
 
 New error codes: `E_UI_FONT` (a font file that does not load, or a weight
 on a font without a `wght` axis), `E_UI_IMAGE`, `E_UI_UNKNOWN` (a node, font,
-image or animation name), `E_UI_ATLAS_FULL` (raise `atlas_size`),
-`E_UI_ANIMATIONS` (raise `animations`). Descriptions that break the schema
+image or animation name), `E_UI_ATLAS_FULL` (raise `atlas_size`; a text
+refused for it is left empty), `E_UI_ANIMATIONS` (raise `animations`). In a
+game the engine also refuses a `ui_text` or `say` line longer than its
+`hud.max_text_bytes` with `E_UI_TEXT_TOO_LONG`. Descriptions that break the schema
 give `E_SCHEMA` with the JSON path; a bad `--state` gives `E_USAGE`.
 
 ## Settings

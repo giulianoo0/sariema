@@ -102,6 +102,9 @@ pub struct HudSettings {
     pub line_radius: f32,
     pub line_fill: Color,
     pub line_color: Color,
+    /// Bytes of text one `say` line or `ui_text` may hold; a longer one is
+    /// refused with `E_UI_TEXT_TOO_LONG`, since shaping it runs in the step.
+    pub max_text_bytes: usize,
     /// Screen size until the host gives one.
     pub width: f32,
     pub height: f32,
@@ -122,6 +125,7 @@ impl Default for HudSettings {
             line_radius: 12.0,
             line_fill: Color([0.0, 0.0, 0.0, 0.7]),
             line_color: Color::WHITE,
+            max_text_bytes: 4096,
             width: 1280.0,
             height: 720.0,
             hide_in_cutscenes: true,

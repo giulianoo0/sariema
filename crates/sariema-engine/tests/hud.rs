@@ -306,3 +306,118 @@ fn the_cinema_bars_are_drawn_at_the_steps_height_between_steps() {
     }
     assert!(checked > 20, "{checked}");
 }
+
+/// The opcode and code of every `rejected` event the game saw.
+fn rejections<L: Logic>(
+    engine: &mut Engine<L>,
+    steps: usize,
+    seen: &RejectLog,
+) -> Vec<(u16, String)> {
+    let actions = Actions::for_settings(&engine.state().settings.input);
+    for _ in 0..steps {
+        engine.step(&actions);
+    }
+    seen.borrow().clone()
+}
+
+type RejectLog = std::rc::Rc<std::cell::RefCell<Vec<(u16, String)>>>;
+
+/// Logic that sends `commands` at step 1 and logs what is rejected.
+fn sends_at_one(commands: impl Fn(&mut Vec<u8>) + 'static) -> (impl Logic, RejectLog) {
+    let seen = RejectLog::default();
+    let log = seen.clone();
+    let logic = native(move |n, events, out| {
+        for e in events {
+            if let Event::Rejected { opcode, code, .. } = e {
+                log.borrow_mut().push((*opcode, (*code).to_owned()));
+            }
+        }
+        if n == 1 {
+            commands(out);
+        }
+    });
+    (logic, seen)
+}
+
+fn say(text: &str) -> Command<'_> {
+    Command::Say {
+        line: 7,
+        speaker: sariema_format::script::Entity::NONE,
+        text,
+        voice: 0,
+        advance: sariema_format::script::Advance::Tap,
+        duration: 5.0,
+    }
+}
+
+/// The dialogue box: black at the line's fill, more than half and less
+/// than nine tenths opaque.
+fn line_box(boxes: &[Drawn]) -> bool {
+    boxes
+        .iter()
+        .any(|b| b.fill[0..3] == [0.0; 3] && b.fill[3] > 0.5 && b.fill[3] < 0.9)
+}
+
+#[test]
+fn a_line_whose_glyphs_overflow_the_atlas_is_rejected_and_hidden() {
+    let text: String = (0x0400u32..0x0530)
+        .chain(0x1EA0..0x1F00)
+        .chain(0x00C0..0x0250)
+        .chain(0x0370..0x03FF)
+        .filter_map(char::from_u32)
+        .collect();
+    let (logic, seen) = sends_at_one(move |out| send(out, say(&text)));
+    let mut engine = talk_engine(logic, assets(), EngineSettings::default());
+    let rejected = rejections(&mut engine, 10, &seen);
+    let opcode = say("").opcode();
+    assert_eq!(rejected, vec![(opcode, "E_UI_ATLAS_FULL".to_owned())]);
+    assert!(
+        engine.state().dialogue.line.is_some(),
+        "the runtime keeps the line"
+    );
+    assert!(!line_box(&drawn(&mut engine, 0.5)), "the line is hidden");
+    let (logic, seen) = sends_at_one(|out| send(out, say("Mind the sill.")));
+    let mut engine = talk_engine(logic, assets(), EngineSettings::default());
+    assert_eq!(rejections(&mut engine, 10, &seen), vec![]);
+    assert!(
+        line_box(&drawn(&mut engine, 0.5)),
+        "a line that fits is shown"
+    );
+}
+
+#[test]
+fn a_text_longer_than_the_limit_is_refused() {
+    let mut settings = EngineSettings::default();
+    settings.hud.max_text_bytes = 16;
+    let (logic, seen) = sends_at_one(|out| {
+        send(
+            out,
+            Command::UiText {
+                node: name_id("phrase"),
+                text: "seventeen bytes!!",
+            },
+        );
+        send(
+            out,
+            Command::UiText {
+                node: name_id("phrase"),
+                text: "sixteen bytes!!!",
+            },
+        );
+        send(out, say("seventeen bytes!!"));
+    });
+    let mut engine = talk_engine(logic, assets(), settings);
+    let rejected = rejections(&mut engine, 5, &seen);
+    let text = Command::UiText { node: 0, text: "" }.opcode();
+    let line = say("").opcode();
+    assert_eq!(
+        rejected,
+        vec![
+            (text, "E_UI_TEXT_TOO_LONG".to_owned()),
+            (line, "E_UI_TEXT_TOO_LONG".to_owned()),
+        ]
+    );
+    assert!(!line_box(&drawn(&mut engine, 0.5)), "the line is hidden");
+    let at_load = engine.hud_mut().prepare_line("seventeen bytes!!");
+    assert_eq!(at_load.map_err(|e| e.code), Err("E_UI_TEXT_TOO_LONG"));
+}

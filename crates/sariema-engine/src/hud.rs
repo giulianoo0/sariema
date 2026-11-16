@@ -7,7 +7,8 @@
 //! HUD steps aside.
 
 use glam::Vec2;
-use sariema_format::script::{Command, Controller, Entity, Event, name_id};
+use sariema_format::script::{Advance, Command, Controller, Entity, Event, name_id};
+use sariema_runtime::game::LoadError;
 use sariema_runtime::input::{Actions, InputSettings};
 use sariema_runtime::outbox::UiOp;
 use sariema_runtime::state::State;
@@ -130,9 +131,15 @@ impl Hud {
     }
 
     /// Shapes a dialogue line ahead, so showing it shapes nothing.
-    pub fn prepare_line(&mut self, text: &str) -> Result<(), UiError> {
+    pub fn prepare_line(&mut self, text: &str) -> Result<(), LoadError> {
+        let failed = |code: &'static str, why: &dyn std::fmt::Display| LoadError {
+            code,
+            message: format!("the line {text:?}: {why}"),
+        };
+        fits(text, self.settings.max_text_bytes)
+            .map_err(|code| failed(code, &"it is longer than hud.max_text_bytes"))?;
         match self.layer.line {
-            Some((_, node)) => self.ui.prepare_text(node, text),
+            Some((_, node)) => (self.ui.prepare_text(node, text)).map_err(|e| failed(e.code(), &e)),
             None => Ok(()),
         }
     }
@@ -188,26 +195,32 @@ impl Hud {
     pub fn step(&mut self, s: &State) {
         for op in &s.outbox.ui {
             let result = match op {
-                UiOp::Visible { node, visible } => {
-                    self.node(*node).and_then(|id| self.show(id, *visible))
-                }
+                UiOp::Visible { node, visible } => self
+                    .node(*node)
+                    .and_then(|id| self.show(id, *visible))
+                    .map_err(|e| e.code()),
                 UiOp::Text { node, text } => {
-                    self.node(*node).and_then(|id| self.ui.set_text(id, text))
+                    let id = self.node(*node).map_err(|e| e.code());
+                    id.and_then(|id| {
+                        fits(text, self.settings.max_text_bytes)?;
+                        self.ui.set_text(id, text).map_err(|e| e.code())
+                    })
                 }
                 UiOp::Value { node, value } => self
                     .node(*node)
-                    .and_then(|id| self.ui.set(id, Prop::Progress, *value)),
+                    .and_then(|id| self.ui.set(id, Prop::Progress, *value))
+                    .map_err(|e| e.code()),
                 UiOp::Play { animation } => {
                     match self.animations.iter().find(|(n, _)| n == animation) {
-                        Some((_, name)) => self.ui.play(name),
-                        None => Err(UiError::Unknown(format!("animation {animation:#010x}"))),
+                        Some((_, name)) => self.ui.play(name).map_err(|e| e.code()),
+                        None => Err("E_UI_UNKNOWN"),
                     }
                 }
             };
-            if let Err(e) = result {
+            if let Err(code) = result {
                 self.rejected.push(Event::Rejected {
                     opcode: opcode(op),
-                    code: e.code(),
+                    code,
                     entity: Entity::NONE,
                 });
             }
@@ -303,11 +316,18 @@ impl Hud {
             let line = s.dialogue.line.as_ref();
             let id = line.map(|l| l.line);
             if id != self.shown {
-                if let Some(l) = line {
-                    ui.set_text(text, &l.text)
-                        .expect("the engine's layer nodes live");
+                let shown = line.map(|l| {
+                    fits(&l.text, self.settings.max_text_bytes)
+                        .and_then(|()| ui.set_text(text, &l.text).map_err(|e| e.code()))
+                });
+                if let Some(Err(code)) = shown {
+                    self.rejected.push(Event::Rejected {
+                        opcode: SAY.opcode(),
+                        code,
+                        entity: Entity::NONE,
+                    });
                 }
-                ui.set_visible(frame, line.is_some())
+                ui.set_visible(frame, shown.is_some_and(|r| r.is_ok()))
                     .expect("the engine's layer nodes live");
                 self.shown = id;
                 moved = true;
@@ -428,6 +448,23 @@ fn layer(ui: &mut Ui, font: Option<&str>, settings: &HudSettings) -> Result<Laye
         full: 0.0,
         bar: 0.0,
     })
+}
+
+const SAY: Command<'static> = Command::Say {
+    line: 0,
+    speaker: Entity::NONE,
+    text: "",
+    voice: 0,
+    advance: Advance::Auto,
+    duration: 0.0,
+};
+
+/// Whether `text` is within `limit` bytes; `E_UI_TEXT_TOO_LONG` if not.
+fn fits(text: &str, limit: usize) -> Result<(), &'static str> {
+    if text.len() > limit {
+        return Err("E_UI_TEXT_TOO_LONG");
+    }
+    Ok(())
 }
 
 fn opcode(op: &UiOp) -> u16 {

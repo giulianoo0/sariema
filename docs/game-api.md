@@ -395,11 +395,17 @@ without `--headless` the pack plays in a window.
   events to the HUD (an objective that slides in on `trigger_enter`).
   While a cutscene holds control the engine hides the HUD and brings it
   back, as the game last set it, once the cinema bars are gone; a root
-  node in the group `cutscene` stays.
+  node in the group `cutscene` stays. A text longer than the engine's
+  `hud.max_text_bytes` (4096) is refused with `E_UI_TEXT_TOO_LONG`, and
+  one whose glyphs overflow the HUD's glyph atlas with `E_UI_ATLAS_FULL`;
+  the node is left empty.
 - **Screen**: `fade` to a colour, `letterbox`, and dialogue lines (`say`):
   an `auto` line ends after its duration, a `tap` line when the game sends
   `advance_line` (in a cutscene, on the `cutscene.advance_action` button);
-  `line_done` reports the end.
+  `line_done` reports the end. A line the HUD cannot show, longer than
+  `hud.max_text_bytes` or overflowing the glyph atlas, is reported with
+  `rejected` (`E_UI_TEXT_TOO_LONG` or `E_UI_ATLAS_FULL`) and hidden; it
+  still ends as its `advance` says.
 
 ## Saves and the host
 

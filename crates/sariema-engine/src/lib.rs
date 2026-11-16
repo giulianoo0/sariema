@@ -48,6 +48,7 @@ pub const REJECTED: &[&str] = &[
     "E_UI_FONT",
     "E_UI_ATLAS_FULL",
     "E_UI_ANIMATIONS",
+    "E_UI_TEXT_TOO_LONG",
 ];
 
 pub struct Engine<L> {
@@ -98,10 +99,7 @@ impl Engine<WasmLogic> {
         let sim = sariema_runtime::game::start_with_settings(pack, runtime, seed)?;
         let mut engine = Engine::new(sim, assets, settings)?;
         for text in &lines {
-            engine.hud.prepare_line(text).map_err(|e| LoadError {
-                code: e.code(),
-                message: e.to_string(),
-            })?;
+            engine.hud.prepare_line(text)?;
         }
         Ok(engine)
     }

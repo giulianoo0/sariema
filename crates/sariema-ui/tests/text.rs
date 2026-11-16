@@ -155,3 +155,20 @@ fn set_text_lays_out_again() {
     assert!(rect(&ui, "t")[2] > before);
     assert_eq!(ui.text(t), Some("Empurrar"));
 }
+
+#[test]
+fn a_text_that_overflows_the_atlas_is_refused_and_shows_nothing() {
+    let mut ui = ui(json!({
+        "settings": { "atlas_size": 64 },
+        "fonts": font(),
+        "nodes": [ { "name": "t", "text": "a", "size": 17 } ]
+    }));
+    screen(&mut ui, 844.0, 390.0);
+    let t = id(&ui, "t");
+    let many: String = ('A'..='Z').chain('a'..='z').collect();
+    let refused = ui.set_text(t, &many);
+    assert_eq!(refused.map_err(|e| e.code()), Err("E_UI_ATLAS_FULL"));
+    assert_eq!(ui.text(t), Some(""));
+    ui.step();
+    assert!(glyphs(&mut ui).is_empty(), "no glyph of either text is drawn");
+}

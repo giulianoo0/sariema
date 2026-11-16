@@ -95,7 +95,12 @@ on (`E_SETTINGS`), since every actor would move twice.
    `cutscene` (`"groups": ["cutscene"]`) stays. Over the game's own nodes the
    engine draws its layer: the top cinema bar, the bottom one with the
    dialogue line (when the HUD has a font) riding `line_margin` above it,
-   and the fade.
+   and the fade. A `say` line or `ui_text` longer than `hud.max_text_bytes`
+   is refused with `E_UI_TEXT_TOO_LONG`, and one whose glyphs no longer fit
+   the HUD's glyph atlas with `E_UI_ATLAS_FULL`: a refused line is hidden,
+   though the runtime keeps it until it ends, and a refused text leaves its
+   node empty. A cutscene's line that breaks either fails the load with
+   that code.
 10. **Rejections** from the collision module, the mixer and the screen are
     reported to the game as `rejected` events the next step; `REJECTED`
     lists their codes.
@@ -206,6 +211,7 @@ each module's own settings stay in its crate.
 | `hud.line_padding`, `hud.line_radius` | [10, 18], 12 | the line's box, in UI pixels |
 | `hud.line_fill`, `hud.line_color` | black at 0.7, white | the line's box and text |
 | `hud.hide_in_cutscenes` | true | the game's HUD steps aside while a cutscene holds control and its bars are up |
+| `hud.max_text_bytes` | 4096 | bytes one `say` line or `ui_text` may hold, since the step shapes it; a longer one is `E_UI_TEXT_TOO_LONG` |
 | `hud.width`, `hud.height` | 1280, 720 | the screen until the host gives one |
 
 ## Determinism

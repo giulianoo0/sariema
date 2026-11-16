@@ -583,6 +583,9 @@ impl Ui {
                     self.settings.sdf_px,
                     &mut t.glyphs,
                 ) {
+                    t.glyphs.clear();
+                    t.text.clear();
+                    t.chars = 0;
                     return Err(UiError::AtlasFull);
                 }
             }

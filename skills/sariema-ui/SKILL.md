@@ -75,6 +75,9 @@ button. Over the HUD the engine draws the cinema bars, the dialogue line
 riding above the bottom one (with the HUD's first font) and the fade.
 While a cutscene holds control the engine hides the HUD's root nodes and
 brings them back once its cinema bars are gone; put `"groups": ["cutscene"]` on one that must stay.
+A `ui_text` or `say` line over 4096 bytes (`hud.max_text_bytes`) is
+`rejected` with `E_UI_TEXT_TOO_LONG`, and one whose glyphs no longer fit the
+atlas with `E_UI_ATLAS_FULL`; the line is hidden, the node left empty.
 Hide nothing yourself on `cutscene_started`. Check the frames in the game,
 not only the description:
 
