@@ -63,7 +63,8 @@ impl CameraPose {
     }
 }
 
-/// Follow tuning a rig gets until `rig_tuning` changes it.
+/// Follow tuning a rig gets until `rig_tuning` changes it, and how the
+/// camera blends when the rig in use is reframed.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct CameraSettings {
@@ -74,6 +75,12 @@ pub struct CameraSettings {
     pub damping: f32,
     /// Seconds of subject velocity the focus leads by.
     pub look_ahead: f32,
+    pub reframe_blend: f32,
+    #[serde(
+        serialize_with = "crate::settings::ease_out",
+        deserialize_with = "crate::settings::ease_in"
+    )]
+    pub reframe_ease: Ease,
 }
 
 impl Default for CameraSettings {
@@ -83,6 +90,8 @@ impl Default for CameraSettings {
             frequency: 1.5,
             damping: 1.0,
             look_ahead: 0.0,
+            reframe_blend: 0.5,
+            reframe_ease: Ease::InOutCubic,
         }
     }
 }
@@ -287,14 +296,19 @@ impl Camera {
         }
     }
 
-    /// Creates or reframes a rig, keeping its tuning and bounds.
+    /// Creates or reframes a rig, keeping its tuning and bounds. Reframing
+    /// the rig in use blends from the pose shown.
     pub fn set_framing(&mut self, rig: u32, framing: Framing) {
         let tuning = self.settings;
         let r = self
             .rigs
             .entry(rig)
             .or_insert_with(|| Rig::new(framing, tuning));
+        let changed = r.framing != framing;
         r.framing = framing;
+        if changed && self.active == Some(rig) {
+            self.transition(tuning.reframe_blend, tuning.reframe_ease);
+        }
     }
 
     pub fn set_tuning(&mut self, rig: u32, tuning: CameraSettings) -> Result<(), CameraError> {
@@ -319,6 +333,11 @@ impl Camera {
         let r = self.rigs.get_mut(&rig).ok_or(CameraError::UnknownRig)?;
         r.ready = false;
         self.active = Some(rig);
+        self.transition(blend, curve);
+        Ok(())
+    }
+
+    fn transition(&mut self, blend: f32, curve: Ease) {
         self.blend = match self.pose {
             Some(from) if blend > 0.0 => Some(Blend {
                 from,
@@ -331,7 +350,6 @@ impl Camera {
                 None
             }
         };
-        Ok(())
     }
 
     pub fn shake(&mut self, amplitude: f32, frequency: f32, duration: f32, rng: &mut Pcg32) {

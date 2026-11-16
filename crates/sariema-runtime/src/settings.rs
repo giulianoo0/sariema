@@ -70,11 +70,11 @@ impl Default for CutsceneSettings {
     }
 }
 
-fn ease_out<S: Serializer>(e: &Ease, s: S) -> Result<S::Ok, S::Error> {
+pub(crate) fn ease_out<S: Serializer>(e: &Ease, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(e.name())
 }
 
-fn ease_in<'de, D: Deserializer<'de>>(d: D) -> Result<Ease, D::Error> {
+pub(crate) fn ease_in<'de, D: Deserializer<'de>>(d: D) -> Result<Ease, D::Error> {
     let name = String::deserialize(d)?;
     Ease::from_name(&name).ok_or_else(|| serde::de::Error::custom(format!("unknown ease {name:?}")))
 }
@@ -121,6 +121,11 @@ pub const DOCS: &[(&str, &str)] = &[
         "camera.damping",
         "Damping of that spring; 1 is critical, below overshoots.",
     ),
+    (
+        "camera.reframe_blend",
+        "Seconds the camera blends when the rig in use is reframed; 0 cuts.",
+    ),
+    ("camera.reframe_ease", "Easing of that blend."),
     (
         "camera.look_ahead",
         "Seconds of the subject's velocity the focus leads by.",

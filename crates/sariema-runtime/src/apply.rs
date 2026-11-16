@@ -507,6 +507,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
                     frequency,
                     damping,
                     look_ahead,
+                    ..s.settings.camera
                 },
             )
             .map_err(|e| Refusal {

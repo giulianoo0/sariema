@@ -60,6 +60,7 @@ fn follow_never_overshoots_its_bounds() {
             frequency: 2.0,
             damping: 0.2,
             look_ahead: 0.5,
+            ..CameraSettings::default()
         },
     )
     .unwrap();
@@ -229,4 +230,48 @@ fn shake_is_seeded_and_dies_out() {
     assert_eq!(a, b);
     assert_ne!(a, c);
     assert_eq!(a[59], a[40], "still after the shake");
+}
+
+#[test]
+fn reframing_the_rig_in_use_blends_from_the_shown_pose() {
+    let (w, es) = world_with(1);
+    let mut cam = Camera::new(CameraSettings::default());
+    cam.set_framing(1, follow(es[0], 0.0));
+    cam.use_rig(1, 0.0, Ease::Linear).unwrap();
+    let fixed = Framing::Fixed(CameraPose::looking(
+        Vec3::new(0.0, 20.0, 20.0),
+        Vec3::ZERO,
+        30.0,
+    ));
+    let mut last: Option<CameraPose> = None;
+    for step in 0..300u32 {
+        cam.begin_step();
+        match step {
+            60 => cam.set_framing(1, follow(es[0], 90.0)),
+            90 => cam.set_framing(1, fixed),
+            200 => cam.set_framing(1, fixed),
+            _ => {}
+        }
+        cam.step(&w);
+        let pose = cam.pose().unwrap();
+        if let Some(before) = last {
+            assert!(!cam.cut(), "step {step}: reframing cut");
+            assert!(
+                angle(&pose, &before) < 10.0,
+                "step {step}: turned {}° at once",
+                angle(&pose, &before)
+            );
+            // The framings are up to 26 m apart; a 0.5 s in-out cubic blend
+            // moves at most 2.6 m in a step.
+            let moved = pose.position.distance(before.position);
+            assert!(moved < 3.0, "step {step}: jumped {moved} m");
+        }
+        last = Some(pose);
+    }
+    let end = cam.pose().unwrap();
+    let Framing::Fixed(target) = fixed else {
+        unreachable!()
+    };
+    assert!(end.position.distance(target.position) < 1e-3, "it arrives");
+    assert!(!cam.blending(), "the same framing again starts no blend");
 }
