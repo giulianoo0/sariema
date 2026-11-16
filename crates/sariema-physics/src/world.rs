@@ -119,6 +119,8 @@ pub struct World {
     navs: Vec<NavGrid>,
     steps: u64,
     geometry_changed: bool,
+    /// Colliders enabled since the last step, whose actors are pushed out next step.
+    enabled_now: Vec<u32>,
     order: Vec<u32>,
     pushes: Vec<Vec3>,
     inside: Vec<u32>,
@@ -166,6 +168,7 @@ impl World {
             navs: Vec::new(),
             steps: 0,
             geometry_changed: false,
+            enabled_now: Vec::new(),
             order: Vec::new(),
             pushes: Vec::new(),
             inside: Vec::new(),
@@ -376,14 +379,8 @@ impl World {
                 a.posed = true;
             }
             Intent::SetColliderEnabled { collider, enabled } => {
-                let c = &mut self.scene.colliders[collider.0 as usize];
-                if c.enabled != enabled {
-                    c.enabled = enabled;
-                    let bounds = c.bounds;
-                    self.geometry_changed = true;
-                    for nav in &mut self.navs {
-                        nav.mark_dirty(bounds);
-                    }
+                if self.set_enabled(collider.0, enabled) && enabled {
+                    self.enabled_now.push(collider.0);
                 }
             }
             Intent::SetSpeedScale { actor, scale } => {
@@ -392,9 +389,75 @@ impl World {
         }
     }
 
+    /// Whether the collider's state changed.
+    fn set_enabled(&mut self, collider: u32, enabled: bool) -> bool {
+        let c = &mut self.scene.colliders[collider as usize];
+        if c.enabled == enabled {
+            return false;
+        }
+        c.enabled = enabled;
+        let bounds = c.bounds;
+        self.geometry_changed = true;
+        for nav in &mut self.navs {
+            nav.mark_dirty(bounds);
+        }
+        true
+    }
+
+    /// Pushes actors out of the colliders enabled since the last step, in the
+    /// order they were enabled; a collider that cannot push one out is
+    /// disabled again.
+    fn settle_enabled(&mut self, events: &mut Vec<Event>) {
+        for k in 0..self.enabled_now.len() {
+            let collider = self.enabled_now[k];
+            for i in 0..self.actors.len() {
+                if !self.scene.colliders[collider as usize].enabled {
+                    break;
+                }
+                let a = &self.actors[i];
+                if a.posed {
+                    continue;
+                }
+                let only = Filter {
+                    only: Some(collider),
+                    ..Filter::ALL
+                };
+                let out = self.mover(a, Filter::ALL).push_out(a.position, only, false);
+                let id = ActorId(i as u32);
+                match out {
+                    Some(at) if at == a.position => {}
+                    Some(at) => {
+                        let ground = self.standing_on(a, at, a.yaw);
+                        let a = &mut self.actors[i];
+                        a.position = at;
+                        a.ground = ground;
+                        a.awake = true;
+                        events.push(Event {
+                            actor: id,
+                            kind: EventKind::PushedOut {
+                                collider: ColliderId(collider),
+                            },
+                        });
+                    }
+                    None => {
+                        self.set_enabled(collider, false);
+                        events.push(Event {
+                            actor: id,
+                            kind: EventKind::EnableRefused {
+                                collider: ColliderId(collider),
+                            },
+                        });
+                    }
+                }
+            }
+        }
+        self.enabled_now.clear();
+    }
+
     /// Runs one fixed step and appends what happened to `events`.
     pub fn step(&mut self, events: &mut Vec<Event>) {
         self.steps += 1;
+        self.settle_enabled(events);
         for i in 0..self.actors.len() {
             self.step_actor(i, events);
         }
@@ -697,7 +760,7 @@ impl World {
             yaw,
             ..self.mover(a, Filter::ALL)
         }
-        .turned(a.position);
+        .push_out(a.position, Filter::ALL, true);
         let a = &mut self.actors[i];
         if let Some(at) = turned {
             a.awake |= at != a.position;

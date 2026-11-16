@@ -6,7 +6,7 @@ mod common;
 
 use common::{Owned, Room, actor, hold, settle};
 use glam::{Mat3, Vec2, Vec3};
-use sariema_physics::{ActorDesc, ColliderId, Intent, Pose, Settings, yaw_matrix};
+use sariema_physics::{ActorDesc, ColliderId, EventKind, Intent, Pose, Settings, yaw_matrix};
 
 #[test]
 fn platforms_carry_an_actor_without_drift() {
@@ -217,5 +217,68 @@ fn disabling_a_collider_lets_actors_through_and_drops_them() {
         world.actor(rider).position.y < 0.02,
         "{:?}",
         world.actor(rider)
+    );
+}
+
+/// A doorway in a wall along x at z = 0, its door leaf `thickness` thick and
+/// open (disabled), an actor standing in it at `at`.
+fn door_closing_on(
+    at: Vec3,
+    thickness: f32,
+) -> (sariema_physics::World, sariema_physics::ActorId, ColliderId) {
+    let mut room = Room::default();
+    room.floor(20.0)
+        .wall("left", Vec2::new(-3.6, 0.0), Vec3::new(6.0, 2.0, 0.2), 0.0)
+        .wall("right", Vec2::new(3.6, 0.0), Vec3::new(6.0, 2.0, 0.2), 0.0)
+        .wall("door", Vec2::ZERO, Vec3::new(1.2, 2.0, thickness), 0.0);
+    let mut world = room.world(Settings::default());
+    let door = world.collider_by_name("door").unwrap();
+    world.apply(Intent::SetColliderEnabled {
+        collider: door,
+        enabled: false,
+    });
+    let id = actor(&mut world, at);
+    settle(&mut world, id);
+    (world, id, door)
+}
+
+#[test]
+fn a_door_closing_on_an_actor_pushes_it_out() {
+    let (mut world, id, door) = door_closing_on(Vec3::new(0.0, 0.0, 0.15), 0.1);
+    world.apply(Intent::SetColliderEnabled {
+        collider: door,
+        enabled: true,
+    });
+    let mut events = Vec::new();
+    world.step(&mut events);
+    let a = world.actor(id);
+    let collider = world.actor_collider(id);
+    assert!(
+        world.actor_overlap(&collider, a.position, a.yaw).is_none(),
+        "left inside the door: {a:?}"
+    );
+    assert!(world.collider_enabled(door));
+    assert!(a.position.z > 0.35, "{a:?}");
+    assert_eq!(
+        events.iter().map(|e| e.kind).collect::<Vec<_>>(),
+        [EventKind::PushedOut { collider: door }]
+    );
+}
+
+#[test]
+fn a_door_that_cannot_push_the_actor_out_stays_open() {
+    let (mut world, id, door) = door_closing_on(Vec3::ZERO, 2.4);
+    let before = world.actor(id).position;
+    world.apply(Intent::SetColliderEnabled {
+        collider: door,
+        enabled: true,
+    });
+    let mut events = Vec::new();
+    world.step(&mut events);
+    assert!(!world.collider_enabled(door));
+    assert!((world.actor(id).position - before).length() < 1e-4);
+    assert_eq!(
+        events.iter().map(|e| e.kind).collect::<Vec<_>>(),
+        [EventKind::EnableRefused { collider: door }]
     );
 }

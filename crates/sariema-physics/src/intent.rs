@@ -20,10 +20,7 @@ pub enum Intent {
     /// Stick input on the ground plane: `x` along +X, `y` along +Z, length up
     /// to 1. It stays until replaced; it is ignored during a scripted move or
     /// a knockback.
-    Move {
-        actor: ActorId,
-        stick: Vec2,
-    },
+    Move { actor: ActorId, stick: Vec2 },
     /// Walk to `target` along a path, with collision, then turn to `face`
     /// (a yaw) when given. Ends with [`EventKind::Arrived`] or [`EventKind::Blocked`].
     MoveTo {
@@ -32,9 +29,7 @@ pub enum Intent {
         face: Option<f32>,
     },
     /// Drops the stick input and any scripted move.
-    Stop {
-        actor: ActorId,
-    },
+    Stop { actor: ActorId },
     /// Pushes the actor by `push` (horizontal) over `steps` steps, fastest
     /// first; stick input is ignored meanwhile.
     Knockback {
@@ -60,15 +55,12 @@ pub enum Intent {
         position: Vec3,
         yaw: f32,
     },
-    SetColliderEnabled {
-        collider: ColliderId,
-        enabled: bool,
-    },
+    /// Enabling takes effect at once for queries; at the next step, actors
+    /// inside the collider are pushed out of it ([`EventKind::PushedOut`]),
+    /// or it is disabled again when one cannot be ([`EventKind::EnableRefused`]).
+    SetColliderEnabled { collider: ColliderId, enabled: bool },
     /// Multiplies the actor's walk speed; 1 is normal.
-    SetSpeedScale {
-        actor: ActorId,
-        scale: f32,
-    },
+    SetSpeedScale { actor: ActorId, scale: f32 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -93,6 +85,15 @@ pub enum EventKind {
     Arrived,
     Blocked(BlockReason),
     TeleportRejected,
+    /// A collider enabled where the actor stood pushed it out.
+    PushedOut {
+        collider: ColliderId,
+    },
+    /// The actor stood where `collider` was enabled and could not be pushed
+    /// out of it within the depenetration limits; the collider stays disabled.
+    EnableRefused {
+        collider: ColliderId,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

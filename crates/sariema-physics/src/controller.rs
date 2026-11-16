@@ -357,26 +357,35 @@ impl Mover<'_> {
         at
     }
 
-    /// Where the actor at `at`, just turned to this mover's yaw, can stand: `at`
-    /// when the turned collider is clear, otherwise pushed level out of what it
-    /// now overlaps, by a sweep so the body never passes through anything;
-    /// `None` when that does not clear it within the depenetration distance.
-    pub fn turned(&self, at: Vec3) -> Option<Vec3> {
-        let Some((_, deepest)) = self.scene.deepest(&self.probe(at), self.filter) else {
-            return Some(at);
-        };
+    /// The actor at `at` pushed out of what `of` sees it overlap, level only
+    /// when `level`, each push a sweep so the body never passes through
+    /// anything: `at` itself when nothing overlaps; `None` when the pushes
+    /// leave it inside anything or exceed the depenetration limits.
+    pub fn push_out(&self, at: Vec3, of: Filter, level: bool) -> Option<Vec3> {
         let c = &self.settings.collision;
-        let level = flat(deepest.normal);
-        let reach = level.length();
-        let distance = (c.skin - deepest.separation) / reach;
-        if distance > c.max_depenetration {
-            return None;
+        let mut pos = at;
+        let mut moved = 0.0;
+        for _ in 0..c.depenetration_iterations {
+            let Some((_, deepest)) = self.scene.deepest(&self.probe(pos), of) else {
+                break;
+            };
+            let n = if level {
+                flat(deepest.normal)
+            } else {
+                deepest.normal
+            };
+            let reach = n.length();
+            let distance = (c.skin - deepest.separation) / reach;
+            moved += distance;
+            if moved > c.max_depenetration {
+                return None;
+            }
+            pos = self.push(pos, n / reach * distance);
         }
-        let out = self.push(at, level / reach * distance);
         self.scene
-            .deepest(&self.probe(out), self.filter)
+            .deepest(&self.probe(pos), self.filter)
             .is_none()
-            .then_some(out)
+            .then_some(pos)
     }
 
     /// Pushes the actor at `at` out of everything it overlaps; `None` when
