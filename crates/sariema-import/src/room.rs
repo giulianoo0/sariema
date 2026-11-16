@@ -14,14 +14,15 @@ use std::path::{Path, PathBuf};
 
 use glam::{Mat3, Mat4, Quat, Vec3};
 use sariema_format::{
-    Aabb, AlphaMode, Ambient, Background, CharacterLight, Draw, Fog, Group, Hinge, Light,
-    LightKind, Look, Material, Mesh, Mobility, Node, Piece, PieceState, RoomCamera, RoomPack,
-    Stats, Sun, Texture, Vertex, hemisphere_sh9,
+    Aabb, AlphaMode, Ambient, Area, Background, CharacterLight, CutLine, CutStyle, Cutaway, Draw,
+    Fog, Group, Hinge, Light, LightKind, Look, Material, Mesh, Mobility, Node, Piece, PieceState,
+    RoomCamera, RoomPack, Stats, Sun, Texture, Vertex, hemisphere_sh9,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::actor::matches;
 use crate::collision::CollisionSource;
 use crate::texture::srgb_to_linear;
 use crate::{
@@ -70,6 +71,156 @@ pub struct RoomSource {
     /// What to bake into the room's collision pack; no pack when absent.
     #[serde(default)]
     pub collision: Option<CollisionSource>,
+    #[serde(default)]
+    pub cutaways: Vec<CutawaySource>,
+}
+
+/// A [`Cutaway`] over the pieces whose names match `pieces`.
+#[derive(Debug, Deserialize)]
+pub struct CutawaySource {
+    pub name: String,
+    /// `*` matches any run of characters.
+    pub pieces: Vec<String>,
+    pub height: f32,
+    #[serde(default)]
+    pub areas: Vec<Area>,
+    #[serde(default)]
+    pub offset: f32,
+    #[serde(default = "CutawaySource::default_follow")]
+    pub follow: f32,
+    #[serde(default)]
+    pub radius: f32,
+    #[serde(default)]
+    pub soft: f32,
+    #[serde(default)]
+    pub cap: Option<[f32; 3]>,
+    #[serde(default = "CutawaySource::default_cut_shadows")]
+    pub cut_shadows: bool,
+    /// Metres below which a merged piece's triangles are drawn apart, never
+    /// cut; the height when absent.
+    #[serde(default)]
+    pub whole_below: Option<f32>,
+    #[serde(default)]
+    pub style: StyleSource,
+    /// Metres from a room's edge within which the point a piece is placed at makes it
+    /// belong to that edge's wall, judged whole by a point on it.
+    #[serde(default = "CutawaySource::default_attach")]
+    pub attach: f32,
+}
+
+/// [`CutStyle`] as a room description names it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StyleSource {
+    #[default]
+    Cut,
+    Fade,
+}
+
+/// A room's floor across the engine's x and z.
+#[derive(Clone, Copy)]
+struct Floor {
+    min: glam::Vec2,
+    max: glam::Vec2,
+}
+
+impl Floor {
+    /// From the room's south-west `corner` in metres and its size in cells.
+    fn of(corner: [f32; 2], cells: [f32; 2], celula: f32) -> Floor {
+        let far = [corner[0] + cells[0] * celula, corner[1] + cells[1] * celula];
+        Floor {
+            min: glam::Vec2::new(corner[0], -far[1]),
+            max: glam::Vec2::new(far[0], -corner[1]),
+        }
+    }
+}
+
+/// A room's wall, by where its edge runs.
+#[derive(Clone, Copy, Debug)]
+enum Wall {
+    AtX(f32),
+    AtZ(f32),
+}
+
+impl Wall {
+    /// The point of the wall nearest `centre`, across the floor.
+    fn anchor(self, centre: Vec3) -> [f32; 2] {
+        match self {
+            Wall::AtX(x) => [x, centre.z],
+            Wall::AtZ(z) => [centre.x, z],
+        }
+    }
+}
+
+/// Draws of one copy of a piece on a wall, judged whole with those it touches.
+struct Attached {
+    cut: usize,
+    draws: Vec<u32>,
+    min: Vec3,
+    max: Vec3,
+    wall: Wall,
+}
+
+impl Attached {
+    fn new(cut: usize, draws: Vec<u32>, bounds: Option<(Vec3, Vec3)>, wall: Wall) -> Attached {
+        let (min, max) = bounds.unwrap_or_default();
+        Attached {
+            cut,
+            draws,
+            min,
+            max,
+            wall,
+        }
+    }
+}
+
+/// The pieces of `attached` in groups of those whose bounds touch, within a
+/// centimetre, in the same cutaway; by index.
+fn touching(attached: &[Attached]) -> Vec<Vec<usize>> {
+    const TOUCH: f32 = 0.01;
+    let mut group: Vec<usize> = (0..attached.len()).collect();
+    fn root(group: &mut [usize], mut k: usize) -> usize {
+        while group[k] != k {
+            group[k] = group[group[k]];
+            k = group[k];
+        }
+        k
+    }
+    for (i, a) in attached.iter().enumerate() {
+        for (j, b) in attached.iter().enumerate().skip(i + 1) {
+            let apart = (a.min - TOUCH).cmpgt(b.max).any() || (b.min - TOUCH).cmpgt(a.max).any();
+            if a.cut == b.cut && !apart {
+                let (ri, rj) = (root(&mut group, i), root(&mut group, j));
+                group[rj] = ri;
+            }
+        }
+    }
+    let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for k in 0..attached.len() {
+        let r = root(&mut group, k);
+        groups.entry(r).or_default().push(k);
+    }
+    groups.into_values().collect()
+}
+
+impl CutawaySource {
+    /// Seconds: the line eases, so it never jumps.
+    pub const DEFAULT_FOLLOW: f32 = 0.1;
+
+    fn default_follow() -> f32 {
+        CutawaySource::DEFAULT_FOLLOW
+    }
+
+    fn default_cut_shadows() -> bool {
+        true
+    }
+
+    /// Metres: a piece on a wall stands within half a metre of its edge.
+    pub const DEFAULT_ATTACH: f32 = 0.5;
+
+    fn default_attach() -> f32 {
+        CutawaySource::DEFAULT_ATTACH
+    }
 }
 
 /// The room's [`Fog`]; its colour is the background's bottom when absent.
@@ -120,6 +271,9 @@ pub(crate) struct Montagem {
 pub(crate) struct Comodo {
     /// The room's south-west corner, in cells.
     pub(crate) sw_celulas: [f32; 2],
+    /// The room's size in cells, east and north.
+    #[serde(default)]
+    pub(crate) n_celulas: Option<[f32; 2]>,
     pub(crate) instancias: Vec<Inst>,
 }
 
@@ -201,10 +355,16 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         kit: &kit,
         loose: &source.loose,
         hidden: &source.hidden,
+        cutaways: &source.cutaways,
+        celula: 0.0,
         meshes: Vec::new(),
         draws: Vec::new(),
         nodes: Vec::new(),
         pieces: Vec::new(),
+        cut_draws: vec![Vec::new(); source.cutaways.len()],
+        matched: (source.cutaways.iter())
+            .map(|c| vec![false; c.pieces.len()])
+            .collect(),
     };
     let mut lights = Vec::new();
     let mut groups = Vec::new();
@@ -215,6 +375,7 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
             .ok_or_else(|| ImportError::Schema(format!("montagem has no room {room}")))?;
         let corner = comodo.sw_celulas.map(|cells| cells * montagem.celula);
         let first_draw = scene.draws.len() as u32;
+        scene.celula = montagem.celula;
         scene.add_room(room, comodo, corner)?;
         let first_light = lights.len() as u32;
         for item in luz.comodos.get(room).map_or(&[][..], |l| &l.luzes) {
@@ -234,8 +395,39 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         draws,
         nodes,
         pieces,
+        cut_draws,
+        matched,
         ..
     } = scene;
+    for (c, matched) in source.cutaways.iter().zip(&matched) {
+        if let Some((pattern, _)) = c.pieces.iter().zip(matched).find(|(_, m)| !**m) {
+            return Err(ImportError::Schema(format!(
+                "room {}: cutaway {} lists {pattern}, which no placed piece matches",
+                source.name, c.name
+            )));
+        }
+    }
+    let cutaways = (source.cutaways.iter().zip(cut_draws))
+        .map(|(c, draws)| Cutaway {
+            name: c.name.clone(),
+            anchors: draws.iter().map(|d| d.1).collect(),
+            draws: draws.iter().map(|d| d.0).collect(),
+            style: match c.style {
+                StyleSource::Cut => CutStyle::Cut,
+                StyleSource::Fade => CutStyle::Fade,
+            },
+            height: c.height,
+            line: CutLine {
+                areas: c.areas.clone(),
+                offset: c.offset,
+                follow: c.follow,
+            },
+            radius: c.radius,
+            soft: c.soft,
+            cap: c.cap,
+            cut_shadows: c.cut_shadows,
+        })
+        .collect();
     let placed = |piece: &String| {
         source
             .show
@@ -315,6 +507,7 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
             start: source.fog.start,
             end: source.fog.end,
         },
+        cutaways,
     };
     room.stats = Stats::of_room(&room);
     Ok(room)
@@ -356,13 +549,45 @@ struct Scene<'a> {
     kit: &'a Kit,
     loose: &'a [String],
     hidden: &'a [String],
+    cutaways: &'a [CutawaySource],
+    /// Metres per cell of the placement being built.
+    celula: f32,
     meshes: Vec<Mesh>,
     draws: Vec<Draw>,
     nodes: Vec<Node>,
     pieces: Vec<Piece>,
+    /// By cutaway, its draws with their anchors, and whether each of its
+    /// patterns matched a piece.
+    cut_draws: Vec<Vec<(u32, Option<[f32; 2]>)>>,
+    matched: Vec<Vec<bool>>,
 }
 
 impl Scene<'_> {
+    /// The cutaway whose patterns match `piece`, if any.
+    fn cutaway_of(&mut self, piece: &str, room: &str) -> Result<Option<usize>, ImportError> {
+        let mut found: Option<usize> = None;
+        for (c, cutaway) in self.cutaways.iter().enumerate() {
+            let mut hit = false;
+            for (pattern, matched) in cutaway.pieces.iter().zip(&mut self.matched[c]) {
+                if matches(pattern, piece) {
+                    *matched = true;
+                    hit = true;
+                }
+            }
+            match found {
+                Some(first) if hit => {
+                    return Err(ImportError::Schema(format!(
+                        "room {room}: piece {piece} is in cutaways {} and {}",
+                        self.cutaways[first].name, cutaway.name
+                    )));
+                }
+                None if hit => found = Some(c),
+                _ => {}
+            }
+        }
+        Ok(found)
+    }
+
     /// Adds one draw per material for the room's merged pieces, and for each
     /// copy of a loose piece a node with a draw per primitive of each of its
     /// looks, and a node per hinged part.
@@ -372,8 +597,11 @@ impl Scene<'_> {
         comodo: &Comodo,
         corner: [f32; 2],
     ) -> Result<(), ImportError> {
-        let mut merged: BTreeMap<u32, Mesh> = BTreeMap::new();
+        // By cutaway, if any, then material: the pieces of none come first.
+        let mut merged: BTreeMap<(Option<usize>, u32), Mesh> = BTreeMap::new();
         let mut copies: HashMap<&str, u32> = HashMap::new();
+        let floor = comodo.n_celulas.map(|n| Floor::of(corner, n, self.celula));
+        let mut attached: Vec<Attached> = Vec::new();
         for inst in &comodo.instancias {
             let piece = self
                 .kit
@@ -387,13 +615,15 @@ impl Scene<'_> {
             // As casa.ts treats nodes flagged oculto_no_inicio: hidden only while no estado is set.
             let hidden_at_start = piece.hidden_at_start && inst.estado.is_none();
             let hidden = self.hidden.contains(&inst.peca);
+            let cut = self.cutaway_of(&inst.peca, room)?;
+            let first = self.draws.len() as u32;
+            let copy = copies.entry(&inst.peca).or_default();
+            *copy += 1;
+            let name = match *copy {
+                1 => format!("{room}.{}", inst.peca),
+                n => format!("{room}.{}.{n}", inst.peca),
+            };
             if self.loose.contains(&inst.peca) {
-                let copy = copies.entry(&inst.peca).or_default();
-                *copy += 1;
-                let name = match *copy {
-                    1 => format!("{room}.{}", inst.peca),
-                    n => format!("{room}.{}.{n}", inst.peca),
-                };
                 self.add_loose(&name, piece, inst, room, placement, !hidden)?;
                 for (hinge, angle) in piece.hinges.iter().zip(&turns) {
                     let pivot = placement * hinge.pivot;
@@ -414,22 +644,127 @@ impl Scene<'_> {
                         }),
                     });
                 }
+                if let Some(c) = cut {
+                    let draws: Vec<u32> = (first..self.draws.len() as u32).collect();
+                    let bounds = self.bounds(&draws);
+                    let origin = placement.transform_point3(Vec3::ZERO);
+                    match bounds.and(self.wall_of(c, floor, origin)) {
+                        Some(wall) => attached.push(Attached::new(c, draws, bounds, wall)),
+                        None => self.cut_draws[c].extend(draws.into_iter().map(|d| (d, None))),
+                    }
+                }
             } else if !hidden && !hidden_at_start {
-                for p in instance_primitives(piece, inst, room)? {
-                    let mesh = merged.entry(p.material).or_insert_with(|| Mesh {
-                        vertices: Vec::new(),
-                        indices: Vec::new(),
-                    });
-                    append(mesh, &p.mesh, placement);
+                let primitives = instance_primitives(piece, inst, room)?;
+                let Some(c) = cut else {
+                    for p in primitives {
+                        let mesh = merged.entry((None, p.material)).or_default();
+                        append(mesh, &p.mesh, placement);
+                    }
+                    continue;
+                };
+                let cutaway = &self.cutaways[c];
+                // A dissolve takes the piece whole; a cut never reaches below its height.
+                let below = match cutaway.style {
+                    StyleSource::Fade => f32::NEG_INFINITY,
+                    StyleSource::Cut => cutaway.whole_below.unwrap_or(cutaway.height),
+                };
+                let placed: Vec<KitPrimitive> = (primitives.iter())
+                    .map(|p| {
+                        let mut mesh = Mesh::default();
+                        append(&mut mesh, &p.mesh, placement);
+                        KitPrimitive {
+                            mesh,
+                            material: p.material,
+                        }
+                    })
+                    .collect();
+                let identity = Mat4::IDENTITY.to_cols_array();
+                let bounds = (placed.iter())
+                    .filter(|p| !p.mesh.indices.is_empty())
+                    .map(|p| Aabb::around(&p.mesh, &identity))
+                    .map(|b| (Vec3::from(b.min), Vec3::from(b.max)))
+                    .reduce(|(a, b), (c, d)| (a.min(c), b.max(d)));
+                let origin = placement.transform_point3(Vec3::ZERO);
+                let wall = bounds.and(self.wall_of(c, floor, origin));
+                let mut own = Vec::new();
+                for p in placed {
+                    let (low, high) = split_below(&p.mesh, below);
+                    append(
+                        merged.entry((None, p.material)).or_default(),
+                        &low,
+                        Mat4::IDENTITY,
+                    );
+                    if wall.is_none() {
+                        let mesh = merged.entry((cut, p.material)).or_default();
+                        append(mesh, &high, Mat4::IDENTITY);
+                        continue;
+                    }
+                    let at = self.draws.len() as u32;
+                    let name = format!("{room}/{}/{}", cutaway.name, &name[room.len() + 1..]);
+                    let high = KitPrimitive {
+                        mesh: high,
+                        material: p.material,
+                    };
+                    self.push(name, &high, Mat4::IDENTITY, true);
+                    if self.draws.len() as u32 > at {
+                        own.push(at);
+                    }
+                }
+                if let (Some(wall), false) = (wall, own.is_empty()) {
+                    attached.push(Attached::new(c, own, bounds, wall));
                 }
             }
         }
-        for (material, mesh) in merged {
-            let name = format!("{room}/{}", self.kit.materials[material as usize].name);
+        for ((cut, material), mesh) in merged {
+            let material_name = &self.kit.materials[material as usize].name;
+            let name = match cut {
+                None => format!("{room}/{material_name}"),
+                Some(c) => format!("{room}/{}/{material_name}", self.cutaways[c].name),
+            };
             let primitive = KitPrimitive { mesh, material };
+            let at = self.draws.len() as u32;
             self.push(name, &primitive, Mat4::IDENTITY, true);
+            if let (Some(c), true) = (cut, self.draws.len() as u32 > at) {
+                self.cut_draws[c].push((at, None));
+            }
+        }
+        for group in touching(&attached) {
+            let first = &attached[group[0]];
+            let (mut min, mut max) = (first.min, first.max);
+            for &k in &group[1..] {
+                (min, max) = (min.min(attached[k].min), max.max(attached[k].max));
+            }
+            let anchor = first.wall.anchor((min + max) * 0.5);
+            for &k in &group {
+                let draws = attached[k].draws.iter().map(|&d| (d, Some(anchor)));
+                self.cut_draws[first.cut].extend(draws);
+            }
         }
         Ok(())
+    }
+
+    /// The bounds of `draws`, if any has some.
+    fn bounds(&self, draws: &[u32]) -> Option<(Vec3, Vec3)> {
+        (draws.iter())
+            .map(|&d| &self.draws[d as usize].bounds)
+            .map(|b| (Vec3::from(b.min), Vec3::from(b.max)))
+            .reduce(|(a, b), (c, d)| (a.min(c), b.max(d)))
+    }
+
+    /// The wall of the room's `floor` a piece of cutaway `c` placed at
+    /// `centre` belongs to: the edge it stands nearest, within the cutaway's
+    /// `attach`. Where it is placed, not its bounds: a door's open leaf
+    /// swings away from its wall. Without the room's floor, none.
+    fn wall_of(&self, c: usize, floor: Option<Floor>, centre: Vec3) -> Option<Wall> {
+        let floor = floor?;
+        let edges = [
+            (Wall::AtZ(floor.max.y), (centre.z - floor.max.y).abs()),
+            (Wall::AtZ(floor.min.y), (centre.z - floor.min.y).abs()),
+            (Wall::AtX(floor.min.x), (centre.x - floor.min.x).abs()),
+            (Wall::AtX(floor.max.x), (centre.x - floor.max.x).abs()),
+        ];
+        let (wall, distance) = edges.into_iter().min_by(|a, b| a.1.total_cmp(&b.1))?;
+        (distance <= self.cutaways[c].attach).then_some(wall)
     }
 
     /// A loose copy `name`: a node over its draws, and a piece over its
@@ -625,6 +960,32 @@ pub(crate) fn placement(inst: &Inst, corner: [f32; 2], room: &str) -> Result<Mat
 }
 
 /// Appends `mesh`, moved by `transform`, to `into`.
+/// The triangles lying wholly at or below `y`, and the rest.
+fn split_below(mesh: &Mesh, y: f32) -> (Mesh, Mesh) {
+    let (mut low, mut high) = (Mesh::default(), Mesh::default());
+    let mut at = [
+        vec![None; mesh.vertices.len()],
+        vec![None; mesh.vertices.len()],
+    ];
+    for triangle in mesh.indices.as_chunks::<3>().0 {
+        let under = triangle
+            .iter()
+            .all(|&i| mesh.vertices[i as usize].pos[1] <= y);
+        let (into, at) = match under {
+            true => (&mut low, &mut at[0]),
+            false => (&mut high, &mut at[1]),
+        };
+        for &i in triangle {
+            let new = *at[i as usize].get_or_insert_with(|| {
+                into.vertices.push(mesh.vertices[i as usize]);
+                into.vertices.len() as u32 - 1
+            });
+            into.indices.push(new);
+        }
+    }
+    (low, high)
+}
+
 fn append(into: &mut Mesh, mesh: &Mesh, transform: Mat4) {
     let normals = Mat3::from_mat4(transform).inverse().transpose();
     let base = into.vertices.len() as u32;

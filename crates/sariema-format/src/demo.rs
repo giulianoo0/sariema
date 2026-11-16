@@ -154,6 +154,7 @@ pub fn demo_room() -> RoomPack {
         pieces: Vec::new(),
         character: CharacterLight::default(),
         fog: Fog::default(),
+        cutaways: Vec::new(),
     }
 }
 

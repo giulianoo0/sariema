@@ -734,3 +734,205 @@ fn fog_is_off_unless_described_and_takes_the_background_below_for_its_colour() {
     let e = build_err(with(sala_min(), json!({ "fog": { "density": -1.0 } })));
     assert_eq!(e.code(), "E_SCHEMA");
 }
+
+/// `sala_min` with one cutaway over `pieces`, its other fields as given.
+fn cut(pieces: &[&str], fields: Value) -> Value {
+    let mut cutaway = json!({ "name": "front", "pieces": pieces, "height": 0.4 });
+    for (key, value) in fields.as_object().unwrap() {
+        cutaway[key] = value.clone();
+    }
+    with(sala_min(), json!({ "cutaways": [cutaway] }))
+}
+
+fn draw_index(r: &RoomPack, name: &str) -> u32 {
+    let at = r.draws.iter().position(|d| d.name.as_deref() == Some(name));
+    at.unwrap_or_else(|| panic!("no draw {name} in {:?}", names(r))) as u32
+}
+
+#[test]
+fn merged_pieces_in_a_cutaway_merge_apart_from_the_rest() {
+    let area = json!({ "min": [0.0, -3.0], "max": [3.0, 0.0] });
+    let cap = [0.04, 0.045, 0.05];
+    let r = build(cut(
+        &["cai*"],
+        json!({ "areas": [area], "offset": -0.08, "radius": 1.5, "soft": 0.25, "cap": cap }),
+    ));
+    let cutaway = &r.cutaways[0];
+    assert_eq!(cutaway.name, "front");
+    assert_eq!(cutaway.draws, [draw_index(&r, "a/front/mat0")]);
+    // The caixas' bottoms lie below the height, so they are drawn with the mesa.
+    assert_eq!(
+        triangles(&r, draw(&r, "a/front/mat0")),
+        20,
+        "both caixas but their bottoms"
+    );
+    assert_eq!(
+        triangles(&r, draw(&r, "a/mat0")),
+        12 + 4,
+        "the mesa and the bottoms"
+    );
+    assert_eq!(cutaway.height, 0.4);
+    assert_eq!(cutaway.line.areas[0].min, [0.0, -3.0]);
+    assert_eq!(cutaway.line.areas[0].max, [3.0, 0.0]);
+    assert_eq!(
+        (cutaway.line.offset, cutaway.radius, cutaway.soft),
+        (-0.08, 1.5, 0.25)
+    );
+    assert_eq!(cutaway.cap, Some(cap));
+    assert_eq!(cutaway.line.follow, 0.1, "eased by default");
+    assert!(cutaway.cut_shadows, "shadows cut by default");
+    assert_eq!(decode(&encode(&r)).unwrap(), r);
+}
+
+#[test]
+fn whole_below_sets_which_triangles_stay_out_of_the_cut() {
+    let r = build(cut(&["cai*"], json!({ "whole_below": -1.0 })));
+    assert_eq!(
+        triangles(&r, draw(&r, "a/front/mat0")),
+        24,
+        "every triangle in the cut"
+    );
+    assert_eq!(triangles(&r, draw(&r, "a/mat0")), 12);
+    // A caixa is a metre tall, so none of it rises above a metre.
+    let r = build(cut(&["cai*"], json!({ "whole_below": 1.0 })));
+    assert!(
+        r.cutaways[0].draws.is_empty(),
+        "nothing rises above a metre"
+    );
+    assert_eq!(triangles(&r, draw(&r, "a/mat0")), 36);
+}
+
+#[test]
+fn a_loose_piece_in_a_cutaway_brings_every_draw_of_its_copy() {
+    let mut sala = cut(&["mesa"], json!({ "cut_shadows": false }));
+    sala["loose"] = json!(["mesa"]);
+    let r = build(sala);
+    let mesa: Vec<u32> = (r.draws.iter().enumerate())
+        .filter(|(_, d)| d.name.as_deref().is_some_and(|n| n.starts_with("a.mesa")))
+        .map(|(i, _)| i as u32)
+        .collect();
+    assert!(!mesa.is_empty());
+    assert_eq!(r.cutaways[0].draws, mesa);
+    assert!(!r.cutaways[0].cut_shadows);
+    assert!(r.draws.iter().any(|d| d.name.as_deref() == Some("a/mat0")));
+}
+
+#[test]
+fn a_room_without_cutaways_builds_as_before() {
+    let r = build(sala_min());
+    assert!(r.cutaways.is_empty());
+    assert_eq!(
+        names(&r).iter().filter(|n| n.contains("/front/")).count(),
+        0
+    );
+}
+
+#[test]
+fn a_cutaway_pattern_without_a_piece_or_a_piece_in_two_cutaways_is_an_error() {
+    let e = build_err(cut(&["porta*"], json!({})));
+    assert_eq!(e.code(), "E_SCHEMA");
+    assert!(
+        e.to_string().contains("front") && e.to_string().contains("porta*"),
+        "{e}"
+    );
+    let mut sala = cut(&["caixa"], json!({}));
+    sala["cutaways"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "name": "back", "pieces": ["cai*"], "height": 1.0 }));
+    let e = build_err(sala);
+    assert_eq!(e.code(), "E_SCHEMA");
+    assert!(
+        e.to_string().contains("caixa") && e.to_string().contains("back"),
+        "{e}"
+    );
+}
+
+#[test]
+fn schema_rejects_malformed_cutaways() {
+    for (bad, at) in [
+        (json!({ "radius": -1.0 }), "/cutaways/0/radius"),
+        (json!({ "soft": -0.5 }), "/cutaways/0/soft"),
+        (json!({ "follow": -0.1 }), "/cutaways/0/follow"),
+        (json!({ "pieces": [] }), "/cutaways/0/pieces"),
+        (
+            json!({ "areas": [{ "min": [0.0, 0.0] }] }),
+            "/cutaways/0/areas/0",
+        ),
+    ] {
+        let e = build_err(cut(&["caixa"], bad));
+        assert_eq!(e.code(), "E_SCHEMA");
+        assert!(e.to_string().contains(at), "{e}");
+    }
+}
+
+/// The cutaway's draws named `name` and their anchors.
+fn anchored<'a>(r: &'a RoomPack, prefix: &str) -> Vec<(&'a str, Option<[f32; 2]>)> {
+    let c = &r.cutaways[0];
+    (c.draws.iter().zip(&c.anchors))
+        .map(|(&d, &a)| (r.draws[d as usize].name.as_deref().unwrap(), a))
+        .filter(|(n, _)| n.starts_with(prefix))
+        .collect()
+}
+
+#[test]
+fn a_piece_on_a_wall_is_judged_whole_by_a_point_on_that_wall() {
+    // Room a's floor runs 0..3 m east and 0..3 m north; each caixa's centre
+    // stands 0.75 m from the south edge, so within a metre it is on that wall.
+    let r = build(cut(&["cai*"], json!({ "attach": 1.0 })));
+    let on_wall = anchored(&r, "a/front/");
+    assert_eq!(
+        on_wall,
+        [
+            ("a/front/caixa", Some([0.75, 0.0])),
+            ("a/front/caixa.2", Some([2.25, 0.0]))
+        ]
+    );
+    assert_eq!(
+        triangles(&r, draw(&r, "a/front/caixa")),
+        10,
+        "its bottom stays apart"
+    );
+    // Within the default half metre, no edge holds them: cut where each part lies.
+    let r = build(cut(&["cai*"], json!({})));
+    assert_eq!(anchored(&r, "a/front/"), [("a/front/mat0", None)]);
+}
+
+#[test]
+fn pieces_that_touch_are_judged_as_one() {
+    let sala = with_edited("montagem", "montagem_min.json", "touching", |m| {
+        let instances = m["comodos"]["a"]["instancias"].as_array_mut().unwrap();
+        let mut beside = instance("caixa", 0.0, None, 1.0);
+        (beside["x"], beside["y"], beside["z"]) = (json!(0.75), json!(1.75), json!(0.5));
+        instances.push(beside);
+    });
+    let mut sala = with(sala, json!({}));
+    sala["cutaways"] =
+        json!([{ "name": "front", "pieces": ["cai*"], "height": 0.4, "attach": 1.0 }]);
+    let r = build(sala);
+    let mut anchors = anchored(&r, "a/front/");
+    anchors.sort_by(|a, b| a.0.cmp(b.0));
+    // The third stands on the first, north of it: both take the first's wall.
+    assert_eq!(
+        anchors,
+        [
+            ("a/front/caixa", Some([0.75, 0.0])),
+            ("a/front/caixa.2", Some([2.25, 0.0])),
+            ("a/front/caixa.3", Some([0.75, 0.0]))
+        ]
+    );
+}
+
+#[test]
+fn a_fading_cutaway_takes_its_pieces_whole() {
+    let r = build(cut(
+        &["cai*"],
+        json!({ "style": "fade", "attach": 1.0, "cap": [0.1, 0.1, 0.1] }),
+    ));
+    assert_eq!(r.cutaways[0].style, sariema_format::CutStyle::Fade);
+    assert_eq!(
+        triangles(&r, draw(&r, "a/front/caixa")),
+        12,
+        "bottom and all"
+    );
+}

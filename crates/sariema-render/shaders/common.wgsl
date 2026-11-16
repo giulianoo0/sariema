@@ -36,6 +36,10 @@ struct Draw {
     normal_x: vec4<f32>,
     normal_y: vec4<f32>,
     normal_z: vec4<f32>,
+    // For its cutaway: where it is judged across the floor in xy, z 1 when
+    // it is judged whole there, w 1 when it is single-sided but drawn with
+    // both sides for the cap.
+    cut: vec4<f32>,
 }
 
 fn draw_normal() -> mat3x3<f32> {

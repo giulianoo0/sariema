@@ -139,6 +139,11 @@
       "enum": ["rgba8", "astc"],
       "description": "How colour textures are stored. ASTC 4x4 (the default) needs a GPU that samples ASTC; RGBA8 is four times larger."
     },
+    "cutaways": {
+      "type": "array",
+      "description": "Pieces that step aside for the camera: above a height, on the camera's side of a line that follows the hero, they are cut away, and their inside shows a flat cap. Each cutaway draws its merged pieces apart from the rest, a draw per material; a loose piece brings every draw of its copy.",
+      "items": { "$ref": "#/$defs/cutaway" }
+    },
     "collision": {
       "type": "object",
       "description": "What to bake into the room's collision pack (.srmc, written beside the room pack); no collision pack when absent. Every placed piece becomes a collider named like a loose draw (<room>.<piece>, <room>.<piece>.<n> for the n-th copy). Positions are on the engine's axes: Y up, north is -Z, metres; yaw_deg turns about +Y, 0 facing +Z.",
@@ -213,6 +218,42 @@
     "path": { "type": "string", "minLength": 1 },
     "names": { "type": "array", "items": { "type": "string" } },
     "vec3": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+    "floor_point": {
+      "type": "array",
+      "description": "x and z on the engine's axes, metres.",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "cutaway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "pieces", "height"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "description": "Unique in the room; the game tweens its height as the scene parameter cutaway.<name>.height." },
+        "pieces": { "$ref": "#/$defs/names", "minItems": 1, "description": "Pieces it cuts, by kit name; * matches any run of characters. A pattern no placed piece matches, or a piece two cutaways match, is an error." },
+        "height": { "type": "number", "description": "Metres above which it cuts; below the floor, it takes the pieces away whole." },
+        "areas": {
+          "type": "array",
+          "description": "Rectangles of floor, such as each room of a house. The line sits at the near edge, seen from the camera, of the smallest one the hero stands in, and stays put while the hero is in none. Without areas it sits at the hero.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["min", "max"],
+            "properties": { "min": { "$ref": "#/$defs/floor_point" }, "max": { "$ref": "#/$defs/floor_point" } }
+          }
+        },
+        "offset": { "type": "number", "description": "Metres the line moves towards the camera; negative moves it away, so a wall standing on the edge is cut whole. 0 when absent." },
+        "follow": { "type": "number", "minimum": 0, "description": "Seconds the line takes to cover about two thirds of the way to where it goes next; 0 jumps. A camera cut moves it at once. 0.1 when absent." },
+        "radius": { "type": "number", "minimum": 0, "description": "Metres around the hero within which it cuts; 0, the default, for no limit." },
+        "soft": { "type": "number", "minimum": 0, "description": "Metres over which the cut fades in past the line and inside the radius, its height rising steeply towards the edge. 0 when absent: a hard edge." },
+        "cap": { "$ref": "#/$defs/rgb", "description": "Linear RGB of the inside of what is cut, lit like the room. Hollow when absent." },
+        "cut_shadows": { "type": "boolean", "description": "Whether its pieces cast the shadow they are drawn with. true when absent; false keeps the shadow of the whole piece." },
+        "style": { "enum": ["cut", "fade"], "description": "cut (the default) cuts above the height and shows the cap; fade dissolves whole, in a stable dither and over the softness, every piece the cut would reach, leaving its shadow, so a door frame that hides the hero goes and comes back as the hero passes." },
+        "attach": { "type": "number", "minimum": 0, "description": "Metres from an edge of its room (the placement's n_celulas) within which the point a piece is placed at makes it belong to that edge's wall. Such a piece, with every piece of the cutaway it touches, is cut or dissolved whole as a point on that wall lies, so none of it is left standing past the line while the wall goes. A piece further from every edge, such as a room's shell, is cut where each part of it lies. 0.5 when absent." },
+        "whole_below": { "type": "number", "description": "Metres below which the triangles of its merged pieces are drawn apart from it, never cut, so floors and the foot of walls keep the GPU's early depth test. The height when absent; set it lower if the game lowers the height under the one built, or below the floor to keep every triangle in the cutaway." }
+      }
+    },
     "collision_box": {
       "type": "object",
       "additionalProperties": false,

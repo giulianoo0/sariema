@@ -26,6 +26,7 @@ use crate::input::{Actions, RawInput};
 use crate::motion::Goal;
 use crate::no_jump;
 use crate::outbox::{HostIn, HostOut};
+use crate::scenery;
 use crate::settings::Settings;
 use crate::state::State;
 use crate::tween::Values;
@@ -281,6 +282,7 @@ impl<L: Logic> Simulation<L> {
         s.world.resolve();
         no_jump::measure(s);
         s.camera.step(&s.world);
+        place_cut_lines(s);
         let events = &mut s.events;
         s.zones.step(&s.world, |e| events.push(e));
         self.step += 1;
@@ -369,6 +371,17 @@ fn happening(s: &mut State, event: &Event<'_>) {
         }),
         _ => {}
     }
+}
+
+/// Places the rooms' cutaway lines for where the hero stands, seen from
+/// the camera, or from the room's camera, which looks along −Z, without one.
+fn place_cut_lines(s: &mut State) {
+    let hero = s
+        .world
+        .pose(s.control.hero)
+        .map(|p| [p.position.x, p.position.z]);
+    let toward = scenery::toward(s.camera.pose().map_or(0.0, |p| p.yaw()));
+    s.scenery.place_cut_lines(hero, toward, s.camera.cut());
 }
 
 fn drive_hero(s: &mut State) {

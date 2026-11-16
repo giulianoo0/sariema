@@ -60,6 +60,7 @@ pub use timing::{FrameTimings, PassTime};
 use actors::Actors;
 use cluster::Visible;
 use post::Post;
+pub use resources::CutState;
 use resources::{PendingRoom, Room};
 use scene::Scene;
 use shadow::{Assigned, Shadows};
@@ -494,7 +495,17 @@ impl Renderer {
         }
     }
 
+    /// Makes the pipelines that draw cutaways, which the first room with
+    /// some makes otherwise: for a game that loads such a room while playing.
+    pub fn prepare_cutaways(&mut self) {
+        self.scene.prepare_cutaways(&self.gpu, &self.quality);
+        self.shadows.prepare_cutaways(&self.gpu);
+    }
+
     fn put(&mut self, slot: u32, room: Room) {
+        if room.has_cutaways() {
+            self.prepare_cutaways();
+        }
         let i = slot as usize;
         if self.stage.rooms.len() <= i {
             self.stage.rooms.resize_with(i + 1, || None);
@@ -565,6 +576,20 @@ impl Renderer {
         self.stage
             .get_mut(slot)
             .is_some_and(|r| r.set_node_visible(node, visible))
+    }
+
+    /// Sets where cutaway `cutaway` of the room in `slot` cuts; false if
+    /// there is none. Until set, it cuts nothing.
+    pub fn set_cutaway(&mut self, slot: u32, cutaway: usize, state: CutState) -> bool {
+        self.stage
+            .get_mut(slot)
+            .is_some_and(|r| r.set_cut(cutaway, state))
+    }
+
+    /// Where cutaway `cutaway` of the room in `slot` cuts, once set.
+    pub fn cutaway(&self, slot: u32, cutaway: usize) -> Option<CutState> {
+        let room = self.stage.rooms.get(slot as usize)?.as_ref()?;
+        room.cut_state(cutaway)
     }
 
     /// Moves node `node`'s draws by `offset`, column-major, from where the

@@ -5,8 +5,8 @@
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat3, Mat4, Vec3};
 use sariema_format::{
-    Background, CharacterLight, Fog, Group, Light, Material, RoomPack, Sun, Texture, TextureFormat,
-    Vertex,
+    Background, CharacterLight, CutStyle, Cutaway, Fog, Group, Light, Material, RoomPack, Sun,
+    Texture, TextureFormat, Vertex,
 };
 
 use crate::scene::{Kind, Layouts};
@@ -20,6 +20,107 @@ pub(crate) struct DrawUniform {
     /// Inverse transpose of the model's 3×3 part, columns padded to vec4;
     /// the first's padding holds the presence.
     normal: [[f32; 4]; 3],
+    /// Its anchor across the floor, 1 if it has one, 1 if it is single-sided
+    /// but drawn with both sides.
+    cut: [f32; 4],
+}
+
+/// Mirrors `Cut` in cut.wgsl.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(crate) struct CutUniform {
+    plane: [f32; 4],
+    around: [f32; 4],
+    cap: [f32; 4],
+    on: [f32; 4],
+}
+
+/// Where a room's cutaway cuts this frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CutState {
+    /// Unit direction across the floor (x, z) towards the camera.
+    pub toward: [f32; 2],
+    /// Where the line sits along `toward`: what lies beyond it is cut.
+    pub line: f32,
+    /// Metres above which it cuts.
+    pub height: f32,
+    /// The hero across the floor (x, z), the centre of the cutaway's radius.
+    pub hero: [f32; 2],
+}
+
+/// A cutaway of a room on the GPU: its rule and where it cuts now.
+struct RoomCut {
+    draws: Vec<u32>,
+    radius: f32,
+    soft: f32,
+    cap: Option<[f32; 3]>,
+    cut_shadows: bool,
+    fade: bool,
+    state: Option<CutState>,
+}
+
+impl RoomCut {
+    fn of(c: &Cutaway) -> RoomCut {
+        let fade = c.style == CutStyle::Fade;
+        RoomCut {
+            draws: c.draws.clone(),
+            radius: c.radius,
+            soft: c.soft,
+            // A dissolve leaves no inside to show, and its shadow whole.
+            cap: c.cap.filter(|_| !fade),
+            cut_shadows: c.cut_shadows && !fade,
+            fade,
+            state: None,
+        }
+    }
+
+    /// Whether, cutting as `uniform` has it, it can reach a box: past the
+    /// line and within the radius somewhere, with a margin for rounding.
+    fn reaches(uniform: &CutUniform, min: Vec3, max: Vec3) -> bool {
+        const MARGIN: f32 = 1e-3;
+        if uniform.on[0] == 0.0 {
+            return false;
+        }
+        let [tx, tz, line, _] = uniform.plane;
+        let far = |t: f32, lo: f32, hi: f32| t * if t >= 0.0 { hi } else { lo };
+        let past = far(tx, min.x, max.x) + far(tz, min.z, max.z) - line;
+        let [hx, hz, radius, _] = uniform.around;
+        let near = |h: f32, lo: f32, hi: f32| h.clamp(lo, hi) - h;
+        let away = glam::Vec2::new(near(hx, min.x, max.x), near(hz, min.z, max.z)).length();
+        past > -MARGIN && (radius == 0.0 || away < radius + MARGIN)
+    }
+
+    /// Whether a box reaching the cut rises above it, with a margin for rounding.
+    fn rises(uniform: &CutUniform, max: Vec3) -> bool {
+        max.y > uniform.plane[3] - 1e-3
+    }
+
+    /// What the shader takes; off until a state with every number finite.
+    fn uniform(&self) -> CutUniform {
+        let Some(s) = self.state.filter(|s| {
+            (s.toward.iter().chain(&s.hero).chain([&s.line, &s.height])).all(|v| v.is_finite())
+        }) else {
+            return CutUniform::zeroed();
+        };
+        // Far enough to cut everything or nothing, and still finite in the shader.
+        const FAR: f32 = 1e6;
+        let cap = self.cap.unwrap_or_default();
+        CutUniform {
+            plane: [
+                s.toward[0],
+                s.toward[1],
+                s.line.clamp(-FAR, FAR),
+                s.height.clamp(-FAR, FAR),
+            ],
+            // Without a radius the hero moves nothing, so leaves it unchanged.
+            around: match self.radius > 0.0 {
+                true => [s.hero[0], s.hero[1], self.radius, self.soft],
+                false => [0.0, 0.0, 0.0, self.soft],
+            },
+            cap: [cap[0], cap[1], cap[2], self.cap.is_some() as u8 as f32],
+            on: [1.0, self.fade as u8 as f32, 0.0, 0.0],
+        }
+    }
 }
 
 /// Mirrors `Material` in scene.wgsl.
@@ -53,6 +154,19 @@ pub(crate) struct DrawItem {
     /// 1 drawn whole, 0 gone; between, an opaque draw dithers and a
     /// blended one fades. Negative, it dithers in the complementary pattern.
     pub presence: f32,
+    /// The cutaway it is in, if any.
+    pub cut: Option<u32>,
+    /// Whether it casts its shadow cut as it is drawn.
+    pub cut_shadow: bool,
+    /// Single-sided, but drawn with both sides for its cutaway's cap.
+    one_sided: bool,
+    /// Where its cutaway judges it whole, across the floor (x, z).
+    anchor: Option<glam::Vec2>,
+    /// Whether its cutaway can change how it is drawn, or how its shadow
+    /// is; otherwise it takes the pipelines of draws in no cutaway, which
+    /// keep the early depth test.
+    pub cutting: bool,
+    pub cutting_shadow: bool,
     own: bool,
     group_on: bool,
     state_on: bool,
@@ -70,6 +184,21 @@ impl DrawItem {
     /// Whether it uses a dithered pipeline: opaque and partly present.
     pub fn dithered(&self) -> bool {
         self.presence.abs() < 1.0 && self.kind.is_opaque()
+    }
+
+    /// The `cut` of its uniform.
+    fn cut_vec(&self) -> [f32; 4] {
+        let anchor = self.anchor.unwrap_or_default();
+        let anchored = self.anchor.is_some() as u8 as f32;
+        [anchor.x, anchor.y, anchored, self.one_sided as u8 as f32]
+    }
+
+    /// Its kind drawn outside a cut, with its material's own sides.
+    pub fn uncut_kind(&self) -> Kind {
+        Kind {
+            double_sided: self.kind.double_sided && !self.one_sided,
+            ..self.kind
+        }
     }
 }
 
@@ -120,6 +249,12 @@ pub(crate) struct Room {
     /// What `draw_buffer` holds, and the draws changed since it was written.
     draw_bytes: Vec<u8>,
     dirty: Option<(usize, usize)>,
+    cuts: Vec<RoomCut>,
+    /// One cut per cutaway after a first that is off, for draws in none.
+    cut_buffer: wgpu::Buffer,
+    cut_stride: u32,
+    cut_bytes: Vec<u8>,
+    cuts_dirty: bool,
 }
 
 impl Room {
@@ -132,7 +267,8 @@ impl Room {
     /// Draws `draws[i]` with the pipeline and material already set.
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, i: usize) {
         let d = &self.draws[i];
-        pass.set_bind_group(1, &self.draw_group, &[i as u32 * self.draw_stride]);
+        let cut = d.cut.map_or(0, |c| c + 1) * self.cut_stride;
+        pass.set_bind_group(1, &self.draw_group, &[i as u32 * self.draw_stride, cut]);
         pass.draw_indexed(d.first_index..d.first_index + d.index_count, 0, 0..1);
     }
 
@@ -228,13 +364,64 @@ impl Room {
         }
     }
 
-    /// Writes the draws changed since the last call.
+    /// Writes the draws and cuts changed since the last call.
     pub fn flush(&mut self, gpu: &Gpu) {
         if let Some((first, last)) = self.dirty.take() {
             let stride = self.draw_stride as usize;
             let bytes = &self.draw_bytes[first * stride..last * stride + size_of::<DrawUniform>()];
             gpu.write_at(&self.draw_buffer, (first * stride) as u64, bytes);
         }
+        if std::mem::take(&mut self.cuts_dirty) {
+            gpu.write(&self.cut_buffer, &self.cut_bytes);
+        }
+    }
+
+    /// Whether it has cutaways.
+    pub fn has_cutaways(&self) -> bool {
+        !self.cuts.is_empty()
+    }
+
+    /// Sets where cutaway `c` cuts; false if there is none. A cutaway that
+    /// cuts its shadows has them drawn again where its draws reach.
+    pub fn set_cut(&mut self, c: usize, state: CutState) -> bool {
+        let Some(cut) = self.cuts.get_mut(c) else {
+            return false;
+        };
+        cut.state = Some(state);
+        let at = (c + 1) * self.cut_stride as usize;
+        let uniform = cut.uniform();
+        for &d in &cut.draws {
+            let item = &mut self.draws[d as usize];
+            let (min, max) = match item.anchor {
+                Some(a) => (Vec3::new(a.x, 0.0, a.y), Vec3::new(a.x, 0.0, a.y)),
+                None => (item.min, item.max),
+            };
+            let reaches = RoomCut::reaches(&uniform, min, max);
+            let rises = cut.fade || RoomCut::rises(&uniform, item.max);
+            // Its back faces show the cap wherever it reaches.
+            item.cutting = reaches && (rises || cut.cap.is_some());
+            item.cutting_shadow = reaches && rises;
+        }
+        let bytes = &mut self.cut_bytes[at..at + size_of::<CutUniform>()];
+        if bytes == bytemuck::bytes_of(&uniform) {
+            return true;
+        }
+        bytes.copy_from_slice(bytemuck::bytes_of(&uniform));
+        self.cuts_dirty = true;
+        if cut.cut_shadows {
+            for &d in &cut.draws {
+                let item = &self.draws[d as usize];
+                if item.visible && item.casts_shadow {
+                    self.toggled.push((item.min, item.max));
+                }
+            }
+        }
+        true
+    }
+
+    /// Where cutaway `c` cuts, once set.
+    pub fn cut_state(&self, c: usize) -> Option<CutState> {
+        self.cuts.get(c)?.state
     }
 
     fn refresh(&mut self, d: usize) {
@@ -250,6 +437,7 @@ impl Room {
     fn write_draw(&mut self, d: usize, model: Mat4) {
         let mut uniform = draw_uniform(&model.to_cols_array());
         uniform.normal[0][3] = self.draws[d].presence;
+        uniform.cut = self.draws[d].cut_vec();
         let at = d * self.draw_stride as usize;
         self.draw_bytes[at..at + size_of::<DrawUniform>()]
             .copy_from_slice(bytemuck::bytes_of(&uniform));
@@ -466,8 +654,40 @@ impl PendingRoom {
         let limits = gpu.device.limits();
         let align = limits.min_uniform_buffer_offset_alignment as usize;
         let draw_stride = size_of::<DrawUniform>().next_multiple_of(align);
+        let cuts: Vec<RoomCut> = room.cutaways.iter().map(RoomCut::of).collect();
+        let cut_stride = size_of::<CutUniform>().next_multiple_of(align);
+        let cut_bytes = strided(
+            std::iter::once(CutUniform::zeroed()).chain(cuts.iter().map(RoomCut::uniform)),
+            cut_stride,
+        );
+        let cut_buffer = gpu.buffer_with(
+            "cuts",
+            &cut_bytes,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+        let mut cut_of = vec![None; room.draws.len()];
+        let mut anchor = vec![None; room.draws.len()];
+        for (c, cutaway) in room.cutaways.iter().enumerate() {
+            for (&d, a) in cutaway.draws.iter().zip(&cutaway.anchors) {
+                cut_of[d as usize] = Some(c);
+                anchor[d as usize] = a.map(glam::Vec2::from);
+            }
+        }
+        // Its back faces show the cap through the cut.
+        let one_sided: Vec<bool> = (room.draws.iter().zip(&cut_of))
+            .map(|(d, c)| {
+                let capped = c.is_some_and(|c| cuts[c].cap.is_some());
+                capped && !room.materials[d.material as usize].double_sided
+            })
+            .collect();
         let mut draw_bytes = strided(
-            room.draws.iter().map(|d| draw_uniform(&d.transform)),
+            (room.draws.iter().enumerate()).map(|(i, d)| {
+                let mut uniform = draw_uniform(&d.transform);
+                let at = anchor[i].unwrap_or_default();
+                let anchored = anchor[i].is_some() as u8 as f32;
+                uniform.cut = [at.x, at.y, anchored, one_sided[i] as u8 as f32];
+                uniform
+            }),
             draw_stride,
         );
         // A bind group cannot point into an empty buffer.
@@ -480,14 +700,24 @@ impl PendingRoom {
         let draw_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("draws"),
             layout: &layouts.draw,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &draw_buffer,
-                    offset: 0,
-                    size: wgpu::BufferSize::new(size_of::<DrawUniform>() as u64),
-                }),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &draw_buffer,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(size_of::<DrawUniform>() as u64),
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &cut_buffer,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(size_of::<CutUniform>() as u64),
+                    }),
+                },
+            ],
         });
         let mut node_of = vec![None; room.draws.len()];
         for (n, node) in room.nodes.iter().enumerate() {
@@ -520,7 +750,8 @@ impl PendingRoom {
                     Some(first) if mirrors(&d.transform) => first,
                     _ => self.ranges[mesh].0,
                 };
-                let kind = Kind::of(&room.materials[d.material as usize]);
+                let mut kind = Kind::of(&room.materials[d.material as usize]);
+                kind.double_sided |= one_sided[i];
                 let node_visible = node_of[i].map(|n| room.nodes[n as usize].visible);
                 DrawItem {
                     name: d.name.clone(),
@@ -534,6 +765,12 @@ impl PendingRoom {
                     index_count: room.meshes[mesh].indices.len() as u32,
                     first_index,
                     presence: 1.0,
+                    cut: cut_of[i].map(|c| c as u32),
+                    cut_shadow: cut_of[i].is_some_and(|c| cuts[c].cut_shadows),
+                    one_sided: one_sided[i],
+                    anchor: anchor[i],
+                    cutting: false,
+                    cutting_shadow: false,
                     own: d.visible,
                     group_on: group_on[i],
                     state_on: state_on[i],
@@ -578,6 +815,11 @@ impl PendingRoom {
             draw_buffer,
             draw_bytes,
             dirty: None,
+            cuts,
+            cut_buffer,
+            cut_stride: cut_stride as u32,
+            cut_bytes,
+            cuts_dirty: false,
         }
     }
 }
@@ -889,5 +1131,6 @@ fn draw_uniform(transform: &[f32; 16]) -> DrawUniform {
     DrawUniform {
         model: model.to_cols_array_2d(),
         normal,
+        cut: [0.0; 4],
     }
 }

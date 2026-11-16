@@ -23,7 +23,7 @@ pub mod sound;
 pub mod stream;
 
 pub const MAGIC: [u8; 4] = *b"SRMA";
-pub const VERSION: u32 = 8;
+pub const VERSION: u32 = 9;
 
 pub(crate) const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
@@ -42,7 +42,7 @@ pub struct Vertex {
 const _: () = assert!(size_of::<Vertex>() == 36);
 
 /// Indexed triangle list.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
@@ -305,6 +305,102 @@ pub struct Fog {
     pub end: f32,
 }
 
+/// Scenery that steps aside so the camera sees the hero: on the camera's
+/// side of a line that follows the hero, its draws are cut away above
+/// `height`, and what is cut shows its inside in `cap`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Cutaway {
+    pub name: String,
+    /// Indices into [`RoomPack::draws`]; a draw is in at most one cutaway.
+    pub draws: Vec<u32>,
+    /// Metres above which its draws are cut; below the floor cuts them whole.
+    pub height: f32,
+    pub line: CutLine,
+    /// Metres from the hero, across the floor, within which it cuts; 0 cuts
+    /// the camera's whole side of the line.
+    pub radius: f32,
+    /// Metres over which a cut fades in, past the line and inside the
+    /// radius: its height rises steeply towards where it ends.
+    pub soft: f32,
+    /// Linear RGB of the inside of what is cut, lit as a surface facing
+    /// the camera; `None` leaves the inside as the material draws it.
+    pub cap: Option<[f32; 3]>,
+    /// Whether its draws cast their shadows cut as they are drawn, or whole.
+    pub cut_shadows: bool,
+    /// By draw, a point across the floor (x, z) on the wall it belongs to.
+    /// Such a draw is judged whole by that point, so none of it is left
+    /// standing past the line while its wall is cut. `None` judges each part
+    /// of the draw where it lies, as a wall itself.
+    pub anchors: Vec<Option<[f32; 2]>>,
+    pub style: CutStyle,
+}
+
+/// How a cutaway steps aside.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CutStyle {
+    /// Cut above the height, the inside capped.
+    #[default]
+    Cut,
+    /// Dissolved whole in a stable dither, over the softness, wherever the
+    /// cut would reach; the height is not used and the shadow stays.
+    Fade,
+}
+
+/// Where the line bounding a cut sits, as a distance along the floor
+/// towards the camera: what lies beyond it, on the camera's side, is cut.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CutLine {
+    /// Floors the hero walks; the line takes the near edge, as the camera
+    /// sees it, of the smallest one the hero stands in, and stays where it
+    /// was while the hero is in none. Without areas it goes with the hero.
+    pub areas: Vec<Area>,
+    /// Metres the line sits towards the camera from that edge or from the
+    /// hero; negative moves it away from the camera.
+    pub offset: f32,
+    /// Seconds the line takes to go 63% of the way to a new place; 0 moves
+    /// it there in the step.
+    pub follow: f32,
+}
+
+/// A rectangle of floor: `[x, z]` corners.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Area {
+    pub min: [f32; 2],
+    pub max: [f32; 2],
+}
+
+impl Area {
+    fn contains(&self, p: [f32; 2]) -> bool {
+        (0..2).all(|k| self.min[k] <= p[k] && p[k] <= self.max[k])
+    }
+
+    fn size(&self) -> f32 {
+        (self.max[0] - self.min[0]) * (self.max[1] - self.min[1])
+    }
+}
+
+impl CutLine {
+    /// Where the line goes for a hero at `hero` (x, z), `toward` being the
+    /// unit direction across the floor towards the camera; `None` while
+    /// the hero stands in none of its areas.
+    pub fn at(&self, hero: [f32; 2], toward: [f32; 2]) -> Option<f32> {
+        let along = |p: [f32; 2]| p[0] * toward[0] + p[1] * toward[1];
+        if self.areas.is_empty() {
+            return Some(along(hero) + self.offset);
+        }
+        let area = (self.areas.iter())
+            .filter(|a| a.contains(hero))
+            .reduce(|a, b| if b.size() < a.size() { b } else { a })?;
+        let [x0, z0] = area.min;
+        let [x1, z1] = area.max;
+        let near = [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]
+            .map(along)
+            .into_iter()
+            .fold(f32::NEG_INFINITY, f32::max);
+        Some(near + self.offset)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RoomCamera {
     pub fov_y_deg: f32,
@@ -463,6 +559,7 @@ pub struct RoomPack {
     pub pieces: Vec<Piece>,
     pub character: CharacterLight,
     pub fog: Fog,
+    pub cutaways: Vec<Cutaway>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -610,6 +707,7 @@ pub(crate) fn validate_rest(room: &RoomPack) -> Result<(), FormatError> {
     if !numbers.all(|v| v.is_finite() && *v >= 0.0) {
         return invalid(format!("fog {fog:?} is not finite or has a negative value"));
     }
+    validate_cutaways(room).map_err(FormatError::Invalid)?;
     for (i, draw) in room.draws.iter().enumerate() {
         if draw.mesh as usize >= room.meshes.len() {
             return invalid(format!(
@@ -663,6 +761,51 @@ fn validate_character(c: &CharacterLight) -> Result<(), String> {
         return Err(format!(
             "character light {c:?} has a negative value or a room_tint outside [0, 1]"
         ));
+    }
+    Ok(())
+}
+
+/// Names distinct, draws in range and in at most one cutaway, numbers
+/// finite, the radius, softness and follow not negative and areas ordered.
+fn validate_cutaways(room: &RoomPack) -> Result<(), String> {
+    distinct("cutaway", room.cutaways.iter().map(|c| c.name.as_str()))?;
+    let draws = (room.cutaways.iter()).map(|c| (format!("cutaway {}", c.name), &c.draws[..]));
+    once_each("draw", room.draws.len(), draws)?;
+    for c in &room.cutaways {
+        let CutLine {
+            areas,
+            offset,
+            follow,
+        } = &c.line;
+        let cap = c.cap.iter().flatten();
+        let numbers = [&c.height, offset, follow, &c.radius, &c.soft]
+            .into_iter()
+            .chain(cap.clone())
+            .chain(areas.iter().flat_map(|a| a.min.iter().chain(&a.max)));
+        let unsigned = [follow, &c.radius, &c.soft].into_iter().chain(cap);
+        if !numbers.clone().all(|v| v.is_finite()) || unsigned.clone().any(|&v| v < 0.0) {
+            return Err(format!(
+                "cutaway {} has a number not finite, or a negative radius, soft, follow or cap",
+                c.name
+            ));
+        }
+        if c.anchors.len() != c.draws.len() {
+            return Err(format!(
+                "cutaway {} has {} anchors for {} draws",
+                c.name,
+                c.anchors.len(),
+                c.draws.len()
+            ));
+        }
+        if c.anchors.iter().flatten().flatten().any(|v| !v.is_finite()) {
+            return Err(format!("cutaway {} has an anchor not finite", c.name));
+        }
+        if let Some(a) = areas.iter().find(|a| (0..2).any(|k| a.min[k] > a.max[k])) {
+            return Err(format!(
+                "cutaway {} has area {a:?} turned inside out",
+                c.name
+            ));
+        }
     }
     Ok(())
 }

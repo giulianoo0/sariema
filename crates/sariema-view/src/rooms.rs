@@ -26,8 +26,8 @@ use sariema_format::{
     Background, CharacterLight, Fog, Look, RoomCamera, RoomPack, Sun, hemisphere_sh9,
     sh9_hemisphere,
 };
-use sariema_render::{Lighting, Renderer};
-use sariema_runtime::scenery::{Binding, RoomScene};
+use sariema_render::{CutState, Lighting, Renderer};
+use sariema_runtime::scenery::{self, Binding, RoomScene, UNPLACED};
 use sariema_runtime::sim::Logic;
 
 use crate::ViewError;
@@ -111,6 +111,8 @@ struct RoomView {
     applied: Option<Applied>,
     /// By light, where its colour, intensity and range parameters are.
     light_params: Vec<[usize; 5]>,
+    /// By cutaway, where its height parameter is.
+    height_params: Vec<usize>,
     /// By parameter, its value at the frame's point between the last two
     /// steps.
     shown: Vec<f32>,
@@ -161,6 +163,13 @@ impl Rooms {
                 base: None,
                 applied: None,
                 light_params: light_params(&r.index),
+                height_params: (0..r.index.cutaways.len() as u32)
+                    .map(|c| {
+                        let target = Target::CutawayHeight(c);
+                        let at = r.index.params.iter().position(|p| p.target == target);
+                        at.expect("every cutaway has its height parameter")
+                    })
+                    .collect(),
                 shown: r.index.params.iter().map(|p| p.value).collect(),
                 beside: r.beside.clone(),
             })
@@ -383,6 +392,10 @@ impl Rooms {
         let state = engine.state();
         let scenery = &state.scenery;
         let active = scenery.active();
+        let camera = state.camera.interpolated(alpha);
+        let toward = scenery::toward(camera.map_or(0.0, |p| p.yaw()));
+        let hero = (state.world.interpolated(state.control.hero, alpha))
+            .map_or([0.0; 2], |p| [p.position.x, p.position.z]);
         for (r, view) in self.views.iter_mut().enumerate() {
             let Some(scene) = scenery.room(r) else {
                 continue;
@@ -397,6 +410,25 @@ impl Rooms {
             }
             if let Load::Resident = view.load {
                 sync(renderer, r, view, scene, scenery, &state.world, alpha);
+                for (c, &height) in view.height_params.iter().enumerate() {
+                    let (before, now) = (scene.lines_before[c], scene.lines[c]);
+                    if now == UNPLACED {
+                        continue;
+                    }
+                    let snapped = before == UNPLACED || state.camera.cut();
+                    let line = match snapped || before.to_bits() == now.to_bits() {
+                        true => now,
+                        false => before + (now - before) * alpha,
+                    };
+                    let height = view.shown[height];
+                    let cut = CutState {
+                        toward,
+                        line,
+                        height,
+                        hero,
+                    };
+                    renderer.set_cutaway(r as u32, c, cut);
+                }
             }
         }
         let resident = |r: usize| {
@@ -528,7 +560,7 @@ fn lit(base: &Base, index: &RoomIndex, shown: &[f32]) -> (Lighting, Look) {
             Target::Hemisphere => (hemisphere, turned) = (value, turned || moved),
             Target::HemisphereSky(ch) => (sky[c(ch)], turned) = (value, turned || moved),
             Target::HemisphereGround(ch) => (ground[c(ch)], turned) = (value, turned || moved),
-            Target::Light(..) | Target::Hinge(_) => {}
+            Target::Light(..) | Target::Hinge(_) | Target::CutawayHeight(_) => {}
         }
     }
     if let (Some(sun), true) = (&mut sun, aimed) {

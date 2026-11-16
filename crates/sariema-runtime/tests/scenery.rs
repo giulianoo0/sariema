@@ -53,6 +53,7 @@ fn house() -> RoomIndex {
                 target: Target::Hinge(0),
             },
         ],
+        cutaways: Vec::new(),
     }
 }
 

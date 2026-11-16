@@ -8,6 +8,7 @@
 //! state; nothing here needs the rooms' meshes or textures.
 
 use glam::{EulerRot, Mat4, Vec3};
+use sariema_core::STEP_SECONDS;
 use sariema_format::scenery::{RoomIndex, Target};
 use sariema_format::script::{Entity, Kind, RoomTransition, name_id};
 
@@ -56,6 +57,11 @@ pub struct RoomScene {
     /// By parameter, its value when the step began: a frame between two
     /// steps draws the value between these and `params`.
     pub previous: Vec<f32>,
+    /// By cutaway, where its line sits along the floor towards the camera,
+    /// [`UNPLACED`] until a hero places it.
+    pub lines: Vec<f32>,
+    /// By cutaway, its line when the step began.
+    pub lines_before: Vec<f32>,
     group_ids: Vec<(u32, u32)>,
     piece_ids: Vec<(u32, u32)>,
     /// By piece, its states' ids, the start look's as 0.
@@ -96,6 +102,8 @@ impl RoomScene {
             pieces: index.pieces.iter().map(|p| p.state).collect(),
             params: index.params.iter().map(|p| p.value).collect(),
             previous: index.params.iter().map(|p| p.value).collect(),
+            lines: vec![UNPLACED; index.cutaways.len()],
+            lines_before: vec![UNPLACED; index.cutaways.len()],
             group_ids: sorted_ids(index.groups.iter().map(|g| g.0.as_str())),
             piece_ids: sorted_ids(index.pieces.iter().map(|p| p.name.as_str())),
             state_ids,
@@ -136,7 +144,24 @@ impl RoomScene {
                 h.f32(value);
             }
         }
+        for (i, &line) in self.lines.iter().enumerate() {
+            if line != UNPLACED {
+                h.u32(i as u32);
+                h.f32(line);
+            }
+        }
     }
+}
+
+/// Where a cutaway's line sits before a hero places it: beyond everything,
+/// so nothing is cut.
+pub const UNPLACED: f32 = f32::MAX;
+
+/// Across the floor towards a camera turned `yaw` degrees about +Y from
+/// looking down −Z, as a room's own camera does.
+pub fn toward(yaw: f32) -> [f32; 2] {
+    let yaw = yaw.to_radians();
+    [libm::sinf(yaw), libm::cosf(yaw)]
 }
 
 /// How the switch to the active room is shown, while it lasts.
@@ -240,6 +265,30 @@ impl Scenery {
         self.requests.clear();
         for room in &mut self.rooms {
             room.previous.copy_from_slice(&room.params);
+            room.lines_before.copy_from_slice(&room.lines);
+        }
+    }
+
+    /// Moves every room's cutaway lines towards where a hero at `hero`
+    /// (x, z) puts them, `toward` being the unit direction across the floor
+    /// towards the camera: at once when first placed, on a camera `cut` or
+    /// without a follow time, eased by it otherwise.
+    pub fn place_cut_lines(&mut self, hero: Option<[f32; 2]>, toward: [f32; 2], cut: bool) {
+        let Some(hero) = hero else {
+            return;
+        };
+        for room in &mut self.rooms {
+            for (line, c) in room.lines.iter_mut().zip(&room.index.cutaways) {
+                let Some(target) = c.line.at(hero, toward) else {
+                    continue;
+                };
+                let follow = c.line.follow;
+                *line = if *line == UNPLACED || cut || follow <= 0.0 {
+                    target
+                } else {
+                    *line + (target - *line) * (1.0 - libm::expf(-STEP_SECONDS / follow))
+                };
+            }
         }
     }
 

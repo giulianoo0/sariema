@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Hinge, RoomPack, sh9_hemisphere};
+use crate::{CutLine, Hinge, RoomPack, sh9_hemisphere};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RoomIndex {
@@ -18,6 +18,15 @@ pub struct RoomIndex {
     pub lights: Vec<LightIndex>,
     /// Every scene parameter of the room with its value when it loads.
     pub params: Vec<Param>,
+    pub cutaways: Vec<CutawayIndex>,
+}
+
+/// What the step needs of a [`crate::Cutaway`] to move its line; its height
+/// is the parameter `cutaway.<name>.height`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CutawayIndex {
+    pub name: String,
+    pub line: CutLine,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -112,6 +121,8 @@ pub enum Target {
     HemisphereSky(Channel),
     /// The ambient light straight down, without its terms that vary sideways.
     HemisphereGround(Channel),
+    /// Metres above which a cutaway cuts; index into [`RoomIndex::cutaways`].
+    CutawayHeight(u32),
 }
 
 const CHANNELS: [(Channel, &str); 3] = [(Channel::R, "r"), (Channel::G, "g"), (Channel::B, "b")];
@@ -227,6 +238,10 @@ impl RoomIndex {
                 Target::Light(i, LightField::Range),
             );
         }
+        for (i, c) in room.cutaways.iter().enumerate() {
+            let name = format!("cutaway.{}.height", c.name);
+            push(name, c.height, Target::CutawayHeight(i as u32));
+        }
         for (i, node) in room.nodes.iter().enumerate() {
             if let Some(hinge) = &node.hinge {
                 push(
@@ -260,6 +275,12 @@ impl RoomIndex {
                 })
                 .collect(),
             params,
+            cutaways: (room.cutaways.iter())
+                .map(|c| CutawayIndex {
+                    name: c.name.clone(),
+                    line: c.line.clone(),
+                })
+                .collect(),
         }
     }
 }
