@@ -540,6 +540,7 @@ pub struct Pbr {
     pub base_color_texture: Option<TextureInfo>,
     pub metallic_factor: f32,
     pub roughness_factor: f32,
+    pub metallic_roughness_texture: Option<TextureInfo>,
 }
 
 impl Default for Pbr {
@@ -549,6 +550,7 @@ impl Default for Pbr {
             base_color_texture: None,
             metallic_factor: 1.0,
             roughness_factor: 1.0,
+            metallic_roughness_texture: None,
         }
     }
 }

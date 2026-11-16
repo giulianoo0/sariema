@@ -23,7 +23,7 @@ pub mod sound;
 pub mod stream;
 
 pub const MAGIC: [u8; 4] = *b"SRMA";
-pub const VERSION: u32 = 6;
+pub const VERSION: u32 = 7;
 
 pub(crate) const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
@@ -242,6 +242,51 @@ impl Look {
     }
 }
 
+/// Light only actors receive, so they read against the room whatever its
+/// light: a directional fill from a direction fixed to the camera, a rim
+/// along their silhouette, a least brightness, and how much the colour of
+/// the room's own light reaches them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CharacterLight {
+    /// Towards the fill, in the camera's frame: x right, y up, z towards the
+    /// viewer. Need not be of unit length.
+    pub direction: [f32; 3],
+    /// Linear RGB of the fill and the rim.
+    pub color: [f32; 3],
+    /// The fill's strength, in the sun's units. The fill casts no shadow and
+    /// gives no highlight.
+    pub intensity: f32,
+    /// How far the fill reaches past the side it faces: 0 is Lambert's
+    /// cosine, 1 lights all but the side facing away.
+    pub wrap: f32,
+    /// Light along the silhouette, as a fraction of the albedo it shows.
+    pub rim: f32,
+    /// How tight the rim hugs the silhouette; higher is thinner.
+    pub rim_power: f32,
+    /// The least an actor reflects, as a fraction of its albedo's luminance.
+    pub min_brightness: f32,
+    /// How much of the room's light colour tints actors, in [0, 1]: 0 lights
+    /// them with its luminance alone, keeping the albedo's hue.
+    pub room_tint: f32,
+}
+
+impl Default for CharacterLight {
+    /// No effect: actors are lit as the room is.
+    fn default() -> CharacterLight {
+        CharacterLight {
+            direction: [0.3, 0.6, 1.0],
+            color: [1.0; 3],
+            intensity: 0.0,
+            wrap: 0.5,
+            rim: 0.0,
+            rim_power: 3.0,
+            min_brightness: 0.0,
+            room_tint: 1.0,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RoomCamera {
     pub fov_y_deg: f32,
@@ -398,6 +443,7 @@ pub struct RoomPack {
     pub groups: Vec<Group>,
     pub nodes: Vec<Node>,
     pub pieces: Vec<Piece>,
+    pub character: CharacterLight,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -452,7 +498,8 @@ pub fn encode(room: &RoomPack) -> Vec<u8> {
 /// Decodes a pack and validates it: every mesh, material, texture and vertex
 /// index must exist, every draw's bounds must be finite with `min <= max`,
 /// every light's importance finite and at least 0, the look's `ao_strength`
-/// in [0, 1] and its `ao_radius_m` finite and positive.
+/// in [0, 1] and its `ao_radius_m` finite and positive, and the character
+/// light finite, not negative, its `room_tint` in [0, 1].
 ///
 /// Never panics. A length read from the input cannot cause a large
 /// allocation: postcard only reports a sequence length as a size hint when
@@ -537,6 +584,7 @@ pub(crate) fn validate_rest(room: &RoomPack) -> Result<(), FormatError> {
             "look.ao_radius_m is {ao_radius_m}, which is not finite or not positive"
         ));
     }
+    validate_character(&room.character).map_err(FormatError::Invalid)?;
     for (i, draw) in room.draws.iter().enumerate() {
         if draw.mesh as usize >= room.meshes.len() {
             return invalid(format!(
@@ -560,6 +608,38 @@ pub(crate) fn validate_rest(room: &RoomPack) -> Result<(), FormatError> {
         }
     }
     validate_scenery(room).map_err(FormatError::Invalid)
+}
+
+/// Every number finite, the direction not zero, none negative and
+/// `room_tint` in [0, 1].
+fn validate_character(c: &CharacterLight) -> Result<(), String> {
+    let numbers = (c.direction.iter().chain(&c.color)).chain([
+        &c.intensity,
+        &c.wrap,
+        &c.rim,
+        &c.rim_power,
+        &c.min_brightness,
+        &c.room_tint,
+    ]);
+    if !numbers.clone().all(|v| v.is_finite()) {
+        return Err(format!("character light {c:?} is not finite"));
+    }
+    if c.direction.iter().all(|&v| v == 0.0) {
+        return Err("character light direction is zero".into());
+    }
+    let unsigned = (c.color.iter()).chain([
+        &c.intensity,
+        &c.wrap,
+        &c.rim,
+        &c.rim_power,
+        &c.min_brightness,
+    ]);
+    if unsigned.clone().any(|&v| v < 0.0) || !(0.0..=1.0).contains(&c.room_tint) {
+        return Err(format!(
+            "character light {c:?} has a negative value or a room_tint outside [0, 1]"
+        ));
+    }
+    Ok(())
 }
 
 /// Every index of the groups, nodes and pieces in range, each draw and

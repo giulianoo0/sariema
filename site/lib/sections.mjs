@@ -16,6 +16,7 @@ export const sections = [
       ["physics", "Physics"],
       ["rooms", "Rooms"],
       ["actors", "Actors"],
+      ["lighting", "Lighting"],
       ["cutscenes", "Cutscenes"],
       ["audio", "Audio"],
       ["ui", "UI"],

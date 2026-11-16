@@ -94,7 +94,7 @@ pub fn load_kit(path: &Path) -> Result<Kit, ImportError> {
     let bytes = read(path)?;
     let gltf = Gltf::read(&bytes)?;
     let doc = &gltf.doc;
-    let images = doc
+    let images: Vec<KitImage> = doc
         .images
         .iter()
         .enumerate()
@@ -109,11 +109,21 @@ pub fn load_kit(path: &Path) -> Result<Kit, ImportError> {
         .scenes
         .get(doc.scene.unwrap_or(0))
         .ok_or_else(|| invalid("the kit has no scene"))?;
-    let pieces = scene
+    let pieces: Vec<KitPiece> = scene
         .nodes
         .iter()
         .map(|&root| reader.piece(root))
         .collect::<Result<_, _>>()?;
+    let mut materials = materials;
+    let maps = metal_rough_maps(doc)?;
+    let rgba: Vec<&image::RgbaImage> = images.iter().map(|i| &i.rgba).collect();
+    let primitives = pieces.iter().flat_map(|p| {
+        let states = p.states.iter().flat_map(|(_, s)| s);
+        let hinges = p.hinges.iter().flat_map(|h| &h.primitives);
+        p.primitives.iter().chain(states).chain(hinges)
+    });
+    let uvs = primitives.flat_map(|p| p.mesh.vertices.iter().map(|v| (p.material, v.uv)));
+    bake_metal_rough(&mut materials, &maps, &rgba, uvs);
     Ok(Kit {
         pieces,
         materials,
@@ -214,7 +224,58 @@ fn material(doc: &gltf::Document, m: &gltf::Material) -> Result<Material, Import
 }
 
 /// `KHR_texture_transform` as `(offset, scale)`.
-type UvTransform = ([f32; 2], [f32; 2]);
+pub(crate) type UvTransform = ([f32; 2], [f32; 2]);
+
+/// Each material's `metallicRoughnessTexture`: its image and texture transform.
+pub(crate) fn metal_rough_maps(
+    doc: &gltf::Document,
+) -> Result<Vec<Option<(u32, UvTransform)>>, ImportError> {
+    (doc.materials.iter())
+        .map(|m| {
+            let name = m.name.as_deref().unwrap_or_default();
+            let info = m.pbr_metallic_roughness.metallic_roughness_texture.as_ref();
+            texture(doc, name, info)
+        })
+        .collect()
+}
+
+/// glTF scales a material's metallic and roughness factors by the blue and
+/// green channels of its `metallicRoughnessTexture`, texel by texel. A
+/// material here holds one value of each, so each factor is scaled by the
+/// channel's mean over the texels under the vertices `uvs` gives, by
+/// material; a material none of them uses keeps its factors.
+pub(crate) fn bake_metal_rough(
+    materials: &mut [Material],
+    maps: &[Option<(u32, UvTransform)>],
+    images: &[&image::RgbaImage],
+    uvs: impl IntoIterator<Item = (u32, [f32; 2])>,
+) {
+    let mut sums = vec![(0u64, 0u64, 0u64); maps.len()];
+    for (material, uv) in uvs {
+        let Some(Some((image, (offset, scale)))) = maps.get(material as usize) else {
+            continue;
+        };
+        let Some(image) = images.get(*image as usize) else {
+            continue;
+        };
+        // Nearest texel, the texture repeating.
+        let texel = |t: f32, size: u32| (((t - t.floor()) * size as f32) as u32).min(size - 1);
+        let (w, h) = image.dimensions();
+        let p = image.get_pixel(
+            texel(uv[0] * scale[0] + offset[0], w),
+            texel(uv[1] * scale[1] + offset[1], h),
+        );
+        let sum = &mut sums[material as usize];
+        *sum = (sum.0 + p[1] as u64, sum.1 + p[2] as u64, sum.2 + 1);
+    }
+    for (m, &(green, blue, count)) in materials.iter_mut().zip(&sums) {
+        if count > 0 {
+            let mean = |sum: u64| (sum as f64 / (count * 255) as f64) as f32;
+            m.roughness *= mean(green);
+            m.metallic *= mean(blue);
+        }
+    }
+}
 
 /// The image a material's texture slot samples, and its texture transform.
 fn texture(

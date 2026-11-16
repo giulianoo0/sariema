@@ -74,6 +74,28 @@ The JSON of `run` gives `actors_drawn`, `actors_culled`,
 - **Feet**: list the foot joints in `feet` when their names lack `foot`, or
   ground speeds come out wrong.
 
+## Reading against the room
+
+A character that turns dark, takes the room's colour or shows white lines
+along its facets needs the room's character light, not a lamp placed by
+hand. Add it to the room description (`docs/lighting.md` has every field):
+
+```json
+"character_light": { "intensity": 1.2, "rim": 0.3, "min_brightness": 0.3, "room_tint": 0.5 }
+```
+
+```sh
+sariema build <project> --room <room> -o lit.srma --json
+sariema run lit.srma --headless --frames 30 --screenshot lit.png \
+  --actor hero.srmk@x,0,z,180 --clip idle --json      # the back turned to the camera
+```
+
+Compare with the same room without the key, in the room's darkest corner
+and with the actor's back to the camera. Keep the material `rim` of the
+actor description at 0: it adds white after shading and draws a line along
+every facet of stylised hair. `room_tint` 0 keeps skin and clothes in their
+own colours under a coloured lamp; 1 is the room's colour as it is.
+
 ## Checking motion
 
 1. `inspect` first: are the clip durations, loops and the walk's
@@ -98,3 +120,6 @@ The JSON of `run` gives `actors_drawn`, `actors_culled`,
 | feet slide | the game moves the actor faster than the clip's stride | move at the clip's ground speed, or scale the clip's speed |
 | parts named `""`, a hidden part shows | the GLB went through gltfpack without `-kn -ke` | rebuild it with them, or from the source GLB |
 | prop floats beside the hand | wrong socket, or the socket's offset is in another space | `inspect` the sockets; offsets are in the joint's space |
+| hair black, clothes grey, skin orange | an exporter left a `metallicRoughnessTexture` with no factors, and an older importer read glTF's default metal | rebuild the actor: the importer now scales the factors by the texture's mean |
+| white lines along the hair's facets | the material `rim` | set it to 0; use the room's `character_light.rim` |
+| actor dark in one room only | that room's light is dim, from the side or coloured | that room's `character_light` (`intensity`, `min_brightness`, `room_tint`) |

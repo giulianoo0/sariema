@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use sariema_format::demo::demo_room;
-use sariema_format::{FormatError, decode, encode, eval_sh9, hemisphere_sh9};
+use sariema_format::{CharacterLight, FormatError, decode, encode, eval_sh9, hemisphere_sh9};
 
 #[test]
 fn roundtrip_demo() {
@@ -135,5 +135,52 @@ fn hemisphere_sh_matches_endpoints() {
     }
     for (a, e) in side.iter().zip([0.075, 0.125, 0.2]) {
         assert!((a - e).abs() < 1e-5);
+    }
+}
+
+#[test]
+fn a_character_light_round_trips() {
+    let mut r = demo_room();
+    r.character = CharacterLight {
+        direction: [-0.2, 0.5, 1.0],
+        color: [1.0, 0.9, 0.8],
+        intensity: 0.7,
+        wrap: 0.3,
+        rim: 0.4,
+        rim_power: 2.0,
+        min_brightness: 0.2,
+        room_tint: 0.25,
+    };
+    assert_eq!(decode(&encode(&r)).unwrap(), r);
+    assert_eq!(demo_room().character, CharacterLight::default());
+}
+
+#[test]
+fn a_bad_character_light_is_invalid() {
+    let bad = [
+        CharacterLight {
+            direction: [0.0; 3],
+            ..CharacterLight::default()
+        },
+        CharacterLight {
+            intensity: -1.0,
+            ..CharacterLight::default()
+        },
+        CharacterLight {
+            room_tint: 1.5,
+            ..CharacterLight::default()
+        },
+        CharacterLight {
+            rim: f32::NAN,
+            ..CharacterLight::default()
+        },
+    ];
+    for character in bad {
+        let mut r = demo_room();
+        r.character = character.clone();
+        assert!(
+            matches!(decode(&encode(&r)), Err(FormatError::Invalid(_))),
+            "{character:?}"
+        );
     }
 }

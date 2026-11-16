@@ -236,7 +236,10 @@ its model matrix is the holder's model matrix times the holder's socket.
   material takes its UV offset from the actor's face cell instead of its
   own.
 - **Lights** are the room's clustered lights. Actors receive every shadow
-  map.
+  map, and the room's character light besides, which only actors receive
+  ([lighting.md](lighting.md)). A material's metallic and roughness are
+  its glTF factors times the mean of its `metallicRoughnessTexture` under
+  its vertices.
 - **Shadows**: `Quality::actor_shadow_slots` of the frame's shadow slots,
   the sun's first, also hold actors; such a slot is redrawn in the frames an
   actor within its reach moves, appears or vanishes. An actor whose bounds

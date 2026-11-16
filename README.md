@@ -73,9 +73,9 @@ The site in `site/` (`npm install && npm run dev` there) serves
 [docs/](docs/) as they are. Start with [the engine](docs/engine.md) and
 [the game API](docs/game-api.md); the rest covers
 [physics](docs/physics.md), [rooms](docs/rooms.md), [actors](docs/actors.md),
-[cutscenes](docs/cutscenes.md), [audio](docs/audio.md), [UI](docs/ui.md),
-[effects](docs/fx.md), [the web](docs/web.md) and
-[performance](docs/performance.md). The logo,
+[lighting](docs/lighting.md), [cutscenes](docs/cutscenes.md),
+[audio](docs/audio.md), [UI](docs/ui.md), [effects](docs/fx.md),
+[the web](docs/web.md) and [performance](docs/performance.md). The logo,
 colours and their rules are in [docs/brand.md](docs/brand.md).
 
 For an agent building a game, the skills are in [skills/](skills/), starting

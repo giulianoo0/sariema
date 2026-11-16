@@ -16,6 +16,12 @@ struct Frame {
     grid: vec4<u32>,
     // A view depth z lies in slice floor(log(z) * x + y).
     slicing: vec4<f32>,
+    // The light only actors receive: towards its fill in xyz, the fill's
+    // wrap in w; its colour, the fill's intensity in w; then the rim, the
+    // rim's power, the least brightness and the room tint.
+    character_dir: vec4<f32>,
+    character_color: vec4<f32>,
+    character: vec4<f32>,
 }
 
 struct Draw {

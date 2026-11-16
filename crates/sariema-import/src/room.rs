@@ -14,9 +14,9 @@ use std::path::{Path, PathBuf};
 
 use glam::{Mat3, Mat4, Quat, Vec3};
 use sariema_format::{
-    Aabb, AlphaMode, Ambient, Background, Draw, Group, Hinge, Light, LightKind, Look, Material,
-    Mesh, Mobility, Node, Piece, PieceState, RoomCamera, RoomPack, Stats, Sun, Texture, Vertex,
-    hemisphere_sh9,
+    Aabb, AlphaMode, Ambient, Background, CharacterLight, Draw, Group, Hinge, Light, LightKind,
+    Look, Material, Mesh, Mobility, Node, Piece, PieceState, RoomCamera, RoomPack, Stats, Sun,
+    Texture, Vertex, hemisphere_sh9,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -59,6 +59,8 @@ pub struct RoomSource {
     pub background: Background,
     #[serde(default)]
     pub extra_hemisphere: Option<Hemisphere>,
+    #[serde(default)]
+    pub character_light: CharacterLight,
     /// ASTC 4×4 when absent.
     #[serde(default)]
     pub textures: Option<TextureMode>,
@@ -293,6 +295,7 @@ pub fn build_room(source: &RoomSource, assets_root: &Path) -> Result<RoomPack, I
         groups,
         nodes,
         pieces,
+        character: source.character_light.clone(),
     };
     room.stats = Stats::of_room(&room);
     Ok(room)

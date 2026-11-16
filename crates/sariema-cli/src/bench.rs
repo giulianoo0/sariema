@@ -3,7 +3,8 @@
 //! The `bench` command: loads a pack offscreen, draws it many times and
 //! reports where the time goes, by load stage, frame stage and GPU pass. A
 //! game pack's frame is one engine step and the room, its actors and the
-//! HUD drawn at the step's end.
+//! HUD drawn at the step's end; a room pack's is the room with the actors
+//! placed in it, posed at the frame's time.
 
 use std::fmt::Write;
 use std::path::PathBuf;
@@ -21,6 +22,7 @@ use serde_json::{Value, json};
 
 use crate::Tier;
 use crate::output::{Done, Failure};
+use crate::stage::{Placement, Stage, StageArgs};
 
 mod alloc;
 mod game;
@@ -75,6 +77,14 @@ pub struct BenchArgs {
     /// frame's thread (null where there is no clock for it), in ms.
     #[arg(long)]
     timeline: bool,
+    /// An actor pack placed in a room pack at X,Y,Z with YAW degrees about
+    /// +Y; repeatable.
+    #[arg(long = "actor", value_name = "PACK@X,Y,Z,YAW")]
+    actors: Vec<Placement>,
+    /// The clip every placed actor plays from time 0; without one they
+    /// stand at rest.
+    #[arg(long, requires = "actors")]
+    clip: Option<String>,
 }
 
 impl BenchArgs {
@@ -208,6 +218,12 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
         Failure::new(code, format!("{}: {e}", path.display()))
     };
     let (mut room, game) = if bytes.starts_with(&GAME_MAGIC) {
+        if !args.actors.is_empty() {
+            return Err(failed(
+                "E_USAGE",
+                &"--actor places actors in a room pack; a game pack spawns its own",
+            ));
+        }
         let pack = decode_game(&bytes).map_err(|e| failed(e.code(), &e))?;
         (sariema_view::room(&pack.assets)?, Some(pack))
     } else if args.input.is_some() {
@@ -240,6 +256,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
     let pipelines_ms = lap();
     renderer.time_cpu_stages(Some(since_start));
     let size = (args.width, args.height);
+    let mut stage = None;
     let mut game = match game {
         Some(pack) => Some(GameFrame::load(
             &mut renderer,
@@ -254,6 +271,12 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
         )?),
         None => {
             renderer.load_room(&room)?;
+            let placed = StageArgs {
+                actors: args.actors.clone(),
+                clip: args.clip.clone(),
+                ..StageArgs::default()
+            };
+            stage = Some(Stage::load(&mut renderer, &placed)?);
             None
         }
     };
@@ -281,7 +304,11 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
         let parts = match &mut game {
             Some(game) => Some(game.draw(renderer, &view)?),
             None => {
-                renderer.render(&camera, frame as f32 / 60.0, &view);
+                let time_s = frame as f32 / 60.0;
+                if let Some(stage) = &mut stage {
+                    stage.pose(renderer, time_s)?;
+                }
+                renderer.render(&camera, time_s, &view);
                 None
             }
         };
@@ -368,6 +395,7 @@ pub fn bench(args: &BenchArgs) -> Result<Done, Failure> {
             "pack": path.display().to_string(),
             "room": room.name,
             "game": game.as_ref().map(GameFrame::json),
+            "actors": stage.as_ref().map(Stage::json),
             "adapter": { "name": info.name, "backend": format!("{:?}", info.backend) },
             "load_average": load_average(),
             "settings": {

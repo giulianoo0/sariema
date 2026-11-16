@@ -25,6 +25,13 @@ one more run with every render pass timed on the GPU. Frame `n` is drawn at
 | `--msaa N` | the tier's | samples per pixel, clamped to the device |
 | `--no-shadows` | off | neither the sun nor any light casts a shadow |
 | `--no-ao` | off | no ambient occlusion |
+| `--actor PACK@X,Y,Z,YAW` | none | an actor pack placed in a room pack; repeatable |
+| `--clip NAME` | rest pose | the clip every placed actor plays from time 0 |
+
+Placed actors are posed at each frame's time as `run --headless` poses
+them, so `frame_stats.actors_drawn` and the scene pass count their draws;
+an actor placed a few metres in front of the room's camera fills the
+frame, the worst case for anything only actors pay.
 
 `--msaa 1 --no-shadows --no-ao` matches the reference three.js game's
 settings: no anti-aliasing, no shadows, no occlusion. It does not match its
