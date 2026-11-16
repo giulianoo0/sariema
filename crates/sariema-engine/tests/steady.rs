@@ -193,3 +193,76 @@ fn predecoded_streams_allocate_nothing_in_the_steps_or_the_feeds() {
     );
     assert_eq!(run.mixed.underruns, 0, "{:?}", run.mixed);
 }
+
+/// Slides the cinema bars in and out, fades the screen to black and back,
+/// and plays the HUD's `enter` and `done` animations, twice; it sends
+/// nothing else.
+struct Animator {
+    step: u64,
+}
+
+const CUES: [u64; 4] = [10, 60, 110, 160];
+
+impl Logic for Animator {
+    fn tick(&mut self, _events: &[u8], _ends: &[u32], out: &mut Vec<u8>) -> Result<(), Stop> {
+        out.clear();
+        let (to, play) = match self.step {
+            10 | 110 => (1.0, "enter"),
+            60 | 160 => (0.0, "done"),
+            _ => {
+                self.step += 1;
+                return Ok(());
+            }
+        };
+        send(out, Command::Letterbox { to, duration: 0.5 });
+        send(
+            out,
+            Command::Fade {
+                to,
+                duration: 0.5,
+                color: [0.0; 3],
+            },
+        );
+        send(
+            out,
+            Command::UiPlay {
+                animation: name_id(play),
+            },
+        );
+        self.step += 1;
+        Ok(())
+    }
+}
+
+/// The first cues grow the buffers commands pass through, once; after
+/// that, cueing allocates nothing either.
+#[test]
+fn a_step_that_only_animates_the_hud_bars_and_fade_allocates_nothing() {
+    let sim = Simulation::new(wired(), Vec::new(), Animator { step: 0 }, 1);
+    let mut engine = Engine::new(sim, assets(), EngineSettings::default()).unwrap();
+    let actions = Actions::for_settings(&engine.state().settings.input);
+    for _ in 0..10 {
+        engine.step(&actions);
+    }
+    let (mut animating, mut cued, mut later, mut bars) = (Vec::new(), Vec::new(), 0, 0);
+    for step in 10..230 {
+        let before = ALLOCATIONS.with(Cell::get);
+        ARMED.with(|a| a.set(true));
+        engine.step(&actions);
+        ARMED.with(|a| a.set(false));
+        let n = ALLOCATIONS.with(Cell::get) - before;
+        if CUES.contains(&step) {
+            cued.push((step, n));
+            later += if step >= CUES[2] { n } else { 0 };
+        } else if n > 0 {
+            animating.push((step, n));
+        }
+        let s = engine.state();
+        if s.screen.letterbox.value() > 0.0 && s.screen.letterbox.value() < 1.0 {
+            bars += 1;
+        }
+    }
+    assert!(bars >= 100, "the bars slid in and out: {bars} steps");
+    assert_eq!(animating, [], "allocations on steps that only animate");
+    assert_eq!(later, 0, "allocations on the cues: {cued:?}");
+}

@@ -21,6 +21,9 @@ use crate::settings::HudSettings;
 /// The group of a root node that stays on screen through a cutscene.
 pub const KEEP_IN_CUTSCENES: &str = "cutscene";
 
+/// The bars are laid out at their full height and scaled from their outer
+/// edge to the letterbox's, and the line is moved down by what they lack,
+/// so a step that only moves them lays nothing out again.
 struct Layer {
     fade: NodeId,
     /// The top bar and the bottom one.
@@ -29,7 +32,9 @@ struct Layer {
     dock: NodeId,
     /// The dialogue box and its text; none without a font.
     line: Option<(NodeId, NodeId)>,
-    /// The bars' height last set, in UI units.
+    /// The bars' laid-out height, at letterbox 1, in UI units.
+    full: f32,
+    /// The bars' drawn height last set, in UI units.
     bar: f32,
 }
 
@@ -99,7 +104,7 @@ impl Hud {
         let font = desc.fonts.keys().next().cloned();
         let layer = layer(&mut ui, font.as_deref(), &settings)?;
         ui.set_screen(settings.width, settings.height, SafeArea::default());
-        Ok(Hud {
+        let mut hud = Hud {
             nodes,
             animations: desc
                 .animations
@@ -117,7 +122,19 @@ impl Hud {
             settings,
             rejected: Vec::new(),
             ui,
-        })
+        };
+        hud.fit_bars();
+        let root = hud.ui.root();
+        hud.ui.snap(root)?;
+        Ok(hud)
+    }
+
+    /// Shapes a dialogue line ahead, so showing it shapes nothing.
+    pub fn prepare_line(&mut self, text: &str) -> Result<(), UiError> {
+        match self.layer.line {
+            Some((_, node)) => self.ui.prepare_text(node, text),
+            None => Ok(()),
+        }
     }
 
     pub fn bare(input: &InputSettings, settings: HudSettings) -> Hud {
@@ -231,7 +248,25 @@ impl Hud {
             .ok_or_else(|| UiError::Unknown(format!("node {name:#010x}")))
     }
 
+    /// Lays the bars out at their full height for the screen, when it changed.
+    fn fit_bars(&mut self) -> bool {
+        let screen = self.ui.screen();
+        let full = self.settings.bar_fraction * screen.height / screen.scale.max(f32::EPSILON);
+        if full == self.layer.full {
+            return false;
+        }
+        for id in self.layer.bars {
+            self.ui
+                .set(id, Prop::Height, full)
+                .expect("the engine's layer nodes live");
+        }
+        self.layer.full = full;
+        true
+    }
+
     fn draw_screen(&mut self, s: &State) {
+        let mut moved = self.fit_bars();
+        let full = self.layer.full;
         let ui = &mut self.ui;
         let fade = self.layer.fade;
         let colour = s.screen.fade_color;
@@ -244,13 +279,16 @@ impl Hud {
         set(ui, fade, Prop::Red, colour.x);
         set(ui, fade, Prop::Green, colour.y);
         set(ui, fade, Prop::Blue, colour.z);
-        let screen = ui.screen();
-        let bar = s.screen.letterbox.value() * self.settings.bar_fraction * screen.height
-            / screen.scale.max(f32::EPSILON);
-        let mut moved = bar != self.layer.bar;
-        if moved {
+        let bar = s.screen.letterbox.value() * full;
+        if moved || bar != self.layer.bar {
+            let scale = if full > 0.0 { bar / full } else { 0.0 };
             for id in self.layer.bars {
-                set(ui, id, Prop::Height, bar);
+                set(ui, id, Prop::ScaleY, scale);
+                ui.set_visible(id, bar > 0.0)
+                    .expect("the engine's layer nodes live");
+            }
+            if let Some((frame, _)) = self.layer.line {
+                set(ui, frame, Prop::Y, full - bar);
             }
             self.layer.bar = bar;
         }
@@ -301,6 +339,8 @@ fn layer(ui: &mut Ui, font: Option<&str>, settings: &HudSettings) -> Result<Laye
             top: zero,
             height: zero,
             fill: black,
+            origin: Some([0.5, 0.0]),
+            visible: Some(false),
             ..NodeDesc::default()
         },
     )?;
@@ -355,6 +395,8 @@ fn layer(ui: &mut Ui, font: Option<&str>, settings: &HudSettings) -> Result<Laye
         &NodeDesc {
             height: zero,
             fill: black,
+            origin: Some([0.5, 1.0]),
+            visible: Some(false),
             ..NodeDesc::default()
         },
     )?;
@@ -376,6 +418,7 @@ fn layer(ui: &mut Ui, font: Option<&str>, settings: &HudSettings) -> Result<Laye
         bars: [top, bottom],
         dock,
         line,
+        full: 0.0,
         bar: 0.0,
     })
 }

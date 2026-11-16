@@ -59,6 +59,20 @@ struct Traversing {
     done: u32,
 }
 
+impl Traversing {
+    fn with_capacity(points: usize, contacts: usize) -> Traversing {
+        Traversing {
+            entity: Entity::NONE,
+            path: Vec::with_capacity(points),
+            along: Vec::with_capacity(points),
+            contacts: Vec::with_capacity(contacts),
+            yaw: 0.0,
+            steps: 0,
+            done: 0,
+        }
+    }
+}
+
 pub struct Physics {
     pub world: World,
     pack: CollisionPack,
@@ -73,6 +87,8 @@ pub struct Physics {
     /// The entity that last switched each collider.
     switched: Vec<Entity>,
     traversals: Vec<Traversing>,
+    /// Ended traversals, kept for their buffers.
+    spare: Vec<Traversing>,
     intents: Vec<PhysicsIntent>,
     events: Vec<sariema_physics::Event>,
     knockback_s: f32,
@@ -91,6 +107,14 @@ impl Physics {
         physics.step_seconds = STEP_SECONDS;
         physics.controller.max_yaw_speed = turn_rate.to_radians();
         let world = World::from_pack(physics, &pack).map_err(|e| e.to_string())?;
+        let longest = |n: fn(&Traversal) -> usize| pack.traversals.iter().map(n).max();
+        let spare = match (
+            longest(|t| t.points.len() + 1),
+            longest(|t| t.contacts.len()),
+        ) {
+            (Some(points), Some(contacts)) => vec![Traversing::with_capacity(points, contacts)],
+            _ => Vec::new(),
+        };
         Ok(Physics {
             world,
             bodies: pack
@@ -104,7 +128,8 @@ impl Physics {
             actors: Vec::new(),
             owners: Vec::new(),
             free: Vec::new(),
-            traversals: Vec::new(),
+            traversals: Vec::with_capacity(spare.len()),
+            spare,
             intents: Vec::new(),
             events: Vec::new(),
             knockback_s: settings.knockback_s,
@@ -261,7 +286,7 @@ impl Physics {
         self.world.set_actor_active(m.id, false, &mut self.events);
         self.owners[m.id.0 as usize] = Entity::NONE;
         self.free.push((m.body, m.id));
-        self.traversals.retain(|t| t.entity != m.entity);
+        self.end_traversal(m.entity);
     }
 
     fn apply(&mut self, s: &mut State, intent: PhysicsIntent) {
@@ -272,7 +297,7 @@ impl Physics {
                 speed,
             } => {
                 let scale = speed_scale(s, entity);
-                self.traversals.retain(|t| t.entity != entity);
+                self.end_traversal(entity);
                 let Some(m) = self.mapped_mut(entity) else {
                     return;
                 };
@@ -289,7 +314,7 @@ impl Physics {
                 });
             }
             PhysicsIntent::Velocity { entity, velocity } => {
-                self.traversals.retain(|t| t.entity != entity);
+                self.end_traversal(entity);
                 self.velocity(s, entity, velocity);
             }
             PhysicsIntent::SpeedScale { entity, scale } => {
@@ -372,7 +397,7 @@ impl Physics {
                 position,
                 yaw,
             } => {
-                self.traversals.retain(|t| t.entity != entity);
+                self.end_traversal(entity);
                 if s.world.node(entity).is_some_and(|n| !n.parent.is_none()) {
                     return;
                 }
@@ -388,7 +413,7 @@ impl Physics {
                 });
             }
             PhysicsIntent::Stop { entity } => {
-                self.traversals.retain(|t| t.entity != entity);
+                self.end_traversal(entity);
                 if let Some(m) = self.mapped_mut(entity) {
                     m.speed = 0.0;
                     let id = m.id;
@@ -475,16 +500,24 @@ impl Physics {
             .pack
             .traversals
             .iter()
-            .find(|t| name_id(&t.name) == traversal);
+            .position(|t| name_id(&t.name) == traversal);
         let start = s.world.node(entity).map(|n| n.local.position);
         let (Some(t), Some(start), true) = (found, start, self.mapped(entity).is_some()) else {
             s.events.push(Event::Blocked { entity });
             s.happen(Happening::Blocked(entity));
             return;
         };
-        let run = traversing(entity, t, start, duration);
-        self.traversals.retain(|r| r.entity != entity);
+        self.end_traversal(entity);
+        let mut run = (self.spare.pop()).unwrap_or_else(|| Traversing::with_capacity(0, 0));
+        traversing(&mut run, entity, &self.pack.traversals[t], start, duration);
         self.traversals.push(run);
+    }
+
+    /// Ends `entity`'s traversal, keeping its buffers for the next one.
+    fn end_traversal(&mut self, entity: Entity) {
+        if let Some(k) = self.traversals.iter().position(|t| t.entity == entity) {
+            self.spare.push(self.traversals.remove(k));
+        }
     }
 
     /// Each traversal's pose for this step: along its points, eased onto
@@ -536,7 +569,9 @@ impl Physics {
                 k += 1;
                 continue;
             }
-            let entity = self.traversals.remove(k).entity;
+            let run = self.traversals.remove(k);
+            let entity = run.entity;
+            self.spare.push(run);
             if let Some(m) = self.mapped(entity) {
                 let id = m.id;
                 self.world.apply(Intent::Stop { actor: id });
@@ -639,35 +674,30 @@ fn smooth(x: f32) -> f32 {
     x * x * (3.0 - 2.0 * x)
 }
 
-fn traversing(entity: Entity, t: &Traversal, start: Vec3, duration: f32) -> Traversing {
-    let mut path = vec![start];
+fn traversing(run: &mut Traversing, entity: Entity, t: &Traversal, start: Vec3, duration: f32) {
+    let (path, along) = (&mut run.path, &mut run.along);
+    path.clear();
+    path.push(start);
     path.extend(t.points.iter().map(|&p| Vec3::from(p)));
-    let mut along = vec![0.0];
+    along.clear();
+    along.push(0.0);
     for w in path.windows(2) {
         along.push(along[along.len() - 1] + w[0].distance(w[1]));
     }
     let total = along[along.len() - 1].max(f32::EPSILON);
-    let contacts = t
-        .contacts
-        .iter()
-        .map(|c| {
-            let point = Vec3::from(c.point);
-            (
-                name_id(&c.name),
-                point,
-                nearest_along(&path, &along, point) / total,
-            )
-        })
-        .collect();
-    Traversing {
-        entity,
-        path,
-        along,
-        contacts,
-        yaw: to_runtime(t.yaw),
-        steps: (duration / STEP_SECONDS).round().max(1.0) as u32,
-        done: 0,
-    }
+    run.contacts.clear();
+    run.contacts.extend(t.contacts.iter().map(|c| {
+        let point = Vec3::from(c.point);
+        (
+            name_id(&c.name),
+            point,
+            nearest_along(&run.path, &run.along, point) / total,
+        )
+    }));
+    run.entity = entity;
+    run.yaw = to_runtime(t.yaw);
+    run.steps = (duration / STEP_SECONDS).round().max(1.0) as u32;
+    run.done = 0;
 }
 
 /// The arc length at which `path` passes nearest to `point`.

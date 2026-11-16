@@ -17,6 +17,7 @@ mod view;
 
 use std::time::Duration;
 
+use sariema_format::script::cutscene::Block;
 use sariema_format::script::{Event, GamePack};
 use sariema_runtime::clock::Tick;
 use sariema_runtime::game::{LoadError, WasmLogic};
@@ -89,8 +90,37 @@ impl Engine<WasmLogic> {
         if assets.collision.is_some() {
             runtime.motion.builtin = false;
         }
+        let mut lines = Vec::new();
+        for c in &pack.cutscenes {
+            cutscene_lines(&c.body, &mut lines);
+        }
+        let lines: Vec<String> = lines.into_iter().map(String::from).collect();
         let sim = sariema_runtime::game::start_with_settings(pack, runtime, seed)?;
-        Engine::new(sim, assets, settings)
+        let mut engine = Engine::new(sim, assets, settings)?;
+        for text in &lines {
+            engine.hud.prepare_line(text).map_err(|e| LoadError {
+                code: e.code(),
+                message: e.to_string(),
+            })?;
+        }
+        Ok(engine)
+    }
+}
+
+fn cutscene_lines<'a>(blocks: &'a [Block], out: &mut Vec<&'a str>) {
+    for block in blocks {
+        match block {
+            Block::Line { text, .. } => out.push(text),
+            Block::Sequence(blocks) => cutscene_lines(blocks, out),
+            Block::Parallel(branches) => branches.iter().for_each(|b| cutscene_lines(b, out)),
+            Block::Branch {
+                then, otherwise, ..
+            } => {
+                cutscene_lines(then, out);
+                cutscene_lines(otherwise, out);
+            }
+            _ => {}
+        }
     }
 }
 
