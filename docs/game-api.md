@@ -53,7 +53,8 @@ One step, in order:
 3. Its commands are applied in the order sent, then its bulk regions.
 4. The cutscene sequencer runs.
 5. The hero is driven by the move axis (when the player has control),
-   actors move and turn, followers, tweens, springs and timers advance, the
+   actors move and turn, what they hold is placed on its socket, followers,
+   tweens, springs and timers advance, the
    fade, cinema bars and dialogue advance.
 6. World placement is resolved and measured, putting back a visible actor
    that went too far ([Entities](#a-visible-actor-never-jumps)), the camera
@@ -413,6 +414,18 @@ without `--headless` the pack plays in a window.
   loses no time, where waiting for `clip_finished` and then playing loses a
   step or two. The animation module crossfades over `blend`. A `play_clip`
   or `clip_path` drops the queue; with no clip playing it plays at once.
+- **Held things**: `hold` puts an entity (a room node, a light, an empty)
+  in an actor's hand: at its socket or joint `socket` (a socket looked up
+  first), staying where it stands on it with `keep`, else sitting at
+  `offset` from it in the socket's frame. Each step, once the actors have
+  moved and the animation module has posed them, it is placed on the
+  socket rigidly, in metres of the world: the actor's scale never grows it
+  or its offset. Holding takes it out of its parent, follow and tweens.
+  `hold` with `actor` NONE lets go and it stays where it was, so a tween
+  can carry it on from there (a bag into a bin); despawning the actor lets
+  go too. Refused with `E_HOLD_ACTOR` for an actor to hold and, the step
+  after, `E_SOCKET_UNKNOWN` for a name the actor's model lacks; an actor
+  drawn without a model keeps it where it stands.
 - **A clip's rate while it plays**: `clip_rate` plays the clip an actor
   plays at a new rate from the step it arrives, going on from the time it
   is at: no restart and no crossfade, where a second `play_clip` starts it

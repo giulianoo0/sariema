@@ -416,7 +416,9 @@ those of its children `CommandEncoder::finish`, `Queue::submit`,
 
 - **Godot 4**: `AnimationPlayer`'s blend time on `play` and
   `AnimationNodeTransition`'s cross-fade (one fade length per play, overridable
-  per call); `BoneAttachment3D`, a node that follows a bone, for sockets; the
+  per call); `BoneAttachment3D`, a node that follows a bone, for sockets and
+  the game's `hold`, which also keeps the held thing's world size the way
+  three.js's `Object3D.attach` keeps its world placement; the
   Compatibility renderer's bones in a texture, for the OpenGL ES fallback.
   <https://docs.godotengine.org/en/stable/classes/class_animationplayer.html>,
   <https://docs.godotengine.org/en/stable/classes/class_boneattachment3d.html>
