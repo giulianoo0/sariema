@@ -48,6 +48,9 @@ function show() {
     rows.push(["Engine", result.smoke.ok ? `${result.smoke.backend}, ${result.smoke.path}` : result.smoke.error]);
     rows.push(["First frame", result.smoke.first_frame_ms != null ? `${Math.round(result.smoke.first_frame_ms)} ms` : "—"]);
     rows.push(["Chime through the worklet", result.smoke.audio_ok]);
+    const shown = (f) => f && `${Math.round(f.fps)} fps, p95 ${f.interval_ms.p95.toFixed(1)} ms, ${f.size.join("×")}`;
+    rows.push(["Frames", shown(result.smoke.frames) ?? "—"]);
+    rows.push(["Frames, full screen", shown(result.smoke.frames_full_screen) ?? "—"]);
   }
   summary.replaceChildren(
     ...rows.map(([name, value]) => {
@@ -122,8 +125,7 @@ function webgl2() {
   const floatSamples = extensions.EXT_color_buffer_float
     ? [...gl.getInternalformatParameter(gl.RENDERBUFFER, gl.RGBA16F, gl.SAMPLES)]
     : [];
-  gl.getExtension("WEBGL_lose_context")?.loseContext();
-  return {
+  const found = {
     available: true,
     renderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
     version: gl.getParameter(gl.VERSION),
@@ -137,7 +139,42 @@ function webgl2() {
     rgba16f_sample_counts: floatSamples,
     extensions,
   };
+  gl.getExtension("WEBGL_lose_context")?.loseContext();
+  return found;
 }
+
+// Plays for `ms` and reads the frames the display shows (each interval
+// between animation frames) and the engine's own size, then times a burst of
+// draws of one frame: the CPU to encode and submit, and the wall time with
+// the GPU.
+async function frames(sariema, ms) {
+  sariema.start();
+  const at = [];
+  await new Promise((done) => {
+    const tick = (now) => {
+      at.push(now);
+      if (now - at[0] < ms) requestAnimationFrame(tick);
+      else done();
+    };
+    requestAnimationFrame(tick);
+  });
+  sariema.stop();
+  const gaps = at.slice(1).map((t, i) => t - at[i]).sort((a, b) => a - b);
+  const q = (p) => gaps[Math.min(gaps.length - 1, Math.floor(p * gaps.length))];
+  const median = q(0.5);
+  const burst = await sariema.bench(60);
+  return {
+    size: sariema.stats().size,
+    fps: gaps.length / ((at[at.length - 1] - at[0]) / 1000),
+    interval_ms: { p50: median, p95: q(0.95), p99: q(0.99), max: gaps[gaps.length - 1] },
+    long_frames: gaps.filter((g) => g > median * 1.5).length,
+    frames: gaps.length,
+    burst_cpu_ms: burst.cpu_ms,
+    burst_wall_ms: burst.wall_ms,
+  };
+}
+
+const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 500))));
 
 function wasm() {
   return {
@@ -185,6 +222,11 @@ async function smoke() {
     s.ok = s.lit_fraction > 0.1 && s.stats.game.steps > 0;
     s.audio = await sariema.audioStats();
     s.audio_ok = s.audio.received > 0 && s.audio.peak > 0.05;
+    s.frames = await frames(sariema, 5000);
+    canvas.classList.add("full");
+    await settle();
+    s.frames_full_screen = await frames(sariema, 5000);
+    canvas.classList.remove("full");
   } catch (e) {
     s.error = String(e?.message ?? e);
   }
