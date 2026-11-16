@@ -58,6 +58,22 @@ fn build_then_inspect_demo() {
     assert_eq!(inspected["lights"], json!(["a.foco", "a.abajur"]));
     assert_eq!(inspected["materials"], json!(["mat0"]));
     assert_eq!(inspected["draws"], json!(["a.mesa"]));
+    let params = inspected["params"].as_array().unwrap();
+    let param = |name: &str| {
+        (params.iter())
+            .find(|p| p["name"] == name)
+            .unwrap_or_else(|| panic!("no {name} in {params:?}"))["value"]
+            .as_f64()
+            .unwrap()
+    };
+    assert_eq!(param("light.a.foco.range"), built_light_range(&pack));
+    assert_eq!(param("fog.density"), 0.0);
+    assert_eq!(param("hemisphere.intensity"), 1.0);
+}
+
+fn built_light_range(pack: &Path) -> f64 {
+    let room = sariema_format::decode(&std::fs::read(pack).unwrap()).unwrap();
+    room.lights[0].range as f64
 }
 
 #[test]
