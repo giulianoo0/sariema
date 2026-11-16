@@ -1,0 +1,33 @@
+[package]
+name = "vm-bench"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# A workspace of its own, so walrus stays out of the engine's.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+sariema-vm = { path = "../../crates/sariema-vm" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.130"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+sariema-engine = { path = "../../crates/sariema-engine" }
+sariema-format = { path = "../../crates/sariema-format" }
+sariema-runtime = { path = "../../crates/sariema-runtime" }
+serde_json = "1"
+walrus = "=0.27.3"
+wat = "1"
+
+# The engine's web build: size first, one unit, no unwinding.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
