@@ -1,0 +1,22 @@
+[package]
+name = "sariema-audio"
+description = "Mixer of the Sariema engine: buses, streamed music, ducking, loudness checks and offline rendering."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+# Output through the platform's audio device. The mixer and its tests need no device.
+device = ["dep:cpal"]
+
+[dependencies]
+cpal = { workspace = true, optional = true }
+rtrb.workspace = true
+sariema-format = { path = "../sariema-format" }
+serde.workspace = true
+symphonia.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
