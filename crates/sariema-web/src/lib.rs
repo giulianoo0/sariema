@@ -2,7 +2,8 @@
 
 //! The Sariema engine in a web page or an app's WebView. A [`Stage`] holds
 //! the renderer, actors, UI, sounds, the fixed-step clock and the input
-//! queue and draws into any texture; on `wasm32` the `Engine` class built
+//! queue and draws into any texture; a [`game::GameHost`] plays a game pack
+//! whole on the Stage's renderer; on `wasm32` the `Engine` class built
 //! with `wasm-bindgen` puts it on a canvas through WebGPU, or WebGL2 where
 //! the browser has no WebGPU, and the page drives it from its
 //! `requestAnimationFrame` loop. See `docs/web.md`.

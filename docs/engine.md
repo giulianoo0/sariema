@@ -18,7 +18,8 @@ let alpha = engine.alpha();
 ```
 
 The host then draws `engine.camera(alpha)`, `engine.actors(alpha)` and
-`engine.draw_hud(alpha)`; `crates/sariema-cli/src/game_view.rs` is one.
+`engine.draw_hud(alpha)`; `crates/sariema-view` does, for the window
+player, `run --headless --screenshot` and the web host alike.
 
 `Engine::load` takes a game pack and the assets it carries (room, collision,
 actors, sound bank, HUD; [game-api.md](game-api.md) has the pack). With a
@@ -176,9 +177,9 @@ The step is a pure function of the pack, the seed and the input: fixed
 1/60 s, seeded randomness, no wall clock, no hash-map order, and every
 transcendental through `libm` (glam with its `libm` feature, the runtime's
 own trigonometry too), so `engine_hash` is the same in native debug, native
-release and wasm32. `tools/wasm-replay` runs a pack and an input log in
-Node's WebAssembly and prints the same hashes as
-`sariema run --headless --game`. `audio_hash` covers the mixed samples and is
+release and wasm32. The web package's browser tests (`npm test` in
+`packages/sariema-web`) replay the climb in Chromium and WebKit and reach
+the hashes `sariema run --headless --game` prints. `audio_hash` covers the mixed samples and is
 repeatable with one build, not across builds: the mixer's arithmetic is left
 to the compiler.
 
@@ -195,7 +196,11 @@ to the compiler.
 - `sariema bench pack.srmg [--input log.json]`: each timed frame is one step
   and its frame; it reports the step, the HUD and the HUD pass's passes,
   draws and uploads apart.
-- The web lane builds this crate for wasm32 and drives it the same way.
+- `@sariema/web`'s `loadGame` (`crates/sariema-web`): a page plays a game
+  pack, keys through the input settings and pointers (touch included) to
+  the HUD, the sound through an AudioWorklet with the mixer taken;
+  `replayGame` steps with an input log as `run --headless` does.
+  [web.md](web.md) has it.
 
 ## What was taken from where
 

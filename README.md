@@ -28,13 +28,12 @@ the `sariema` command-line tool.
 - `crates/sariema-engine` — the engine as one: the runtime stepped with the
   collision, animation, sound and HUD modules wired in, deterministic on
   every platform ([docs/engine.md](docs/engine.md), `examples/climb`).
-- `crates/sariema-web` and `packages/sariema-web` — the engine in a web page or app WebView: WebAssembly on WebGPU or WebGL2, the typed `@sariema/web` package, browser tests and a probe page ([docs/web.md](docs/web.md)).
+- `crates/sariema-web` and `packages/sariema-web` — the engine in a web page or app WebView: whole games on WebGPU or WebGL2, with the same `engine_hash` as native, the typed `@sariema/web` package, browser tests and a probe page ([docs/web.md](docs/web.md)).
+- `crates/sariema-view` — what a host draws of a running game: its room, actors and HUD at the frame's `alpha`, shared by the window player, `run --headless` and the web host.
 - `crates/sariema-cli` — the `sariema` tool: `new`, `build`, `inspect`, `run`,
   `test`, `check`, `physics-map`, `bench`, `audio`, `ui`, `api` and `web`, each with
   `--json`. `examples/demo` is a room it can build; `examples/climb` is a
-  game it builds, replays headless and plays in a window.
-- `tools/wasm-replay` — a game pack replayed in Node's WebAssembly, to show
-  its hashes match the native run's.
+  game it builds, replays headless and plays in a window or a browser.
 
 Docs:
 

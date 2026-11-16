@@ -26,6 +26,7 @@ sariema run --headless --game meadow.srmg --input games/meadow/input/walk.json -
 sariema run --headless --game meadow.srmg --input games/meadow/input/walk.json --steps 480 \
     --screenshot strip.png --filmstrip 8 --width 640 --height 360 --json   # look at it
 sariema run --game meadow.srmg                           # play it in a window
+sariema web games/meadow -o web/meadow --json            # a folder a web page plays (skill sariema-web)
 (cd games/meadow/game && cargo test)                     # the logic's own tests, natively
 ```
 
@@ -36,7 +37,7 @@ another toolchain fails the doc-test step.
 Change, then run the loop again. `run --headless` runs the whole engine
 (collision, animation, sound, HUD) and prints every event the game received
 (`step`, `event`, fields), the host messages (`save`, `ready`), the game's
-log, the saves, `engine_hash` (the same on every platform, wasm32 included),
+log, the saves, `engine_hash` (the same on every platform, browsers included),
 `state_hash`, `world_hash`, `physics_hash`, `audio_hash` (repeatable within
 one build) and timing. Same pack, same input log, same seed: same hashes.
 Pin `engine_hash` in a test. `--screenshot` draws the frames a window would
