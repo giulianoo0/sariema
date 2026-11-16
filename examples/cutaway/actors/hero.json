@@ -1,0 +1,5 @@
+{
+  "name": "hero",
+  "model": "../demo/actors/arm.glb",
+  "materials": { "mat_arm": { "rim": 0.3 } }
+}
