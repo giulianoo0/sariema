@@ -81,6 +81,7 @@ The track that strikes the phrase, from the description:
 | Bounce of celebration | `"spring": { "response": 0.5, "damping": 0.62 }` |
 | Check mark, strike-through | `"stroke": { "points": [...], "viewbox": [w, h], "width": 4 }`, animate `progress` |
 | Hold-to-act ring | button widget with `"ring"`; ring node `{ "ring": { "width": 5 }, "progress": 0 }` |
+| Outlined arc | `"ring": ["outline", "arc"]`: a wider ink ring behind the arc fills with it |
 | Joystick | zone with `"widget": { "joystick": { "base": "b", "pin": "p" } }` |
 | Fade or letterbox | a box with `fill`, animate `opacity` or `scale_y` |
 

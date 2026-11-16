@@ -169,9 +169,10 @@ look is ordinary nodes:
   research). On release the pin and the base spring back (0.18 s and 0.35 s,
   damping 1). `Ui::stick(node)` reads the output.
 - **Action button**: the face scales to `press_scale` (0.92 over 0.12 s) on
-  press; with a `ring`, holding fills it linearly over `hold_s` (1.2 s) and a
-  full ring fires `Held`; an earlier release fires `Tap` and empties the ring
-  over `empty_s` (0.2 s).
+  press; with a `ring` (one name, or a list that fills together, such as an
+  ink outline behind the arc), holding fills it linearly over `hold_s`
+  (1.2 s) and a full ring fires `Held`; an earlier release fires `Tap` and
+  empties the ring over `empty_s` (0.2 s).
 
 ## The draw list and the renderer
 

@@ -223,11 +223,11 @@ impl Ui {
             Some(Widget::Button(b)) if b.pointer.is_none() => {
                 b.pointer = Some(pointer);
                 b.held = false;
-                let (face, ring, d) = (b.face, b.ring, b.desc.clone());
+                let (face, rings, d) = (b.face, b.rings.clone(), b.desc.clone());
                 let press = Animation::tween(d.press_scale, d.press_s, Ease::OUT);
                 self.anim(face, Prop::ScaleX, press);
                 self.anim(face, Prop::ScaleY, press);
-                if let Some(ring) = ring {
+                for ring in rings {
                     let left = 1.0
                         - self.nodes[ring as usize]
                             .get(Prop::Progress)
@@ -300,12 +300,12 @@ impl Ui {
             }
             Some(Widget::Button(b)) if b.pointer == Some(pointer) => {
                 b.pointer = None;
-                let (face, ring, held, d) = (b.face, b.ring, b.held, b.desc.clone());
+                let (face, rings, held, d) = (b.face, b.rings.clone(), b.held, b.desc.clone());
                 if !held {
                     if completed {
                         self.pending.push(Event::Tap { node: id });
                     }
-                    if let Some(ring) = ring {
+                    for ring in rings {
                         let p = self.nodes[ring as usize]
                             .get(Prop::Progress)
                             .clamp(0.0, 1.0);
@@ -331,7 +331,7 @@ impl Ui {
             let Some(Widget::Button(b)) = &self.nodes[index as usize].widget else {
                 continue;
             };
-            let (Some(_), false, Some(ring)) = (b.pointer, b.held, b.ring) else {
+            let (Some(_), false, Some(&ring)) = (b.pointer, b.held, b.rings.first()) else {
                 continue;
             };
             if self.nodes[ring as usize].get(Prop::Progress) < 1.0 {

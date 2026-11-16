@@ -3,7 +3,7 @@
 //! Built-in touch widgets. Each lives on a node that is its touch zone and
 //! moves named descendants, so its look is ordinary nodes.
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use crate::anim::Spring;
 
@@ -76,8 +76,11 @@ impl Default for JoystickDesc {
 pub struct ButtonDesc {
     /// Node scaled while pressed. Default: the button's own node.
     pub face: Option<String>,
-    /// Ring whose progress fills while held. Without one the button only taps.
-    pub ring: Option<String>,
+    /// Rings whose progress fills while held: one name, or several that
+    /// fill together (an outline behind the arc). Without one the button
+    /// only taps.
+    #[serde(deserialize_with = "one_or_many")]
+    pub ring: Vec<String>,
     /// Seconds of holding that fill the ring from empty. Default 1.2.
     pub hold_s: f32,
     /// Seconds a full ring takes to empty after an early release. Default 0.2.
@@ -92,7 +95,7 @@ impl Default for ButtonDesc {
     fn default() -> ButtonDesc {
         ButtonDesc {
             face: None,
-            ring: None,
+            ring: Vec::new(),
             hold_s: 1.2,
             empty_s: 0.2,
             press_scale: 0.92,
@@ -119,9 +122,22 @@ pub(crate) struct Joystick {
 pub(crate) struct Button {
     pub desc: ButtonDesc,
     pub face: u32,
-    pub ring: Option<u32>,
+    pub rings: Vec<u32>,
     pub pointer: Option<u64>,
     pub held: bool,
+}
+
+fn one_or_many<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(String),
+        Many(Vec<String>),
+    }
+    Ok(match OneOrMany::deserialize(d)? {
+        OneOrMany::One(name) => vec![name],
+        OneOrMany::Many(names) => names,
+    })
 }
 
 /// The joystick's output for a pin offset `d`: 0 within the dead zone, then

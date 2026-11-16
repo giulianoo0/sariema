@@ -598,11 +598,11 @@ impl Ui {
                         Some(f) => find(self, f, "face")?,
                         None => index,
                     },
-                    ring: b
+                    rings: b
                         .ring
-                        .as_deref()
+                        .iter()
                         .map(|r| find(self, r, "ring"))
-                        .transpose()?,
+                        .collect::<Result<_, _>>()?,
                     desc: b.clone(),
                     pointer: None,
                     held: false,

@@ -215,7 +215,13 @@
               "properties": { "button": {
                 "type": "object", "additionalProperties": false,
                 "properties": {
-                  "face": { "type": "string" }, "ring": { "type": "string" },
+                  "face": { "type": "string" }, "ring": {
+                    "oneOf": [
+                      { "type": "string" },
+                      { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+                    ],
+                    "description": "Ring nodes whose progress fills while held; several fill together, such as an outline behind the arc."
+                  },
                   "hold_s": { "type": "number", "exclusiveMinimum": 0, "description": "Default 1.2." },
                   "empty_s": { "type": "number", "minimum": 0, "description": "Default 0.2." },
                   "press_scale": { "type": "number", "exclusiveMinimum": 0, "description": "Default 0.92." },

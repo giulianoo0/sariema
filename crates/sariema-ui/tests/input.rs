@@ -182,6 +182,41 @@ fn joystick_and_button_follow_their_own_fingers() {
 }
 
 #[test]
+fn rings_named_together_fill_and_empty_together() {
+    let mut ui = ui(json!({ "nodes": [
+        { "name": "button", "absolute": true, "right": 40, "bottom": 40, "width": 80, "height": 80,
+          "widget": { "button": { "ring": ["outline", "arc"] } },
+          "children": [
+            { "name": "outline", "absolute": true, "left": -1, "top": -1, "width": 82, "height": 82,
+              "ring": { "width": 7 }, "fill": "#33261C", "progress": 0 },
+            { "name": "arc", "absolute": true, "left": 0, "top": 0, "width": 80, "height": 80,
+              "ring": { "width": 5 }, "fill": "#FFC93D", "progress": 0 }
+          ] }
+    ]}));
+    screen(&mut ui, 844.0, 390.0);
+    let (button, outline, arc) = (id(&ui, "button"), id(&ui, "outline"), id(&ui, "arc"));
+    ui.pointer_down(1, 764.0, 310.0);
+    for _ in 0..36 {
+        ui.step();
+    }
+    let both = |ui: &Ui| {
+        (
+            ui.value(outline, Prop::Progress),
+            ui.value(arc, Prop::Progress),
+        )
+    };
+    let (a, b) = both(&ui);
+    assert_eq!(a, b);
+    assert!(near(a.unwrap(), 0.5, 1e-3), "{a:?}");
+    let mut held = false;
+    for _ in 0..40 {
+        held |= ui.step().contains(&Event::Held { node: button });
+    }
+    assert!(held);
+    assert_eq!(both(&ui), (Some(1.0), Some(1.0)));
+}
+
+#[test]
 fn a_short_press_taps_and_the_ring_empties() {
     let mut ui = pad();
     let (button, ring) = (id(&ui, "button"), id(&ui, "ring"));
