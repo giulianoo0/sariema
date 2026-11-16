@@ -122,6 +122,36 @@ fn a_despawn_by_the_engine_or_a_refused_spawn_frees_the_slot() {
 }
 
 #[test]
+fn a_reserved_handle_is_freed_by_its_despawned_event() {
+    struct Ghost(Vec<Entity>);
+    impl Game for Ghost {
+        fn new(ctx: &mut Ctx<'_>) -> Ghost {
+            let ghost = ctx.reserve();
+            Ghost(vec![ghost])
+        }
+        fn tick(&mut self, ctx: &mut Ctx<'_>, events: Events<'_>) {
+            if events.iter().any(|e| matches!(e, Event::Despawned { .. })) {
+                self.0.push(ctx.reserve());
+            }
+        }
+    }
+    let mut host = started(0);
+    let mut runner = Runner::<Ghost>::new();
+    runner.run(&mut host);
+    assert!(host.take_commands().is_empty(), "reserving sends nothing");
+    let ghost = runner.game().unwrap().0[0];
+    host.event(Event::Despawned { entity: ghost });
+    runner.run(&mut host);
+    assert_eq!(
+        runner.game().unwrap().0[1],
+        Entity {
+            index: 0,
+            generation: 1
+        }
+    );
+}
+
+#[test]
 fn the_generator_is_seeded_from_the_started_event() {
     let roll = |seed| {
         let mut host = started(seed);

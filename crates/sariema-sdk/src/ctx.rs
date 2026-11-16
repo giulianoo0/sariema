@@ -145,6 +145,13 @@ impl Ctx<'_> {
         entity
     }
 
+    /// A handle for an entity something else spawns: a cutscene role
+    /// without a start place, bound before the cutscene plays. The slot is
+    /// freed when its `despawned` event arrives.
+    pub fn reserve(&mut self) -> Entity {
+        self.shared.entities.alloc()
+    }
+
     pub fn despawn(&mut self, entity: Entity) {
         self.send(Command::Despawn { entity });
         self.shared.entities.release(entity);
