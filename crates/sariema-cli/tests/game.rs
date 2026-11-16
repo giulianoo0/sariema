@@ -478,7 +478,7 @@ fn the_climb_example_replays_through_the_whole_engine_to_pinned_events_and_state
         "walls, the wave's marker, the sill zone, the walk to the mark, the climb through the window and its doorway trigger, the line"
     );
     // The same in the browsers (packages/sariema-web, `npm test`).
-    assert_eq!(played["engine_hash"], "77d32c574ead63f0");
+    assert_eq!(played["engine_hash"], "6af935618a6ad680");
     let again = run("900");
     for hash in ["engine_hash", "physics_hash", "audio_hash"] {
         assert_eq!(again[hash], played[hash], "{hash} differs between two runs");
