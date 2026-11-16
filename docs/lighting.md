@@ -75,10 +75,10 @@ rim, where the white rim multiplies it by five.
 Measured with `sariema bench --actor` ([performance.md](performance.md)) on
 an Apple M5 at 1920×1080, medium quality, in three furnished rooms with one
 or two actors and with an actor across a third of the frame: the draws are
-the same with the light on and off, the scene pass (0.8 to 1.8 ms) moves by
-less than the noise between runs (about 0.02 ms), and the frame's uniform
-and each room pack grow by 48 bytes; no texture, buffer or pipeline is
-added.
+the same with the light on and off, the scene pass (0.8 to 1.8 ms) differs
+between them by less than between two runs of the same, and the frame's
+uniform and each room pack grow by 48 bytes; no texture, buffer or
+pipeline is added.
 
 ### Black hair, grey clothes, white lines
 
