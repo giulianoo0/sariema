@@ -112,6 +112,44 @@ struct Anim {
     drive: Drive,
     /// The value written last step, for the velocity a spring inherits.
     last: f32,
+    /// Kept where it is for this step.
+    held: bool,
+}
+
+impl Anim {
+    /// Moves the drive on a step: the value to write and whether it is the last.
+    fn advance(&mut self, rest: f32) -> (f32, bool) {
+        match &mut self.drive {
+            Drive::Tween {
+                from,
+                to,
+                steps,
+                elapsed,
+                ease: curve,
+            } => {
+                *elapsed += 1;
+                if *elapsed >= *steps {
+                    (*to, true)
+                } else {
+                    let t = *elapsed as f32 / *steps as f32;
+                    (*from + (*to - *from) * ease(*curve, t), false)
+                }
+            }
+            Drive::Spring {
+                to,
+                velocity,
+                spring,
+            } => {
+                let (x, v) = spring.step(self.last, *velocity, *to);
+                *velocity = v;
+                if (x - *to).abs() <= rest && v.abs() <= rest {
+                    (*to, true)
+                } else {
+                    (x, false)
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -163,6 +201,7 @@ impl Tweens {
                 ease,
             },
             last: from,
+            held: false,
         });
         Ok(())
     }
@@ -188,6 +227,7 @@ impl Tweens {
                 spring: Spring::new(frequency, damping, STEP_SECONDS),
             },
             last: now,
+            held: false,
         });
         Ok(())
     }
@@ -206,6 +246,25 @@ impl Tweens {
             }) => *velocity,
             Some(old) => (now - old.last) / STEP_SECONDS,
             None => 0.0,
+        }
+    }
+
+    /// What the animation of `target` writes in the next [`Tweens::step`],
+    /// if one drives it.
+    pub fn peek(&self, target: &Target, rest: f32) -> Option<f32> {
+        let mut anim = *self.list.iter().find(|a| a.target.same(target))?;
+        Some(anim.advance(rest).0)
+    }
+
+    /// Keeps the animation of `target` where it is for the next step: it
+    /// writes nothing then and goes on from there after, so it ends a step
+    /// later; a spring loses its velocity.
+    pub fn hold(&mut self, target: &Target) {
+        if let Some(a) = self.list.iter_mut().find(|a| a.target.same(target)) {
+            a.held = true;
+            if let Drive::Spring { velocity, .. } = &mut a.drive {
+                *velocity = 0.0;
+            }
         }
     }
 
@@ -238,36 +297,13 @@ impl Tweens {
         let mut kept = 0;
         for i in 0..self.list.len() {
             let mut anim = self.list[i];
-            let (value, finished) = match &mut anim.drive {
-                Drive::Tween {
-                    from,
-                    to,
-                    steps,
-                    elapsed,
-                    ease: curve,
-                } => {
-                    *elapsed += 1;
-                    if *elapsed >= *steps {
-                        (*to, true)
-                    } else {
-                        let t = *elapsed as f32 / *steps as f32;
-                        (*from + (*to - *from) * ease(*curve, t), false)
-                    }
-                }
-                Drive::Spring {
-                    to,
-                    velocity,
-                    spring,
-                } => {
-                    let (x, v) = spring.step(anim.last, *velocity, *to);
-                    *velocity = v;
-                    if (x - *to).abs() <= rest && v.abs() <= rest {
-                        (*to, true)
-                    } else {
-                        (x, false)
-                    }
-                }
-            };
+            if anim.held {
+                anim.held = false;
+                self.list[kept] = anim;
+                kept += 1;
+                continue;
+            }
+            let (value, finished) = anim.advance(rest);
             anim.last = value;
             let alive = write(world, values, &anim.target, value).is_ok();
             if finished && alive {

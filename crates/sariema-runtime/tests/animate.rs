@@ -64,6 +64,32 @@ fn a_tween_lands_exactly_on_its_end_value_on_its_last_step() {
 }
 
 #[test]
+fn a_held_tween_writes_nothing_that_step_and_resumes_where_it_was() {
+    let (mut w, es) = world_with(1);
+    let mut s = Store::default();
+    let mut t = Tweens::default();
+    t.tween((&w, &s, NO_ROOMS), 1, x(es[0]), 6.0, 0.1, Ease::Linear)
+        .unwrap();
+    let mut seen = Vec::new();
+    for n in 0..8 {
+        let next = t.peek(&x(es[0]), REST);
+        if n == 2 || n == 3 {
+            t.hold(&x(es[0]));
+        }
+        let done = step(&mut t, &mut w, &mut s);
+        let now = read(&w, &s, NO_ROOMS, &x(es[0])).unwrap();
+        if n != 2 && n != 3 {
+            assert_eq!(next, Some(now), "step {n}: peeked what it then wrote");
+        }
+        seen.push((now, done));
+    }
+    let values: Vec<f32> = seen.iter().map(|(v, _)| *v).collect();
+    assert_eq!(values, [1.0, 2.0, 2.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    assert_eq!(seen[7].1, [1], "done two steps late, on its own last step");
+    assert_eq!(t.peek(&x(es[0]), REST), None);
+}
+
+#[test]
 fn a_new_tween_on_the_same_property_continues_from_where_the_old_one_was() {
     let (mut w, es) = world_with(1);
     let mut s = Store::default();
