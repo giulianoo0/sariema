@@ -320,6 +320,26 @@ impl Renderer {
     }
 }
 
+/// A device of `adapter` with every limit it has, and with ASTC sampling and
+/// adapter-specific format features when it offers them.
+pub fn request_device(
+    adapter: &wgpu::Adapter,
+    label: &str,
+) -> Result<(Arc<wgpu::Device>, Arc<wgpu::Queue>), RenderError> {
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some(label),
+        // Adapter-specific format features let the quality clamp offer sample
+        // counts beyond WebGPU's 1 and 4; ASTC lets packs keep compressed textures.
+        required_features: adapter.features()
+            & (wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+                | wgpu::Features::TEXTURE_COMPRESSION_ASTC),
+        required_limits: adapter.limits(),
+        ..Default::default()
+    }))
+    .map_err(|e| RenderError::Device(e.to_string()))?;
+    Ok((Arc::new(device), Arc::new(queue)))
+}
+
 fn fits(width: u32, height: u32, limits: &wgpu::Limits) -> bool {
     let side = 1..=limits.max_texture_dimension_2d;
     side.contains(&width) && side.contains(&height)

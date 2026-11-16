@@ -14,12 +14,15 @@ path = "src/main.rs"
 clap.workspace = true
 image.workspace = true
 jsonschema.workspace = true
+pollster.workspace = true
 sariema-core = { path = "../sariema-core" }
 sariema-format = { path = "../sariema-format" }
 sariema-import = { path = "../sariema-import" }
 sariema-render = { path = "../sariema-render" }
 serde.workspace = true
 serde_json.workspace = true
+wgpu.workspace = true
+winit.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true

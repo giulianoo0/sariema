@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use sariema_format::encode;
-use sariema_import::{RoomSource, build_room};
+use sariema_import::{RoomSource, TextureMode, build_room};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -42,7 +42,13 @@ fn load(dir: &Path) -> Result<Project, Failure> {
     serde_json::from_value(value).map_err(|e| schema_error(e.to_string()))
 }
 
-pub fn build(dir: &Path, room: &str, output: &Path) -> Result<Done, Failure> {
+/// `textures`, when given, replaces the room file's choice.
+pub fn build(
+    dir: &Path,
+    room: &str,
+    output: &Path,
+    textures: Option<TextureMode>,
+) -> Result<Done, Failure> {
     let project = load(dir)?;
     let description = project.rooms.get(room).ok_or_else(|| {
         let ids: Vec<&str> = project.rooms.keys().map(String::as_str).collect();
@@ -57,8 +63,9 @@ pub fn build(dir: &Path, room: &str, output: &Path) -> Result<Done, Failure> {
     })?;
     let description = dir.join(description);
     let text = fs::read_to_string(&description).map_err(|e| Failure::io(&description, e))?;
-    let source = RoomSource::from_json(&text)
+    let mut source = RoomSource::from_json(&text)
         .map_err(|e| Failure::new(e.code(), format!("{}: {e}", description.display())))?;
+    source.textures = textures.or(source.textures);
     let pack = build_room(&source, &dir.join(&project.assets_root))?;
     let bytes = encode(&pack);
     fs::write(output, &bytes).map_err(|e| Failure::io(output, e))?;

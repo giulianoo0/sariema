@@ -61,6 +61,39 @@ fn build_then_inspect_demo() {
 }
 
 #[test]
+fn textures_flag_overrides_the_room_file() {
+    let tmp = TempDir::new().unwrap();
+    let pack = tmp.path().join("demo.srma");
+    let demo = demo();
+    let texture_bytes = |extra: &[&str]| {
+        let mut args = vec!["build", arg(&demo), "--room", "demo", "-o", arg(&pack)];
+        args.extend(extra);
+        let (code, out) = sariema(&args);
+        assert_eq!(code, 0, "{out}");
+        out["stats"]["texture_bytes"].as_u64().unwrap()
+    };
+    let astc = texture_bytes(&["--textures", "astc"]);
+    let rgba8 = texture_bytes(&["--textures", "rgba8"]);
+    assert!(astc < rgba8, "astc {astc}, rgba8 {rgba8}");
+    assert_eq!(texture_bytes(&[]), astc);
+}
+
+#[test]
+fn headless_flags_without_headless_or_their_partners_are_usage_errors() {
+    let cases: [&[&str]; 4] = [
+        &["run", "x.srma", "--headless", "--frames", "1"],
+        &["run", "x.srma", "--headless", "--screenshot", "x.png"],
+        &["run", "x.srma", "--screenshot", "x.png"],
+        &["run", "x.srma", "--max-background", "0.5"],
+    ];
+    for args in cases {
+        let (code, out) = sariema(args);
+        assert_eq!(code, 1, "{args:?}");
+        assert_eq!(error_code(&out), "E_USAGE", "{args:?}");
+    }
+}
+
+#[test]
 fn headless_writes_screenshot_and_reports_zero_pipelines() {
     let tmp = TempDir::new().unwrap();
     let pack = build_demo(tmp.path());

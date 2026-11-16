@@ -9,6 +9,7 @@ use sariema_format::demo::demo_room;
 use sariema_import::{TextureMode, encode_texture};
 use sariema_render::{
     Headless, Quality, RenderConfig, RenderError, Renderer, compare_images, render_to_image,
+    request_device,
 };
 
 const W: u32 = 960;
@@ -69,6 +70,21 @@ fn astc_render_is_close_to_rgba8_render() {
     assert!(
         d.max_channel_delta <= 24 && d.differing_pixels_ratio <= 0.05,
         "{d:?}"
+    );
+}
+
+#[test]
+fn requested_device_samples_astc_when_the_adapter_can() {
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .unwrap();
+    let (device, _) = request_device(&adapter, "test").unwrap();
+    let astc = wgpu::Features::TEXTURE_COMPRESSION_ASTC;
+    assert_eq!(
+        device.features().contains(astc),
+        adapter.features().contains(astc)
     );
 }
 

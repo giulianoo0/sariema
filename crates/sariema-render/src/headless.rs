@@ -8,7 +8,7 @@ use image::RgbaImage;
 use sariema_core::Camera;
 use sariema_format::RoomPack;
 
-use crate::{Gpu, Quality, RenderConfig, RenderError, Renderer};
+use crate::{Gpu, Quality, RenderConfig, RenderError, Renderer, request_device};
 
 const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
@@ -138,18 +138,7 @@ fn device() -> Result<(Arc<wgpu::Device>, Arc<wgpu::Queue>), RenderError> {
         ..Default::default()
     }))
     .map_err(|_| RenderError::NoAdapter)?;
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some("sariema headless"),
-        // Adapter-specific format features let the quality clamp offer sample
-        // counts beyond WebGPU's 1 and 4; ASTC lets packs keep compressed textures.
-        required_features: adapter.features()
-            & (wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
-                | wgpu::Features::TEXTURE_COMPRESSION_ASTC),
-        required_limits: adapter.limits(),
-        ..Default::default()
-    }))
-    .map_err(|e| RenderError::Device(e.to_string()))?;
-    Ok((Arc::new(device), Arc::new(queue)))
+    request_device(&adapter, "sariema headless")
 }
 
 fn extent(width: u32, height: u32) -> wgpu::Extent3d {
