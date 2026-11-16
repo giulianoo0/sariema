@@ -609,3 +609,9 @@ room with 135 colliders in 0.2 s.
   as in most grid-based path smoothers.
 - **meshopt** (already a dependency of the importer) simplifies mesh
   colliders with an absolute error bound.
+- **Godot** (`AnimatableBody3D` with `sync_to_physics`, from its class
+  reference): a body that an animation moves is moved in the physics step,
+  so what collides is what is drawn. Hinged leaves do the same from the
+  scene parameter. Godot's body moves whatever is in its way; a leaf here
+  stops short of an actor and tells the game, because a scripted door
+  must never shove the hero into a wall.
