@@ -48,7 +48,11 @@ HUD's pointer (joystick, buttons), and plays the sound on the default
 device. Its report gives `frames`, `steps`, `ms_per_frame` and `sound`;
 `sound.device: false` with `E_AUDIO_DEVICE` means it ran silent.
 `sariema bench meadow.srmg --input … --json` times a step and its frame,
-the HUD pass apart.
+the HUD pass apart; for a game of several rooms its `rooms` section splits
+the frames into steady, loading and switching ones and lists each switch's
+frame (`--no-threads` loads as the web does). To look at a switch, put a
+filmstrip on it: `--filmstrip 6 --time 2.6 --span 1.0` draws six frames
+from 2.6 s over one second.
 
 `sariema api --json` describes every command, event, enum, setting and error
 code. Read it instead of guessing a name or a field.
@@ -57,7 +61,7 @@ code. Read it instead of guessing a name or a field.
 
 ```
 sariema.json          name, assets_root, rooms, actors, audio, and
-                      game: { logic, cutscenes, room, hud, settings, toolchain }
+                      game: { logic, cutscenes, room, rooms, hud, settings, toolchain }
 rooms/start.json      a room and its collision (sariema build <dir> --room start -o start.srma)
 actors/hero.json      an actor: its model, markers, sockets
 audio.json, sounds/   the sound description and its files
@@ -67,16 +71,19 @@ cutscenes/*.json      one cutscene per file
 input/*.json          recorded input logs for run --headless
 ```
 
-The game pack carries the room named by `game.room`, its collision, every
-actor, the sound bank and the HUD, so one `.srmg` runs everywhere.
+The game pack carries the room named by `game.room` and every room under
+`game.rooms` (with their neighbours, the rooms beside them and their
+ambience), their collision, every actor, the sound bank and the HUD, so one
+`.srmg` runs everywhere.
 
 `examples/climb` is the complete game: the hero walks with collision, a
 wave whose marker rings a chime, a cutscene that walks to a mark, climbs
 through a window with a contact, cuts close and back, says a line over
 ducked music past the window and dips to black to a wide shot of the hero
 where the climb left it; an objective animates in on the first move and
-checks itself off. `examples/hello-game` is the smallest game, without
-assets.
+checks itself off. `examples/rooms` walks from a porch into the hall beside
+it with no seam, then dissolves into an attic. `examples/hello-game` is the
+smallest game, without assets.
 
 ## Where to go next
 
@@ -86,6 +93,8 @@ assets.
   `docs/cutscenes.md`.
 - Characters and their animation: `sariema-actors`.
 - Collision, triggers and movement: `sariema-physics`.
+- Several rooms, switching between them, groups, piece states and scene
+  parameters: `docs/rooms.md`.
 - Sound and music: `sariema-audio`.
 - Menus, HUD and the touch joystick: `sariema-ui`.
 
@@ -102,5 +111,7 @@ assets.
 | `E_PROJECT_EXISTS` | `new` was given a non-empty directory | pick a new directory |
 | `E_USAGE` | the command line is wrong | `sariema <command> --help`; a headless game run needs `--steps` |
 | `E_AUDIO_DEVICE` | the window found no sound device | it plays on silent; nothing to fix in the game |
+| `rejected` event, `E_ROOM_UNKNOWN` | `room_switch` or `room_preload` named a room the pack lacks | the room's key in `rooms`, listed under `game.rooms` |
+| `rejected` event, `E_SCENE_UNKNOWN` | a group, piece, state or scene parameter the active room lacks | groups are the sub-rooms in the room's `show`, states the kit's `estados`; switch rooms first if the name is another room's |
 | `rejected` event, `E_TELEPORT_BLOCKED` | a teleport target is inside something | pick free floor; `sariema physics-map` shows it |
 | `blocked` after a cutscene `walk` | no path to the mark from where the role stood | move the mark; `sariema check` proves spots and routes |

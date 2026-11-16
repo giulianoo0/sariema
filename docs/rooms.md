@@ -1,0 +1,204 @@
+# Rooms: scenery and switching without a seam
+
+A game pack holds one or more rooms. Each room is a room pack (what is
+drawn) and, when the game collides, a collision pack (what blocks). This
+page covers what a room can change while it plays (groups, pieces, nodes,
+hinges, scene parameters) and how a game goes from one room to the next
+with no black frame: neighbours loaded in the background, decoded and
+uploaded a share at a time, collision worlds built off the step, and three
+ways to show the switch.
+
+## Scenery inside a room
+
+`sariema build` turns the montage of a room into:
+
+- **Groups.** Each sub-room in `show` is a group of the draws and lights it
+  places. `groups_off` lists sub-rooms that start switched off: built,
+  uploaded, and drawn only once the game switches them on. A group off draws
+  nothing and lights nothing, as if the pack had been built without it, and
+  costs no pipeline or buffer to switch back on.
+- **Pieces and states.** A kit piece with states (`estados` in the kit,
+  `estado` on the montage placement) keeps every state in the pack; state 0
+  is the look the placement had before any state. Switching a state shows
+  only that state's draws.
+- **Nodes.** Every loose piece is a node pivoted at its placement; a node
+  can be moved, hidden or bound to an entity. A kit node marked `giro`
+  (`<piece>_<hinge>`) is split out of its piece as a hinged node, stored
+  turned by its montage angle, with its axis and pivot in the pack.
+- **Scene parameters.** Each light's colour, intensity and range, the sun,
+  the ambient light, the background and the look are named parameters of
+  the room, read and tweened by name.
+
+What the game changed is kept for the whole run, per room: a room left and
+entered again is as the game left it. The state hash covers only the
+difference from the room as loaded.
+
+Names are name ids (`id("hall")` in the SDK); `sariema api` lists every
+command, enum and error.
+
+| Command | Does |
+|---|---|
+| `room_group { group, on }` | Switches a group of the active room. |
+| `piece_state { piece, state }` | Shows a state of a piece of the active room. |
+| `tween { property: scene, var: <parameter>, to, duration, ease }` | Tweens a scene parameter. |
+| `spawn { kind: room_node, asset: <node> }` | Binds a node to an entity: its transform and visibility follow the entity. |
+| `spawn { kind: light, asset: <light> }` | Binds a light to an entity: it follows the entity's position. |
+
+Unknown names are refused with `E_SCENE_UNKNOWN`; an unknown room with
+`E_ROOM_UNKNOWN`.
+
+## Rooms of a game
+
+The project lists its rooms under `rooms` and the game's room graph under
+`game.rooms` (`schemas/project.schema.json`); `game.room` is the first one.
+
+```json
+"game": {
+  "room": "porch",
+  "rooms": {
+    "porch": { "beside": ["hall"], "ambience": "wind" },
+    "hall": { "beside": ["porch"], "neighbours": ["attic"] },
+    "attic": { "neighbours": ["hall"], "ambience": "wind" }
+  }
+}
+```
+
+- **`neighbours`**: rooms the game may switch to next. They are loaded in
+  the background while this room is active.
+- **`beside`**: rooms whose geometry continues this one (two rooms of one
+  house). They are loaded and drawn with it all along, whole and lit by
+  their own lights, so walking from one into the other shows no seam.
+- **`ambience`**: a looped sound of the bank that plays while the room is
+  active and crossfades into the next room's at a switch.
+
+Either every room has a collision pack or none has.
+
+| Command or event | Does |
+|---|---|
+| `room_preload { room }` | Loads a room in the background, beyond the neighbours. |
+| `room_switch { room, transition, duration }` | Makes `room` active. |
+| `room_switched { room }` | Event: the active room changed, by the game or a cutscene. |
+
+A switch keeps everything that is not the room: actors keep their
+positions, speed and scripted moves; the camera keeps its rig; sound plays
+on. The transition says how it is shown:
+
+- **`Cut`**: the next frame shows the new room. Inside a cutscene, under a
+  fade the cutscene asks for, this is the switch.
+- **`Continuous`**: both rooms are drawn whole for `duration` while their
+  light, sky, sun, ambient light and look blend from one to the other. For
+  rooms that occupy one space, usually `beside` each other.
+- **`Dissolve`**: the two rooms dissolve into each other over `duration`
+  with a complementary dither, so no pixel shows both; the lighting blends
+  the same way. For rooms that do not continue each other.
+
+## Loading without a seam
+
+Each frame the view keeps the rooms the engine wants
+(`Engine::wanted_rooms`: the active room, the one a switch is leaving, the
+ones beside it, the preloaded ones newest first, then the neighbours), at
+most `ViewSettings::max_resident`, and frees the others.
+
+A room goes through four stages, none of which takes a frame's whole
+budget:
+
+1. **Decode.** On a thread, or, where there are none (the web),
+   `RoomDecoder` reads `decode_bytes_per_frame` bytes of whole parts a frame
+   (a mesh, a texture, the tail). It gives the room `decode` would, and the
+   same errors.
+2. **Upload.** `Renderer::begin_room` creates the room's pipelines and
+   buffers; `upload_room` writes `upload_bytes_per_frame` bytes of meshes
+   and texture mips a frame into a slot not drawn yet. The pipelines a
+   dissolve needs are created here too, never on the switch's frame.
+3. **Collision world.** A `WorldJob` builds the room's world and the
+   walkable grid of each body: whole on a thread, or a share at a time
+   (`grid_columns_per_share` columns) until `world_ms_per_frame` is spent.
+4. **Ambience.** The next room's ambience stream is opened and its first
+   second decoded in an audio feed with nothing else to open, never during
+   a switch (`Audio::prepare`), so the switch only starts a voice.
+
+A switch to a room not loaded yet loads it at once in that frame
+(`RoomsFrame::loaded_at_once` reports it). A switch to a room whose world is
+not built builds the world in the step, without its grids: they are built
+after the step, a share a frame (`Engine::grow_grids`), unless an actor's
+path search needs one first, which builds it whole. The world is the same
+either way, so the run is too.
+
+`ViewSettings` (defaults): `max_resident` 3, `decode_bytes_per_frame` 4 MiB,
+`upload_bytes_per_frame` 4 MiB, `threads` true, `world_ms_per_frame` 2,
+`grid_columns_per_share` 32, `shadows` true. `SoundSettings::ambience_fade_s`
+(0.5) is the crossfade between ambiences when the switch has no duration.
+
+## Numbers
+
+`sariema bench <game.srmg> --warmup 0 --runs 1 --frames N --json` reports,
+under `rooms`, the frame CPU time of steady frames, of frames that load
+(decode, upload, build a world or a grid), of frames while a switch lasts,
+and of each switch's own frame, with the bytes and worlds involved.
+`--no-threads` loads as the web does. The bench runs frames as fast as it
+can, not at 60 Hz, so a thread may not be done by a switch that would find
+its work done in play; `--no-threads` does not depend on that.
+
+Apple M5, release, 1920×1080, medium tier:
+
+| Game | Loading | Frame CPU, ms: steady p50 · loading p99 · switch's own frame | Before this page's fixes, switch's frame |
+|---|---|---|---|
+| `examples/rooms` (3 rooms, 280 KB) | threads | 1.3 · 2.2–5.9 · 1.2–4.3 | 4.4–17 |
+| `examples/rooms` | `--no-threads` | 1.2 · 3.2–3.5 · 0.6–3.2 | — |
+| a house, 3 rooms of 13–20 MB, 124–236 colliders, a dissolve and a cut 16 s apart | `--no-threads` | 1.7–1.9 · 10–13 · 2.6–12.5 with the world in, 15–34 with only the world built in the step | 1,100–2,500 |
+
+The frames before the fixes spent their time building the next room's
+walkable grid in the switch's step (3–4 ms in the example, over a second
+for a whole house) and opening the next ambience's stream in its feed
+(3–4.7 ms). Steady frames here peak at 7–170 ms with nothing to do: the
+GPU's `finish` on a shared machine, not loading. Reproduce with
+`sariema build examples/rooms -o rooms.srmg` and
+`sariema bench rooms.srmg --warmup 0 --runs 1 --frames 500 [--no-threads] --json`.
+
+## What was taken from other engines and games
+
+- **Link's Awakening (screen transitions, from the technique study).**
+  Inside a map, rooms stay loaded together and, at a doorway, the camera
+  slides to the next room on a damped spring (ω 8.4 rad/s, ζ 0.8: 90 % in
+  0.3 s, 99 % in 0.45 s) while the hero is nudged in; between maps, a
+  fade. Here: `beside` rooms drawn together and `Continuous`; the fade
+  stays the cutscene's, with `Cut` under it.
+- **Godot (`ResourceLoader.load_threaded_request`).** Loading is requested
+  ahead, polled, and fetched; fetching what is not done blocks until it is.
+  Here: neighbours are requested by the room graph instead of by the game,
+  and a switch to a room not in loads it at once, reported in the frame.
+- **Bevy (asset server).** Assets load asynchronously behind handles, with
+  a load state per handle. Here: the view's state per room (absent,
+  decoding, uploading, resident) plays the handle's part.
+- **Unity (additive scenes, `LoadSceneAsync`,
+  `backgroundLoadingPriority`).** A scene loads additively next to the
+  active one, and the time spent integrating it on the main thread is a
+  budget per frame. Here: rooms are slots added to what is drawn, and
+  decode, upload and world building each have a budget per frame.
+- **Celeste, Hollow Knight.** Celeste keeps a level's rooms loaded and
+  slides the camera between them; Hollow Knight loads the next scene behind
+  a short fade at the doorway. Here: `Continuous` inside a house, `Dissolve`
+  or a fade between places that do not continue each other.
+- **PixiJS v8 (`Assets`, `BackgroundLoader`, `PrepareBase`,
+  `TextureGCSystem`).** Background loading runs one item at a time and
+  pauses while a foreground load runs; a foreground load of an item being
+  loaded in the background takes it over instead of starting again; the
+  prepare system uploads a fixed number of resources a frame (4); textures
+  idle for 3600 frames are released, checked every 600. Here: one room
+  decoded or uploaded at a time in the order wanted, a switch takes over the
+  room already on its way, the upload budget is bytes instead of a count
+  (one texture of a room is megabytes), and rooms are freed by residency
+  instead of idleness, since the room graph says which ones are coming.
+
+## Known limits
+
+- The world of a large room is built from its collision pack in one share
+  (10–35 ms for a house with 124–236 colliders); only its walkable grids
+  are built a share at a time.
+- A walkable grid covers the room's static bounds at `nav.cell_size`; a
+  room whose geometry reaches far (a street around a house) has a large
+  grid: 526,000 columns for 72 × 73 m at 0.1 m, about 2.6 s per body on one
+  core, over a minute of 2 ms shares on the web. A coarser cell, or
+  collision limited to where actors walk, shortens it.
+- An actor mid-move at a switch to a room whose grid is not built needs the
+  grid at once, and builds it in the step.

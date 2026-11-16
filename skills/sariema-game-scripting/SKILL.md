@@ -66,6 +66,11 @@ game!(Hello);
 | persistence | `Save { key, value }`; `SaveLoad {}` → `SaveLoaded`…, `SaveLoadDone` |
 | many objects | `Transforms` bulk region: register once, `push` each tick |
 | a name as id | `id("meet")`, a `const fn` |
+| another room | `RoomSwitch { room, transition, duration }` (`Cut`, `Continuous`, `Dissolve`), then `Event::RoomSwitched`; list it under `game.rooms` with its `neighbours` so it is loaded before |
+| a room loaded ahead | `RoomPreload { room }`, beyond the neighbours |
+| part of a room on or off | `RoomGroup { group, on }` (a sub-room); `PieceState { piece, state }` (0: as placed) |
+| a light or the look to change | `Tween { property: Property::Scene, var: id("<parameter>"), .. }` |
+| a room node or light to move | `ctx.spawn(Kind::RoomNode, id("<node>"))` or `Kind::Light`, then move the entity |
 
 Test the logic natively with `sariema_sdk::testing::TestHost` (queue
 events, `Runner::run`, decode with `testing::commands`;
