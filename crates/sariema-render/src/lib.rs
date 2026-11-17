@@ -605,6 +605,23 @@ impl Renderer {
         room.cut_state(cutaway)
     }
 
+    /// Keeps node `node`'s draws in the room in `slot` out of every cutaway
+    /// while `uncut`, as something an actor carries; false if there is none.
+    pub fn set_node_uncut(&mut self, slot: u32, node: usize, uncut: bool) -> bool {
+        self.stage
+            .get_mut(slot)
+            .is_some_and(|r| r.set_node_uncut(node, uncut))
+    }
+
+    /// Whether node `node` of the room in `slot` is kept out of every cutaway.
+    pub fn node_uncut(&self, slot: u32, node: usize) -> Option<bool> {
+        self.stage
+            .rooms
+            .get(slot as usize)?
+            .as_ref()?
+            .node_uncut(node)
+    }
+
     /// Moves node `node`'s draws by `offset`, column-major, from where the
     /// pack placed them; false if there is none.
     pub fn set_node_offset(&mut self, slot: u32, node: usize, offset: Mat4) -> bool {

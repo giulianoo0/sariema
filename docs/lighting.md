@@ -272,6 +272,10 @@ room describes them in its description (`schemas/room.schema.json`):
   bottom of a cut wall is capped too. Two pieces that overlap inside one
   another still show the faces of one inside the other's lid. Without a
   cap the cut is hollow.
+- **What an actor carries is never cut.** A room node held with `hold`,
+  or hanging from something held, such as a node under a held light,
+  leaves every cutaway while it is held, a piece that went in unlisted
+  included. Let go, it is cut or kept as before.
 - **`cut_shadows`**, true by default, casts the shadow the pieces are drawn
   with. A shadow map drawn for one cut is redrawn when the cut moves. False
   keeps the shadow of the whole wall.

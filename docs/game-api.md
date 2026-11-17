@@ -472,7 +472,9 @@ without `--headless` the pack plays in a window.
   can carry it on from there (a bag into a bin); despawning the actor lets
   go too. Refused with `E_HOLD_ACTOR` for an actor to hold and, the step
   after, `E_SOCKET_UNKNOWN` for a name the actor's model lacks; an actor
-  drawn without a model keeps it where it stands.
+  drawn without a model keeps it where it stands. While held, a room node
+  is out of every cutaway ([lighting](lighting.md)), and goes back when let
+  go.
 - **A lantern in the hand**: a room's spot light spawned as a `light`
   entity, held at the hand, and aimed with `light_aim` at a point ahead in
   its own frame (or the carrier's) lights where the hand points as the

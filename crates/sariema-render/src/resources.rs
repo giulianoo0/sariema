@@ -175,6 +175,8 @@ pub(crate) struct DrawItem {
     /// height, and shows a cap: its back faces are drawn again as the cap,
     /// for the inside of a piece cut above it to show through the top.
     pub capping: bool,
+    /// Kept out of its cutaway, as something carried is.
+    uncut: bool,
     own: bool,
     group_on: bool,
     state_on: bool,
@@ -330,6 +332,47 @@ impl Room {
         true
     }
 
+    /// Keeps node `n`'s draws out of their cutaways, or puts them back;
+    /// false if there is none.
+    pub fn set_node_uncut(&mut self, n: usize, uncut: bool) -> bool {
+        let Some(node) = self.nodes.get(n) else {
+            return false;
+        };
+        let mut cuts = Vec::new();
+        for &d in &node.draws {
+            let item = &mut self.draws[d as usize];
+            if item.uncut != uncut {
+                item.uncut = uncut;
+                cuts.extend(item.cut);
+            }
+        }
+        cuts.sort_unstable();
+        cuts.dedup();
+        for c in cuts {
+            let c = c as usize;
+            let Some(state) = self.cuts[c].state else {
+                continue;
+            };
+            let before: Vec<bool> = (self.cuts[c].draws.iter())
+                .map(|&d| self.draws[d as usize].cutting_shadow)
+                .collect();
+            self.set_cut(c, state);
+            for (k, was) in before.into_iter().enumerate() {
+                let item = &self.draws[self.cuts[c].draws[k] as usize];
+                if item.cutting_shadow != was && item.visible && item.casts_shadow {
+                    self.toggled.push((item.min, item.max));
+                }
+            }
+        }
+        true
+    }
+
+    /// Whether node `n`'s draws are kept out of their cutaways.
+    pub fn node_uncut(&self, n: usize) -> Option<bool> {
+        let node = self.nodes.get(n)?;
+        Some(node.draws.iter().any(|&d| self.draws[d as usize].uncut))
+    }
+
     /// Moves node `n`'s draws by `offset` from where the pack placed them;
     /// false if there is none.
     pub fn set_node_offset(&mut self, n: usize, offset: Mat4) -> bool {
@@ -418,7 +461,7 @@ impl Room {
                 Some(a) => on_wall(a, item.min, item.max),
                 None => (item.min, item.max),
             };
-            let reaches = RoomCut::reaches(&uniform, min, max);
+            let reaches = !item.uncut && RoomCut::reaches(&uniform, min, max);
             let rises = cut.fade || RoomCut::rises(&uniform, item.max);
             item.cutting = reaches && rises;
             item.cutting_shadow = reaches && rises;
@@ -846,6 +889,7 @@ impl PendingRoom {
                     cutting: false,
                     cutting_shadow: false,
                     capping: false,
+                    uncut: false,
                     own: d.visible,
                     group_on: group_on[i],
                     state_on: state_on[i],

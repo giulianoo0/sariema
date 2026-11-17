@@ -149,6 +149,9 @@ struct Applied {
     bound: Vec<Option<Mat4>>,
     /// By node, its highlight's fill and rim.
     glow: Vec<[f32; 2]>,
+    /// By node, whether it is kept out of the cutaways: held by an actor,
+    /// itself or what it hangs from.
+    uncut: Vec<bool>,
 }
 
 struct RoomView {
@@ -878,6 +881,7 @@ fn sync(
         visible: index.nodes.iter().map(|n| n.visible).collect(),
         bound: vec![None; index.nodes.len()],
         glow: vec![[0.0; 2]; index.nodes.len()],
+        uncut: vec![false; index.nodes.len()],
     });
     for (g, (&on, was)) in scene.groups.iter().zip(&mut applied.groups).enumerate() {
         if on != *was {
@@ -909,6 +913,29 @@ fn sync(
         }
     }
     applied.bound.iter_mut().for_each(|b| *b = None);
+    let held = |mut e: sariema_runtime::world::Entity| loop {
+        if state.holds.sockets().any(|(held, _, _)| held == e) {
+            break true;
+        }
+        match world.node(e) {
+            Some(node) if !node.parent.is_none() => e = node.parent,
+            _ => break false,
+        }
+    };
+    let mut uncut = vec![false; index.nodes.len()];
+    for (entity, binding) in scenery.bound(world) {
+        if let Binding::Node { room, node, .. } = binding
+            && room == r
+        {
+            uncut[node] = held(entity);
+        }
+    }
+    for (node, (&now, was)) in uncut.iter().zip(&mut applied.uncut).enumerate() {
+        if now != *was {
+            renderer.set_node_uncut(slot, node, now);
+            *was = now;
+        }
+    }
     for (entity, binding) in scenery.bound(world) {
         let Some(pose) = world.interpolated(entity, alpha) else {
             continue;

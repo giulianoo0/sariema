@@ -626,3 +626,42 @@ fn a_corner_the_line_runs_through_is_cut_flat_with_nothing_left_above_it() {
         );
     }
 }
+
+#[test]
+fn a_node_kept_out_of_its_cutaway_is_drawn_whole_until_put_back() {
+    for q in &paths() {
+        let mut room = lintelled(front([-1.25, 0.4]), CutStyle::Cut, 0.0);
+        room.nodes.push(Node {
+            name: "lintel".into(),
+            pivot: glam::Mat4::IDENTITY.to_cols_array(),
+            draws: vec![room.draws.len() as u32 - 1],
+            visible: true,
+            hinge: None,
+        });
+        let node = room.nodes.len() - 1;
+        let apart = |line| {
+            let mut out = room.clone();
+            out.cutaways[0].draws.pop();
+            out.cutaways[0].anchors.pop();
+            magenta(&render(&out, Some(cut(line, 0.3)), q))
+        };
+        let (whole, moved) = (apart(0.3), apart(0.2));
+        let mut h = Headless::new(W, H, q.clone()).unwrap();
+        h.renderer().load_room(&room).unwrap();
+        assert!(h.renderer().set_cutaway(0, 0, cut(0.3, 0.3)));
+        let lintel = |h: &mut Headless| magenta(&h.render(&camera_of(&room), 0.0));
+        assert_eq!(lintel(&mut h), 0, "{:?}: cut with its wall", q.path);
+        assert!(h.renderer().set_node_uncut(0, node, true));
+        assert_eq!(h.renderer().node_uncut(0, node), Some(true));
+        assert_eq!(lintel(&mut h), whole, "{:?}: kept out, whole", q.path);
+        assert!(h.renderer().set_cutaway(0, 0, cut(0.2, 0.3)));
+        assert_eq!(
+            lintel(&mut h),
+            moved,
+            "{:?}: whole as the line moves",
+            q.path
+        );
+        assert!(h.renderer().set_node_uncut(0, node, false));
+        assert_eq!(lintel(&mut h), 0, "{:?}: put back, cut again", q.path);
+    }
+}

@@ -114,6 +114,8 @@ without assets.
   cutscene's `scene` step): `docs/lighting.md`, and `examples/dusk`.
 - Walls cut down between the camera and the hero (`cutaways` in a room,
   `cutaway.<name>.height`): `docs/lighting.md`, and `examples/cutaway`.
+  Something the hero carries (`hold`) is never cut, so a lantern in the
+  hand needs no cutaway of its own.
 
 ## Common failures
 

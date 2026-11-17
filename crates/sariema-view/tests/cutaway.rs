@@ -2,7 +2,8 @@
 
 //! A room's cutaway as the view draws it: the line between the last two
 //! steps that a frame falls on, the height the game set, the camera's side
-//! and the hero, with every pipeline made before play.
+//! and the hero, with every pipeline made before play; a room node an actor
+//! holds kept out of it until let go.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -98,14 +99,27 @@ struct Played {
 /// its first draw in a cutaway whose line sits by the hero and follows it
 /// over half a second.
 fn played() -> Played {
+    played_with(script(), false)
+}
+
+/// `played`, playing `script`; with its lamp node in the cutaway too when
+/// `lamp`.
+fn played_with(script: Script, lamp: bool) -> Played {
     let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
     let root = examples.join("collision");
     let text = std::fs::read_to_string(root.join("rooms/sill.json")).unwrap();
     let source = RoomSource::from_json(&text).unwrap();
     let mut pack = build_room(&source, &root).unwrap();
+    let mut draws = vec![0];
+    if lamp {
+        draws.extend(&pack.nodes[lamp_node(&pack)].draws);
+        draws.sort_unstable();
+        draws.dedup();
+    }
+    let anchors = vec![None; draws.len()];
     pack.cutaways.push(Cutaway {
         name: "walls".into(),
-        draws: vec![0],
+        draws,
         height: HEIGHT,
         line: CutLine {
             areas: Vec::new(),
@@ -116,7 +130,7 @@ fn played() -> Played {
         soft: 0.0,
         cap: None,
         cut_shadows: true,
-        anchors: vec![None],
+        anchors,
         style: CutStyle::Cut,
     });
     let room = RoomAssets {
@@ -139,7 +153,7 @@ fn played() -> Played {
         actors: vec![("hero".into(), actor)],
         ..Assets::default()
     };
-    let sim = Simulation::new(Settings::default(), Vec::new(), script(), 1);
+    let sim = Simulation::new(Settings::default(), Vec::new(), script, 1);
     let engine = Engine::new(sim, assets, EngineSettings::default()).unwrap();
     let mut headless = Headless::new(W, H, Quality::high()).unwrap();
     let settings = ViewSettings {
@@ -212,4 +226,62 @@ fn a_cutaway_cuts_nothing_until_its_line_is_placed() {
         p.headless.renderer().cutaway(0, 0).is_some(),
         "placed with the hero"
     );
+}
+
+fn lamp_node(pack: &sariema_format::RoomPack) -> usize {
+    (pack.nodes.iter())
+        .position(|n| n.name.ends_with("lampada"))
+        .unwrap()
+}
+
+const LAMP: Entity = Entity {
+    index: 1,
+    generation: 0,
+};
+
+#[test]
+fn a_room_node_an_actor_holds_is_kept_out_of_every_cutaway_until_let_go() {
+    let name = {
+        let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+        let root = examples.join("collision");
+        let text = std::fs::read_to_string(root.join("rooms/sill.json")).unwrap();
+        let pack = build_room(&RoomSource::from_json(&text).unwrap(), &root).unwrap();
+        pack.nodes[lamp_node(&pack)].name.clone()
+    };
+    let Script(mut commands, _) = script();
+    let hold = |actor| Command::Hold {
+        entity: LAMP,
+        actor,
+        socket: name_id("grip"),
+        offset: [0.0, 1.0, 0.3],
+        keep: false,
+    };
+    commands.extend([
+        (
+            0,
+            Command::Spawn {
+                entity: LAMP,
+                kind: Kind::RoomNode,
+                asset: name_id(Box::leak(name.into_boxed_str())),
+            },
+        ),
+        (3, hold(HERO)),
+        (20, hold(Entity::NONE)),
+    ]);
+    let mut p = played_with(Script(commands, 0), true);
+    let node = {
+        let room = &p.engine.state().scenery.rooms()[0];
+        (room.index.nodes.iter())
+            .position(|n| n.name.ends_with("lampada"))
+            .unwrap()
+    };
+    let uncut = |p: &mut Played, steps| {
+        p.step(steps);
+        p.draw(1.0);
+        p.headless.renderer().node_uncut(0, node).unwrap()
+    };
+    assert!(!uncut(&mut p, 3), "in the cutaway before it is held");
+    assert!(uncut(&mut p, 5), "held, out of it");
+    assert!(uncut(&mut p, 10), "still held");
+    assert!(!uncut(&mut p, 5), "let go, back in it");
 }
