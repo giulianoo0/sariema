@@ -74,7 +74,10 @@ struct Route {
     face: Option<f32>,
     next: usize,
     reached: bool,
+    /// Steps into the window progress is measured over.
     stuck: u32,
+    /// Distance to the waypoint when the window began.
+    window_from: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1038,11 +1041,13 @@ impl World {
         let a = &mut self.actors[i];
         let found = self.navs[nav].find(&ctx, a.position, target, &mut a.path);
         if found {
+            let window_from = flat(a.path[0] - a.position).length();
             a.route = Some(Route {
                 face,
                 next: 0,
                 reached: false,
                 stuck: 0,
+                window_from,
             });
         } else {
             a.end_route();
@@ -1061,7 +1066,6 @@ impl World {
         let id = ActorId(i as u32);
         if !route.reached {
             let expected = a.desc.walk_speed * a.speed_scale.max(0.0) * dt;
-            let before = flat(a.path[route.next] - a.previous_position).length();
             let after = flat(a.path[route.next] - a.position).length();
             let last = route.next + 1 == a.path.len();
             if last && after <= m.arrive_distance {
@@ -1070,18 +1074,23 @@ impl World {
             } else if !last && after <= m.waypoint_distance {
                 route.next += 1;
                 route.stuck = 0;
-            } else if before - after < m.stuck_progress * expected.min(before) {
+                route.window_from = flat(a.path[route.next] - a.position).length();
+            } else {
                 route.stuck += 1;
                 if route.stuck >= m.stuck_steps {
-                    a.end_route();
-                    events.push(Event {
-                        actor: id,
-                        kind: EventKind::Blocked(BlockReason::Stuck),
-                    });
-                    return;
+                    let window = expected * m.stuck_steps as f32;
+                    let progress = route.window_from - after;
+                    if progress < m.stuck_progress * window.min(route.window_from) {
+                        a.end_route();
+                        events.push(Event {
+                            actor: id,
+                            kind: EventKind::Blocked(BlockReason::Stuck),
+                        });
+                        return;
+                    }
+                    route.stuck = 0;
+                    route.window_from = after;
                 }
-            } else {
-                route.stuck = 0;
             }
         }
         if route.reached
@@ -1241,6 +1250,7 @@ impl World {
             h.u32(a.pressing_wall as u32);
             h.u32(a.route.map_or(u32::MAX, |r| r.next as u32));
             h.u32(a.route.map_or(0, |r| r.stuck));
+            h.f32(a.route.map_or(0.0, |r| r.window_from));
             h.u32(a.knockback.map_or(0, |k| k.done));
             for &t in &a.triggers {
                 h.u32(t);
