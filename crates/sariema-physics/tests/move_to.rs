@@ -403,3 +403,82 @@ fn a_grid_covers_only_the_nav_bounds() {
     assert!(world.find_path(id, start, Vec3::new(4.5, 0.0, 4.5), &mut path));
     assert!(!world.find_path(id, start, Vec3::new(-4.0, 0.0, 4.0), &mut path));
 }
+
+/// How a walk with a stick held during it ends in `Blocked`.
+#[derive(Clone, Copy, Debug)]
+enum Ends {
+    NoPath,
+    Stuck,
+}
+
+#[test]
+fn a_walk_that_ends_blocked_leaves_no_stick_and_face_only_turns_the_actor() {
+    let mut failed = Vec::new();
+    for ends in [Ends::NoPath, Ends::Stuck] {
+        let mut room = fixture();
+        room.add(
+            "door_leaf",
+            Owned::Box {
+                center: Vec3::new(2.0, 1.0, 0.0),
+                half: Vec3::new(0.45, 1.0, 0.05),
+                rotation: Mat3::IDENTITY,
+            },
+        );
+        let mut settings = Settings::default();
+        settings.controller.accel_steps = 6;
+        let mut world = room.world(settings);
+        let leaf = world.collider_by_name("door_leaf").unwrap();
+        world.apply(Intent::SetColliderEnabled {
+            collider: leaf,
+            enabled: matches!(ends, Ends::NoPath),
+        });
+        let id = actor(&mut world, Vec3::new(2.0, 0.0, 5.0));
+        settle(&mut world, id);
+        world.apply(Intent::MoveTo {
+            actor: id,
+            target: Vec3::new(2.0, 0.0, -4.0),
+            face: None,
+        });
+        world.apply(Intent::Move {
+            actor: id,
+            stick: Vec2::X,
+        });
+        let mut events = Vec::new();
+        world.step(&mut events);
+        if matches!(ends, Ends::Stuck) {
+            world.apply(Intent::SetColliderEnabled {
+                collider: leaf,
+                enabled: true,
+            });
+        }
+        let mut blocked = events
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::Blocked(_)));
+        for _ in 0..1200 {
+            if blocked {
+                break;
+            }
+            events.clear();
+            world.step(&mut events);
+            blocked = events
+                .iter()
+                .any(|e| matches!(e.kind, EventKind::Blocked(_)));
+        }
+        assert!(blocked, "{ends:?}: the walk ends blocked");
+        world.apply(Intent::Face {
+            actor: id,
+            yaw: std::f32::consts::PI,
+        });
+        let mark = world.actor(id).position;
+        let mut drift = 0.0f32;
+        for _ in 0..120 {
+            world.step(&mut events);
+            let p = world.actor(id).position;
+            drift = drift.max(Vec3::new(p.x - mark.x, 0.0, p.z - mark.z).length());
+        }
+        if drift > 1e-3 {
+            failed.push(format!("{ends:?}: {drift} m from where it was blocked"));
+        }
+    }
+    assert!(failed.is_empty(), "{failed:#?}");
+}

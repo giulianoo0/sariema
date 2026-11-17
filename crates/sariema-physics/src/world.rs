@@ -155,6 +155,13 @@ impl Actor {
         self.active && self.solid && !self.posed
     }
 
+    /// Ends the scripted move, arrived or blocked, with any stick given
+    /// during it: nothing drives the actor after it.
+    fn end_route(&mut self) {
+        self.route = None;
+        self.stick = Vec2::ZERO;
+    }
+
     /// Ends a pose: the collider is on again from the next step.
     fn release(&mut self) {
         if self.posed {
@@ -1038,7 +1045,7 @@ impl World {
                 stuck: 0,
             });
         } else {
-            a.route = None;
+            a.end_route();
             events.push(Event {
                 actor: ActorId(i as u32),
                 kind: EventKind::Blocked(BlockReason::NoPath),
@@ -1060,14 +1067,13 @@ impl World {
             if last && after <= m.arrive_distance {
                 route.reached = true;
                 a.velocity = Vec3::ZERO;
-                a.stick = Vec2::ZERO;
             } else if !last && after <= m.waypoint_distance {
                 route.next += 1;
                 route.stuck = 0;
             } else if before - after < m.stuck_progress * expected.min(before) {
                 route.stuck += 1;
                 if route.stuck >= m.stuck_steps {
-                    a.route = None;
+                    a.end_route();
                     events.push(Event {
                         actor: id,
                         kind: EventKind::Blocked(BlockReason::Stuck),
@@ -1083,7 +1089,7 @@ impl World {
                 .face
                 .is_none_or(|f| wrap_angle(f - a.yaw).abs() <= m.face_tolerance)
         {
-            a.route = None;
+            a.end_route();
             events.push(Event {
                 actor: id,
                 kind: EventKind::Arrived,

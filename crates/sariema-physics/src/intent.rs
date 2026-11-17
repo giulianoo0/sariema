@@ -18,13 +18,13 @@ pub struct TriggerId(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Intent {
     /// Stick input on the ground plane: `x` along +X, `y` along +Z, length up
-    /// to 1. It stays until replaced, a scripted move starts or one arrives;
+    /// to 1. It stays until replaced, or a scripted move starts or ends;
     /// it is ignored during a scripted move or a knockback.
     Move { actor: ActorId, stick: Vec2 },
     /// Walk to `target` along a path, with collision, then turn to `face`
-    /// (a yaw) when given. It drops the stick, and reaching the target drops
-    /// the walk's speed and any stick given meanwhile. Ends
-    /// with [`EventKind::Arrived`] or [`EventKind::Blocked`].
+    /// (a yaw) when given. It drops the stick; reaching the target drops the
+    /// walk's speed, and ending, arrived or blocked, drops any stick given
+    /// meanwhile. Ends with [`EventKind::Arrived`] or [`EventKind::Blocked`].
     MoveTo {
         actor: ActorId,
         target: Vec3,
