@@ -65,7 +65,8 @@ pub enum Intent {
     /// Multiplies the actor's walk speed; 1 is normal.
     SetSpeedScale { actor: ActorId, scale: f32 },
     /// Turns the actor in place towards `yaw` at the controller's turn
-    /// rate; walking turns it towards where it goes instead.
+    /// rate, dropping the speed left from a walk; walking turns it towards
+    /// where it goes instead.
     Face { actor: ActorId, yaw: f32 },
     /// Radians per second the actor turns at most, in place of
     /// `controller.max_yaw_speed`; none gives it the setting back.

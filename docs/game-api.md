@@ -368,8 +368,8 @@ without `--headless` the pack plays in a window.
 - **Movement**: `move_to` walks at a speed, in metres per second of the
   world whatever the actor's speed scale, and ends with `arrived` (exactly
   on the target) or `blocked`; `set_speed_scale` scales the player's axis
-  and `move_intent`; `move_intent` holds a velocity; `face` turns at the
-  actor's turn rate. `motion.turn_rate` is every actor's rate and the
+  and `move_intent`; `move_intent` holds a velocity; `face` turns in
+  place at the actor's turn rate, without the speed left from a walk. `motion.turn_rate` is every actor's rate and the
   fastest anything turns; `set_turn_rate` gives one actor a rate of its own,
   no faster (`E_TURN_RATE` otherwise), and 0 gives it the setting back, so
   a big hero and a small companion turn each at its own speed under the

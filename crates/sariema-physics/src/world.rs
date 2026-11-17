@@ -608,6 +608,7 @@ impl World {
             Intent::Face { actor, yaw } => {
                 let a = &mut self.actors[actor.0 as usize];
                 a.target_yaw = wrap_angle(yaw);
+                a.velocity = Vec3::ZERO;
                 a.awake = true;
             }
             Intent::SetMaxYawSpeed { actor, speed } => {
