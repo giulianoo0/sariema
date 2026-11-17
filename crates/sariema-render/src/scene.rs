@@ -445,7 +445,11 @@ impl Scene {
             backs: shaded(true),
             depth_backs: {
                 let mut backs = depth(true);
-                only_backs(&mut backs.primitive, backs.depth_stencil.as_mut().unwrap());
+                only_backs(
+                    &mut backs.primitive,
+                    backs.depth_stencil.as_mut().unwrap(),
+                    quality,
+                );
                 gpu.pipeline(&backs)
             },
         });
@@ -739,13 +743,13 @@ fn primitive(double_sided: bool) -> wgpu::PrimitiveState {
 }
 
 /// Back faces alone, pulled towards the camera past what is coplanar with them.
-fn only_backs(primitive: &mut wgpu::PrimitiveState, depth: &mut wgpu::DepthStencilState) {
+fn only_backs(
+    primitive: &mut wgpu::PrimitiveState,
+    depth: &mut wgpu::DepthStencilState,
+    quality: &Quality,
+) {
     primitive.cull_mode = Some(wgpu::Face::Front);
-    depth.bias = wgpu::DepthBiasState {
-        constant: -4,
-        slope_scale: -1.0,
-        clamp: 0.0,
-    };
+    depth.bias = quality.cut_lid_bias;
 }
 
 pub(crate) fn depth_state(write: bool, compare: wgpu::CompareFunction) -> wgpu::DepthStencilState {
@@ -786,7 +790,7 @@ fn shaded_pipeline(
     let mut primitive = primitive(kind.double_sided);
     let mut depth_stencil = depth_state(kind.is_opaque(), wgpu::CompareFunction::Less);
     if backs {
-        only_backs(&mut primitive, &mut depth_stencil);
+        only_backs(&mut primitive, &mut depth_stencil, quality);
     }
     // The largest square grid within the tap count.
     let pcf_side = quality.shadow_pcf_taps.isqrt().max(1);

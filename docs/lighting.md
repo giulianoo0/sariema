@@ -268,8 +268,8 @@ room describes them in its description (`schemas/room.schema.json`):
   included. A single-sided piece is drawn with both sides for it, and its
   back stays hidden elsewhere. The part kept apart under the cut
   (`whole_below`) draws its back faces again in the cap while the cut
-  reaches it, nudged towards the camera past a floor it lies on, so the
-  bottom of a cut wall is capped too. Two pieces that overlap inside one
+  reaches it, nudged towards the camera past a floor it lies on
+  (`Quality::cut_lid_bias`), so the bottom of a cut wall is capped too. Two pieces that overlap inside one
   another still show the faces of one inside the other's lid. Without a
   cap the cut is hollow.
 - **What an actor carries is never cut.** A room node held with `hold`,

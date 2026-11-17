@@ -97,6 +97,10 @@ pub struct Quality {
     /// Leaves out the room draws and actors whose bounds lie outside the
     /// view. Off draws everything, for comparing images.
     pub frustum_culling: bool,
+    /// Depth bias of the back faces a cutaway draws again as lids under its
+    /// cut, towards the camera, so a lid wins over the floor it is coplanar
+    /// with.
+    pub cut_lid_bias: wgpu::DepthBiasState,
     /// Shadow slots of a frame, the sun's first and then the highest-ranked
     /// lights', that also hold actors; each is redrawn in the frames an actor
     /// within its reach moves. An actor that none holds gets a disc shadow,
@@ -148,6 +152,11 @@ impl Quality {
             ao_blur_taps: 5,
             ao_max_radius_texels: 24,
             frustum_culling: true,
+            cut_lid_bias: wgpu::DepthBiasState {
+                constant: -4,
+                slope_scale: -1.0,
+                clamp: 0.0,
+            },
             actor_shadow_slots: 0,
             ui_quads: 1024,
             max_sprites: 4096,
