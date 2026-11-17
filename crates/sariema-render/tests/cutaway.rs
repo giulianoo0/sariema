@@ -474,3 +474,155 @@ fn a_glowing_piece_in_a_cutaway_is_cut_as_it_is_without_its_glow() {
         }
     }
 }
+
+/// Adds a draw of `mesh`, a unit box's or a part of it, of `material`
+/// stretched from `min` to `max`, and returns it.
+fn add_box(room: &mut RoomPack, mesh: u32, material: u32, min: [f32; 3], max: [f32; 3]) -> u32 {
+    let size = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
+    #[rustfmt::skip]
+    let transform = [
+        size[0], 0.0, 0.0, 0.0,
+        0.0, size[1], 0.0, 0.0,
+        0.0, 0.0, size[2], 0.0,
+        min[0] + size[0] / 2.0, min[1], min[2] + size[2] / 2.0, 1.0,
+    ];
+    room.draws.push(Draw {
+        name: None,
+        mesh,
+        material,
+        transform,
+        visible: true,
+        casts_shadow: true,
+        bounds: Aabb::around(&room.meshes[mesh as usize], &transform),
+    });
+    room.draws.len() as u32 - 1
+}
+
+/// The unit box's triangles that face down, or all the others, with only
+/// their own vertices, so its bounds are theirs.
+fn box_part(room: &RoomPack, down: bool) -> sariema_format::Mesh {
+    let whole = &room.meshes[room.draws[1].mesh as usize];
+    let faces_down = |t: &[u32]| whole.vertices[t[0] as usize].normal[1] < -0.5;
+    let mut part = sariema_format::Mesh {
+        vertices: Vec::new(),
+        indices: Vec::new(),
+    };
+    for t in whole.indices.chunks(3).filter(|t| faces_down(t) == down) {
+        for &i in t {
+            part.indices.push(part.vertices.len() as u32);
+            part.vertices.push(whole.vertices[i as usize]);
+        }
+    }
+    part
+}
+
+/// The demo floor seen from 5 m, under magenta `boxes`. When `cut`, they
+/// are in a cutaway with a green cap, each with its bottom in a draw of its
+/// own as an import keeps what lies under the cut apart.
+fn boxed(boxes: &[([f32; 3], [f32; 3])], cut: bool) -> RoomPack {
+    let mut room = demo_room();
+    room.draws.truncate(2);
+    room.draws[1].visible = false;
+    room.camera.distance = 5.0;
+    room.lights.clear();
+    room.materials.push(Material {
+        name: "wall".into(),
+        base_color: [1.0, 0.0, 1.0, 1.0],
+        ..room.materials[1].clone()
+    });
+    let wall = room.materials.len() as u32 - 1;
+    let whole = room.draws[1].mesh;
+    let parts = [false, true].map(|down| box_part(&room, down));
+    room.meshes.extend(parts);
+    let (sides, bottom) = (room.meshes.len() as u32 - 2, room.meshes.len() as u32 - 1);
+    let mut draws = Vec::new();
+    for &(min, max) in boxes {
+        if cut {
+            draws.push(add_box(&mut room, sides, wall, min, max));
+            draws.push(add_box(&mut room, bottom, wall, min, max));
+        } else {
+            add_box(&mut room, whole, wall, min, max);
+        }
+    }
+    if cut {
+        room.cutaways.push(Cutaway {
+            name: "walls".into(),
+            anchors: vec![None; draws.len()],
+            draws,
+            height: 0.3,
+            line: CutLine::default(),
+            radius: 0.0,
+            soft: 0.0,
+            cap: Some([0.0, 1.0, 0.0]),
+            cut_shadows: true,
+            style: CutStyle::Cut,
+        });
+    }
+    room
+}
+
+fn green(p: &image::Rgba<u8>) -> bool {
+    let [r, g, b] = [p[0], p[1], p[2]].map(u32::from);
+    g > 30 && g > 2 * r && g > 2 * b
+}
+
+fn is_magenta(p: &image::Rgba<u8>) -> bool {
+    p[0] > 40 && p[2] > 40 && (p[1] as u32) * 3 < (p[0].min(p[2]) as u32)
+}
+
+#[test]
+fn a_corner_the_line_runs_through_is_cut_flat_with_nothing_left_above_it() {
+    // A wall along x wholly past the line at z 0.3 meets, in an L, a 0.45 m
+    // wall along z that the line crosses, seen from its open side: its end
+    // past the line is cut, the rest stands.
+    let front = ([-4.0, 0.0, 0.5], [-1.0, 3.0, 0.7]);
+    let side = ([-1.0, 0.0, -3.0], [-0.55, 3.0, 0.7]);
+    // The same corner built as the cut should leave it.
+    let low_front = ([-4.0, 0.0, 0.5], [-1.0, 0.3, 0.7]);
+    let low_end = ([-1.0, 0.0, 0.3], [-0.55, 0.3, 0.7]);
+    let standing = ([-1.0, 0.0, -3.0], [-0.55, 3.0, 0.3]);
+    let lid = |(min, max): ([f32; 3], [f32; 3])| ([min[0], 0.3, min[2]], [max[0], 0.301, max[2]]);
+    for q in &paths() {
+        let mut h = Headless::new(W, H, q.clone()).unwrap();
+        let cut_room = boxed(&[front, side], true);
+        h.renderer().load_room(&cut_room).unwrap();
+        assert!(h.renderer().set_cutaway(0, 0, cut(0.3, 0.3)));
+        let cut_image = h.render(&camera_of(&cut_room), 0.0);
+        let built_room = boxed(&[low_front, low_end, standing], false);
+        let built = render(&built_room, None, q);
+        let lids = render(&boxed(&[lid(low_front), lid(low_end)], false), None, q);
+        let floating = (cut_image.pixels().zip(built.pixels()))
+            .filter(|(c, b)| is_magenta(c) && !is_magenta(b))
+            .count();
+        let wall = built.pixels().filter(|p| is_magenta(p)).count();
+        assert!(
+            floating * 100 < wall,
+            "{:?}: nothing stands past the line above the cut: {floating} of {wall}",
+            q.path
+        );
+        // Inside the lids, away from their edges, only the cap shows.
+        let inside = |x: u32, y: u32| {
+            (x > 0 && y > 0 && x + 1 < W && y + 1 < H)
+                && [(0, 0), (1, 0), (0, 1), (2, 1), (1, 2)]
+                    .iter()
+                    .all(|&(dx, dy)| is_magenta(lids.get_pixel(x + dx - 1, y + dy - 1)))
+        };
+        let (mut lid_pixels, mut not_cap) = (0, 0);
+        for (x, y, p) in cut_image.enumerate_pixels() {
+            if inside(x, y) {
+                lid_pixels += 1;
+                not_cap += usize::from(!green(p));
+            }
+        }
+        assert!(
+            lid_pixels > 200,
+            "{:?}: the lids show: {lid_pixels}",
+            q.path
+        );
+        assert!(
+            not_cap * 50 < lid_pixels,
+            "{:?}: the cut is capped flat: {not_cap} of {lid_pixels} lid pixels are not cap",
+            q.path
+        );
+    }
+}

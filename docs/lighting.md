@@ -261,10 +261,17 @@ room describes them in its description (`schemas/room.schema.json`):
   metres, past the line and inside the radius: the cut's height rises
   steeply towards the edge, so a wall comes down as the hero nears it
   instead of all at once.
-- **`cap`** is the colour, linear RGB, of the inside of what is cut. The
-  back of every cut face shows it. A single-sided piece is drawn with both
-  sides for it, and its back stays hidden outside the cut. Without a cap
-  the cut is hollow.
+- **`cap`** is the colour, linear RGB, of the inside of what is cut, lit
+  as a lid facing the camera. The back of every face seen through the top
+  of a cut shows it, on either side of the line: a corner post the line
+  runs through shows one flat lid, the inside of its standing part
+  included. A single-sided piece is drawn with both sides for it, and its
+  back stays hidden elsewhere. The part kept apart under the cut
+  (`whole_below`) draws its back faces again in the cap while the cut
+  reaches it, nudged towards the camera past a floor it lies on, so the
+  bottom of a cut wall is capped too. Two pieces that overlap inside one
+  another still show the faces of one inside the other's lid. Without a
+  cap the cut is hollow.
 - **`cut_shadows`**, true by default, casts the shadow the pieces are drawn
   with. A shadow map drawn for one cut is redrawn when the cut moves. False
   keeps the shadow of the whole wall.

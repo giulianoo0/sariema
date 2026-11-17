@@ -167,10 +167,14 @@ struct Targets {
 }
 
 /// The pipelines of draws in cutaways: by [`Kind::index`], and their
-/// depth alone by `double_sided as usize`.
+/// depth alone by `double_sided as usize`; then those drawing again the
+/// back faces of a draw under the cut, pulled towards the camera so the cap
+/// they show wins over a floor they lie on.
 pub(crate) struct CutPipelines {
     pub color: [wgpu::RenderPipeline; Kind::COUNT],
     pub depth: [wgpu::RenderPipeline; 2],
+    pub backs: [wgpu::RenderPipeline; Kind::COUNT],
+    pub depth_backs: wgpu::RenderPipeline,
 }
 
 pub(crate) struct Scene {
@@ -397,37 +401,54 @@ impl Scene {
         if self.cut.is_some() {
             return;
         }
-        let color = std::array::from_fn(|i| {
-            let kind = Kind::from_index(i);
-            let shading = (kind.is_opaque(), false, "fs_cut");
-            let vertex = ("vs_main", vertex_layout());
-            let layout = &self.mesh_layout;
-            shaded_pipeline(gpu, layout, &self.module, kind, shading, quality, vertex)
-        });
-        let depth = [false, true].map(|double_sided| {
-            gpu.pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("depth only, cut"),
-                layout: Some(&self.depth_layout),
-                vertex: wgpu::VertexState {
-                    module: &self.module,
-                    entry_point: Some("vs_depth_cut"),
-                    compilation_options: Default::default(),
-                    buffers: &[Some(vertex_layout())],
-                },
-                primitive: primitive(double_sided),
-                depth_stencil: Some(depth_state(true, wgpu::CompareFunction::Less)),
-                multisample: Default::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &self.module,
-                    entry_point: Some("fs_depth_cut"),
-                    compilation_options: Default::default(),
-                    targets: &[],
-                }),
-                multiview_mask: None,
-                cache: None,
+        let shaded = |backs: bool| {
+            std::array::from_fn(|i| {
+                let kind = Kind::from_index(i);
+                let shading = (kind.is_opaque(), false, "fs_cut", backs);
+                let vertex = ("vs_main", vertex_layout());
+                shaded_pipeline(
+                    gpu,
+                    &self.mesh_layout,
+                    &self.module,
+                    kind,
+                    shading,
+                    quality,
+                    vertex,
+                )
             })
+        };
+        let buffers = [Some(vertex_layout())];
+        let depth = |double_sided: bool| wgpu::RenderPipelineDescriptor {
+            label: Some("depth only, cut"),
+            layout: Some(&self.depth_layout),
+            vertex: wgpu::VertexState {
+                module: &self.module,
+                entry_point: Some("vs_depth_cut"),
+                compilation_options: Default::default(),
+                buffers: &buffers,
+            },
+            primitive: primitive(double_sided),
+            depth_stencil: Some(depth_state(true, wgpu::CompareFunction::Less)),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &self.module,
+                entry_point: Some("fs_depth_cut"),
+                compilation_options: Default::default(),
+                targets: &[],
+            }),
+            multiview_mask: None,
+            cache: None,
+        };
+        self.cut = Some(CutPipelines {
+            color: shaded(false),
+            depth: [false, true].map(|double_sided| gpu.pipeline(&depth(double_sided))),
+            backs: shaded(true),
+            depth_backs: {
+                let mut backs = depth(true);
+                only_backs(&mut backs.primitive, backs.depth_stencil.as_mut().unwrap());
+                gpu.pipeline(&backs)
+            },
         });
-        self.cut = Some(CutPipelines { color, depth });
     }
 
     pub fn resize(&mut self, gpu: &Gpu, width: u32, height: u32, quality: &Quality) {
@@ -717,6 +738,16 @@ fn primitive(double_sided: bool) -> wgpu::PrimitiveState {
     }
 }
 
+/// Back faces alone, pulled towards the camera past what is coplanar with them.
+fn only_backs(primitive: &mut wgpu::PrimitiveState, depth: &mut wgpu::DepthStencilState) {
+    primitive.cull_mode = Some(wgpu::Face::Front);
+    depth.bias = wgpu::DepthBiasState {
+        constant: -4,
+        slope_scale: -1.0,
+        clamp: 0.0,
+    };
+}
+
 pub(crate) fn depth_state(write: bool, compare: wgpu::CompareFunction) -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: DEPTH_FORMAT,
@@ -739,7 +770,7 @@ pub(crate) fn mesh_pipeline(
     quality: &Quality,
     vertex: (&str, wgpu::VertexBufferLayout<'_>),
 ) -> wgpu::RenderPipeline {
-    let shading = (dither, actor, "fs_main");
+    let shading = (dither, actor, "fs_main", false);
     shaded_pipeline(gpu, layout, module, kind, shading, quality, vertex)
 }
 
@@ -748,10 +779,15 @@ fn shaded_pipeline(
     layout: &wgpu::PipelineLayout,
     module: &wgpu::ShaderModule,
     kind: Kind,
-    (dither, actor, fragment): (bool, bool, &str),
+    (dither, actor, fragment, backs): (bool, bool, &str, bool),
     quality: &Quality,
     (entry_point, buffer): (&str, wgpu::VertexBufferLayout<'_>),
 ) -> wgpu::RenderPipeline {
+    let mut primitive = primitive(kind.double_sided);
+    let mut depth_stencil = depth_state(kind.is_opaque(), wgpu::CompareFunction::Less);
+    if backs {
+        only_backs(&mut primitive, &mut depth_stencil);
+    }
     // The largest square grid within the tap count.
     let pcf_side = quality.shadow_pcf_taps.isqrt().max(1);
     let constants = [
@@ -775,8 +811,8 @@ fn shaded_pipeline(
             compilation_options: options.clone(),
             buffers: &[Some(buffer)],
         },
-        primitive: primitive(kind.double_sided),
-        depth_stencil: Some(depth_state(kind.is_opaque(), wgpu::CompareFunction::Less)),
+        primitive,
+        depth_stencil: Some(depth_stencil),
         multisample: wgpu::MultisampleState {
             count: quality.msaa,
             ..Default::default()

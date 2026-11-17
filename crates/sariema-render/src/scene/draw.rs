@@ -109,6 +109,16 @@ impl Scene {
             }
             pass.set_bind_group(2, &material.group, &[]);
             room.draw(&mut pass, i);
+            if let Some(cut) = self
+                .cut
+                .as_ref()
+                .filter(|_| draw.capping && kind.is_opaque())
+            {
+                pass.set_pipeline(&cut.backs[draw.kind.index()]);
+                current = None;
+                room.draw(&mut pass, i);
+                gpu.count_draws(1);
+            }
         }
         if !actors_drawn {
             gpu.count_draws(actors.draw(&mut pass, Layer::Opaque));
@@ -169,6 +179,12 @@ impl Scene {
             }
             room.draw(&mut pass, i);
             gpu.count_draws(1);
+            if let Some(cut) = self.cut.as_ref().filter(|_| draw.capping) {
+                pass.set_pipeline(&cut.depth_backs);
+                current = None;
+                room.draw(&mut pass, i);
+                gpu.count_draws(1);
+            }
         }
         if let Some(actors) = actors {
             gpu.count_draws(actors.draw_depth(&mut pass));

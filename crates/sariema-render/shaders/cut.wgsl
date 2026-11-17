@@ -43,20 +43,31 @@ fn cut_reach(world: vec3<f32>) -> f32 {
     return reach;
 }
 
+// Whether the camera at `eye` sees `world`, under the height, through the
+// top the cut leaves open. A closed piece the line runs through shows its
+// inside there on both sides of the line: the part standing behind it too.
+fn cut_through_lid(world: vec3<f32>, eye: vec3<f32>) -> bool {
+    let height = cut.plane.w;
+    let lid = mix(eye, world, (eye.y - height) / max(eye.y - world.y, 1e-6));
+    return cut.on.x > 0.0 && world.y < height && eye.y > height && cut_reach(lid) > 0.0;
+}
+
 // Whether a fragment of the draw is dropped. Cutting: above the cut, whose
 // height rises steeply where it fades in, or the back of a single-sided draw
-// drawn with both sides for its cap, outside the cut. Dissolving: where the
-// pixel's `threshold`, in [0, 1), falls under the reach.
-fn cut_drops(world: vec3<f32>, front: bool, threshold: f32) -> bool {
+// drawn with both sides for its cap, outside the cut and not seen through it.
+// Dissolving: where the pixel's `threshold`, in [0, 1), falls under the reach.
+fn cut_drops(world: vec3<f32>, front: bool, threshold: f32, eye: vec3<f32>) -> bool {
     let reach = select(0.0, cut_reach(world), cut.on.x > 0.0);
     if cut.on.y > 0.0 {
         return threshold < reach;
     }
     let above = reach > 0.0 && world.y > cut.plane.w + (1.0 - reach) / reach * cut.around.w;
-    return above || (!front && draw.cut_flags.y > 0.0 && reach == 0.0);
+    let hidden = reach == 0.0 && !cut_through_lid(world, eye);
+    return above || (!front && draw.cut_flags.y > 0.0 && hidden);
 }
 
 // Whether a fragment shows the cap: the back of what is cut, seen through it.
-fn cut_capped(world: vec3<f32>, front: bool) -> bool {
-    return !front && cut.on.x > 0.0 && cut.cap.w > 0.0 && cut_reach(world) > 0.0;
+fn cut_capped(world: vec3<f32>, front: bool, eye: vec3<f32>) -> bool {
+    let inside = cut_reach(world) > 0.0 || cut_through_lid(world, eye);
+    return !front && cut.on.x > 0.0 && cut.cap.w > 0.0 && inside;
 }

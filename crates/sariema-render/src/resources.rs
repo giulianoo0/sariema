@@ -171,6 +171,10 @@ pub(crate) struct DrawItem {
     /// keep the early depth test.
     pub cutting: bool,
     pub cutting_shadow: bool,
+    /// Whether its cutaway reaches it without cutting it, lying under the
+    /// height, and shows a cap: its back faces are drawn again as the cap,
+    /// for the inside of a piece cut above it to show through the top.
+    pub capping: bool,
     own: bool,
     group_on: bool,
     state_on: bool,
@@ -418,6 +422,7 @@ impl Room {
             let rises = cut.fade || RoomCut::rises(&uniform, item.max);
             item.cutting = reaches && rises;
             item.cutting_shadow = reaches && rises;
+            item.capping = reaches && !rises && cut.cap.is_some();
         }
         let bytes = &mut self.cut_bytes[at..at + size_of::<CutUniform>()];
         if bytes == bytemuck::bytes_of(&uniform) {
@@ -840,6 +845,7 @@ impl PendingRoom {
                     anchor: anchor[i],
                     cutting: false,
                     cutting_shadow: false,
+                    capping: false,
                     own: d.visible,
                     group_on: group_on[i],
                     state_on: state_on[i],

@@ -16,7 +16,7 @@ fn vs_shadow_cut(v: VertexIn) -> CasterOut {
 // Both faces cast, as a caster without a cut does.
 @fragment
 fn fs_shadow_cut(in: CasterOut) {
-    if cut_drops(in.world, true, 1.0) {
+    if cut_drops(in.world, true, 1.0, in.world) {
         discard;
     }
 }

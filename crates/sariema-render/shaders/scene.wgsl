@@ -123,7 +123,7 @@ fn vs_depth_cut(v: VertexIn) -> DepthOut {
 // The depth of a draw in a cutaway, without what is cut.
 @fragment
 fn fs_depth_cut(in: DepthOut, @builtin(front_facing) front: bool) {
-    if cut_drops(in.world, front, dither(in.clip.xy)) {
+    if cut_drops(in.world, front, dither(in.clip.xy), frame.camera_pos.xyz) {
         discard;
     }
 }
@@ -153,16 +153,20 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
 // A draw in a cutaway: without what is cut, its inside in the cap's colour.
 @fragment
 fn fs_cut(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
-    if (DITHER && dithered_out(in)) || cut_drops(in.world, front, dither(in.clip.xy)) {
+    let eye = frame.camera_pos.xyz;
+    if (DITHER && dithered_out(in)) || cut_drops(in.world, front, dither(in.clip.xy), eye) {
         discard;
     }
     let base = material.base_color * textureSample(base_texture, material_sampler, in.uv) * in.color;
     let emissive = material.emissive * textureSample(emissive_texture, material_sampler, in.uv).rgb;
     // Selected, not branched on: shading takes derivatives, which a browser's
     // WGSL allows only in uniform control flow.
-    let capped = cut_capped(in.world, front);
+    // The cap is lit as a lid facing the camera, whichever inside face shows it.
+    let capped = cut_capped(in.world, front, eye);
     let shown = select(base, vec4(cut.cap.rgb, base.a), capped);
-    return shade(in, front, shown, select(emissive, vec3(0.0), capped));
+    var lid = in;
+    lid.normal = select(in.normal, in.world - eye, capped);
+    return shade(lid, front, shown, select(emissive, vec3(0.0), capped));
 }
 
 fn shade(in: VertexOut, front: bool, base: vec4<f32>, emissive: vec3<f32>) -> vec4<f32> {
