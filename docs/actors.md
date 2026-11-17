@@ -15,7 +15,8 @@ from a glTF file to an animated actor drawn in a room:
 ## The actor pack (`SRMK`)
 
 `crates/sariema-format/src/actor.rs`. A pack starts with the magic `SRMK` and
-a version (1), followed by a postcard body that `decode` validates:
+a version (2), followed by a postcard body that `decode` validates. Version 1
+packs, which faced +Z, are still read, turned half a turn (see below):
 
 - **meshes** of `SkinnedVertex` (position, normal, UV, colour, four joint
   indices and four weights in unorm16 that sum to 65535), split into named

@@ -484,6 +484,8 @@ without `--headless` the pack plays in a window.
   has no aim. Hidden with `set_visible`, the light is off and takes no
   place among the frame's lights, so a lantern switched off frees its place
   for another light. `E_NOT_LIGHT` refuses an entity that is not a light.
+  "Ahead" is +Z of the model in a socket's frame, and −Z in an actor
+  entity's frame.
 - **A clip's rate while it plays**: `clip_rate` plays the clip an actor
   plays at a new rate from the step it arrives, going on from the time it
   is at: no restart and no crossfade, where a second `play_clip` starts it

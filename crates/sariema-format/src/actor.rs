@@ -87,7 +87,9 @@ pub struct Joint {
     pub parent: Option<u32>,
     /// Relative to the parent.
     pub rest: Transform,
-    /// Model space to this joint's space in the bind pose.
+    /// Model space to this joint's space in the bind pose. Since version 2
+    /// the root joints carry the half turn that makes yaw 0 face −Z, and
+    /// this stays in the unturned model space the mesh is given in.
     pub inverse_bind: [f32; 16],
 }
 
@@ -301,7 +303,8 @@ pub fn decode(bytes: &[u8]) -> Result<ActorPack, ActorPackError> {
 
 /// Turns the actor half a turn about +Y: its root joints at rest and in
 /// every clip, and its bounds. Every joint, socket and vertex turns with
-/// them, since each hangs from a root joint.
+/// them, since each hangs from a root joint. Inverse binds stay as they
+/// are: the mesh stays in the unturned model space.
 pub fn turn_half(actor: &mut ActorPack) {
     let turn = |t: [f32; 3]| [-t[0], t[1], -t[2]];
     // The quaternion [0, 1, 0, 0] times [x, y, z, w].
