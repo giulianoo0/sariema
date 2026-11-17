@@ -562,6 +562,7 @@ impl World {
             } => {
                 let a = &mut self.actors[actor.0 as usize];
                 a.release();
+                a.stick = Vec2::ZERO;
                 a.move_to = Some((target, face));
                 a.move_after_teleport = a.teleport.is_some();
                 a.route = None;
@@ -1059,6 +1060,7 @@ impl World {
             if last && after <= m.arrive_distance {
                 route.reached = true;
                 a.velocity = Vec3::ZERO;
+                a.stick = Vec2::ZERO;
             } else if !last && after <= m.waypoint_distance {
                 route.next += 1;
                 route.stuck = 0;

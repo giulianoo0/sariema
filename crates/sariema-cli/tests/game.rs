@@ -513,22 +513,22 @@ fn the_climb_example_replays_through_the_whole_engine_to_pinned_events_and_state
             "187 control",
             "187 cutscene_started",
             "213 arrived",
-            "243 arrived",
-            "244 cutscene_call",
+            "244 arrived",
+            "245 cutscene_call",
             "249 trigger_exit",
-            "259 clip_marker",
-            "267 trigger_enter",
-            "292 clip_finished",
-            "328 trigger_exit",
-            "340 arrived",
-            "436 line_done",
-            "485 control",
-            "485 cutscene_ended",
+            "260 clip_marker",
+            "268 trigger_enter",
+            "293 clip_finished",
+            "329 trigger_exit",
+            "341 arrived",
+            "437 line_done",
+            "486 control",
+            "486 cutscene_ended",
         ],
         "walls, the wave's marker, the sill zone, the walk to the mark, the climb through the window and its doorway trigger, the line"
     );
     // The same in the browsers (packages/sariema-web, `npm test`).
-    assert_eq!(played["engine_hash"], "ee88d116de32afb5");
+    assert_eq!(played["engine_hash"], "25964ad7ae75a5e3");
     let again = run("900");
     for hash in ["engine_hash", "physics_hash", "audio_hash"] {
         assert_eq!(again[hash], played[hash], "{hash} differs between two runs");

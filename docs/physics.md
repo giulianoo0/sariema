@@ -47,7 +47,7 @@ step, in id order, and appends events to a buffer the caller owns.
 
 | Intent | Effect |
 |---|---|
-| `Move { stick }` | Stick input on the ground plane; stays until replaced. |
+| `Move { stick }` | Stick input on the ground plane; stays until replaced, or until a `MoveTo` starts or arrives. |
 | `MoveTo { target, face }` | Walk along a searched path, with collision, then turn to `face`. |
 | `Stop` | Drop the stick and any scripted move. |
 | `Knockback { push, steps }` | Push over `steps` steps, fastest first; input ignored meanwhile. |
@@ -173,7 +173,9 @@ nothing ever snaps through geometry. It emits `Arrived` within
 `stuck_steps` steps of less than `stuck_progress` of the expected travel.
 Reaching the target drops the walk's speed, so with acceleration the actor
 stops on its mark rather than easing past it, and a `Face` sent as it
-arrives turns it there. With `accel_steps` above 0 this changes the
+arrives turns it there. A `MoveTo` drops the stick when it starts, and
+arriving drops any stick given meanwhile, so nothing drives the actor
+once it stands on its mark: a `Face` only turns it. With `accel_steps` above 0 this changes the
 `physics_hash` after an arrival compared with builds that let the actor
 ease past the mark, so replays recorded on those builds need recording again.
 

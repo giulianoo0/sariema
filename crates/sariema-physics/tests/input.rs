@@ -149,3 +149,67 @@ fn facing_with_the_stick_held_keeps_the_speed_of_the_walk() {
         );
     }
 }
+
+/// What the stick holds once a walk the stick led into has arrived.
+#[derive(Clone, Copy, Debug)]
+enum After {
+    /// Left as it was before the walk.
+    Untouched,
+    Zero,
+    DeadZone,
+}
+
+#[test]
+fn nothing_drives_an_actor_after_its_walk_arrives_and_face_only_turns_it() {
+    let mut failed = Vec::new();
+    for stick in [After::Untouched, After::Zero, After::DeadZone] {
+        for faced in [1, 2, 5] {
+            let mut settings = Settings::default();
+            settings.controller.accel_steps = 6;
+            let (mut world, id) = open_floor(settings);
+            let mut events = Vec::new();
+            hold(&mut world, id, Vec2::X, 20, &mut events);
+            let from = world.actor(id).position;
+            world.apply(Intent::MoveTo {
+                actor: id,
+                target: from + Vec3::new(0.0, 0.0, -2.0),
+                face: None,
+            });
+            let arrived = (0..600).any(|_| {
+                events.clear();
+                world.step(&mut events);
+                events
+                    .iter()
+                    .any(|e| e.kind == sariema_physics::EventKind::Arrived)
+            });
+            assert!(arrived, "{stick:?}: the walk arrives");
+            let mark = world.actor(id).position;
+            let mut drift = 0.0f32;
+            for k in 1..=faced + 120 {
+                if k == faced {
+                    let held = match stick {
+                        After::Untouched => None,
+                        After::Zero => Some(Vec2::ZERO),
+                        After::DeadZone => Some(Vec2::new(0.1, 0.0)),
+                    };
+                    if let Some(stick) = held {
+                        world.apply(Intent::Move { actor: id, stick });
+                    }
+                    world.apply(Intent::Face {
+                        actor: id,
+                        yaw: std::f32::consts::PI,
+                    });
+                }
+                world.step(&mut events);
+                let p = world.actor(id).position;
+                drift = drift.max(Vec3::new(p.x - mark.x, 0.0, p.z - mark.z).length());
+            }
+            if drift > 1e-3 {
+                failed.push(format!(
+                    "{stick:?}, face {faced} steps after: {drift} m off the mark"
+                ));
+            }
+        }
+    }
+    assert!(failed.is_empty(), "{failed:#?}");
+}
