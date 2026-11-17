@@ -202,6 +202,8 @@ game!(Hello);
   `ctx.skip_cutscene`, `ctx.signal`.
 - `ctx.scene_tween(tween, &[(id("fog.density"), 0.05), …], duration, ease)`
   tweens scene parameters of the active room together.
+  `ctx.reserve_scene_tween(pairs)`, called while the game sets up with its
+  largest tween's count, keeps every later one from allocating.
 - `ctx.rng()` is a PCG32 seeded from the engine's `started` event.
 - `ctx.button(id("action"))` is the index `button` events carry for the
   input button named `action`, whatever its place in `input.buttons`;

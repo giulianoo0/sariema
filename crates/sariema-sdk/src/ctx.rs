@@ -77,6 +77,9 @@ pub(crate) struct Shared {
     pub(crate) step: u64,
 }
 
+/// Bytes one parameter takes in a `scene_tween`'s values.
+const SCENE_VALUE_BYTES: usize = size_of::<u32>() + size_of::<f32>();
+
 /// The stream of the game's generator, apart from the engine's own.
 const GAME_STREAM: u64 = 0x5a;
 
@@ -152,6 +155,24 @@ impl Ctx<'_> {
             ease,
         }
         .write(&mut self.shared.commands);
+    }
+
+    /// Makes room for a [`Ctx::scene_tween`] of up to `pairs` parameters, so
+    /// sending one allocates nothing, however small the ones before it were.
+    /// A game that must not allocate once it runs calls it while it sets up,
+    /// with its largest tween.
+    pub fn reserve_scene_tween(&mut self, pairs: usize) {
+        let values = pairs * SCENE_VALUE_BYTES;
+        let bytes = &mut self.shared.scene_values;
+        bytes.clear();
+        bytes.reserve(values);
+        let empty = Command::SceneTween {
+            tween: 0,
+            values: &[],
+            duration: 0.0,
+            ease: Ease::Linear,
+        };
+        self.shared.commands.reserve(empty.size() + values);
     }
 
     /// Spawns an entity in a free slot and returns its handle.
