@@ -171,6 +171,9 @@ target, so a target the actor cannot stand on has no path.
 nothing ever snaps through geometry. It emits `Arrived` within
 `arrive_distance` and `face_tolerance`, or `Blocked(Stuck)` after
 `stuck_steps` steps of less than `stuck_progress` of the expected travel.
+Reaching the target drops the walk's speed, so with acceleration the actor
+stops on its mark rather than easing past it, and a `Face` sent as it
+arrives turns it there.
 
 ### Traversals and intended contact
 

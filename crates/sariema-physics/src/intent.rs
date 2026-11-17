@@ -22,7 +22,8 @@ pub enum Intent {
     /// a knockback.
     Move { actor: ActorId, stick: Vec2 },
     /// Walk to `target` along a path, with collision, then turn to `face`
-    /// (a yaw) when given. Ends with [`EventKind::Arrived`] or [`EventKind::Blocked`].
+    /// (a yaw) when given. Reaching the target drops the walk's speed. Ends
+    /// with [`EventKind::Arrived`] or [`EventKind::Blocked`].
     MoveTo {
         actor: ActorId,
         target: Vec3,

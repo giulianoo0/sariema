@@ -1058,6 +1058,7 @@ impl World {
             let last = route.next + 1 == a.path.len();
             if last && after <= m.arrive_distance {
                 route.reached = true;
+                a.velocity = Vec3::ZERO;
             } else if !last && after <= m.waypoint_distance {
                 route.next += 1;
                 route.stuck = 0;
