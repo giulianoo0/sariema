@@ -119,6 +119,8 @@ struct Actor {
     max_yaw_speed: Option<f32>,
     /// Off: in no other actor's way ([`Intent::SetSolid`]).
     solid: bool,
+    /// [`Intent::SetHidden`].
+    hidden: bool,
     /// Told to [`Intent::Face`]: the next step drops the speed left from a
     /// walk if nothing drives the actor.
     facing: bool,
@@ -153,9 +155,10 @@ pub struct World {
 }
 
 impl Actor {
-    /// Whether it stands in other actors' way and in hinged platforms'.
-    fn in_the_way(&self) -> bool {
-        self.active && self.solid && !self.posed
+    /// Whether it stands in other actors' way and in hinged platforms';
+    /// `hidden_block` is `hidden_actors_block`.
+    fn in_the_way(&self, hidden_block: bool) -> bool {
+        self.active && self.solid && !self.posed && (hidden_block || !self.hidden)
     }
 
     /// Ends the scripted move, arrived or blocked, with any stick given
@@ -312,6 +315,7 @@ impl World {
             active: true,
             max_yaw_speed: None,
             solid: true,
+            hidden: false,
             facing: false,
         };
         actor.ground = self.standing_on(&actor, desc.position, desc.yaw);
@@ -507,8 +511,9 @@ impl World {
         let Some((from, moved_from)) = self.scene.kinematic(collider.0) else {
             return Ok(());
         };
+        let block = self.settings.hidden_actors_block;
         let thinnest = (self.actors.iter())
-            .filter(|a| a.in_the_way())
+            .filter(|a| a.in_the_way(block))
             .map(|a| a.desc.collider.radius)
             .fold(f32::INFINITY, f32::min);
         let turn = pose.yaw - from.yaw;
@@ -536,7 +541,7 @@ impl World {
             };
             self.scene.set_pose(collider.0, at);
             for (i, a) in self.actors.iter().enumerate() {
-                if !a.in_the_way() {
+                if !a.in_the_way(block) {
                     continue;
                 }
                 let probe = a.desc.collider.probe(a.position, a.yaw, 0.0);
@@ -630,6 +635,7 @@ impl World {
                 self.actors[actor.0 as usize].max_yaw_speed = speed;
             }
             Intent::SetSolid { actor, solid } => self.actors[actor.0 as usize].solid = solid,
+            Intent::SetHidden { actor, hidden } => self.actors[actor.0 as usize].hidden = hidden,
         }
     }
 
@@ -1110,6 +1116,7 @@ impl World {
 
     /// Pushes apart actors whose body capsules overlap, by sweep and prune on x.
     fn separate(&mut self) {
+        let block = self.settings.hidden_actors_block;
         let actors = &self.actors;
         let min_x = |i: u32| {
             let a = &actors[i as usize];
@@ -1131,7 +1138,7 @@ impl World {
         for k in 0..self.order.len() {
             let ia = self.order[k] as usize;
             let a = &actors[ia];
-            if !a.in_the_way() {
+            if !a.in_the_way(block) {
                 continue;
             }
             let ra = a.desc.collider.radius;
@@ -1141,7 +1148,7 @@ impl World {
                 if b.position.x - rb > a.position.x + ra {
                     break;
                 }
-                if !b.in_the_way() {
+                if !b.in_the_way(block) {
                     continue;
                 }
                 let top_a = a.position.y + a.desc.collider.height;
@@ -1231,6 +1238,7 @@ impl World {
     pub fn state_hash(&self) -> u64 {
         const BODY_OFF: u32 = u32::MAX - 1;
         const OWN_TURN_CAP: u32 = u32::MAX - 2;
+        const HIDDEN: u32 = u32::MAX - 3;
         let mut h = Fnv::new();
         h.u64(self.steps);
         for c in &self.scene.colliders {
@@ -1257,6 +1265,9 @@ impl World {
             }
             if !a.solid {
                 h.u32(BODY_OFF);
+            }
+            if a.hidden {
+                h.u32(HIDDEN);
             }
             if let Some(speed) = a.max_yaw_speed {
                 h.u32(OWN_TURN_CAP);

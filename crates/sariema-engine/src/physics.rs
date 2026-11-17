@@ -51,6 +51,8 @@ struct Mapped {
     carried: bool,
     /// Degrees per second it turns at most; `motion.turn_rate` when none.
     turn_rate: Option<f32>,
+    /// Hidden, as the collision module was last told.
+    hidden: bool,
 }
 
 struct Traversing {
@@ -240,6 +242,7 @@ impl Physics {
 
     pub fn step(&mut self, s: &mut State, anim: &mut Animation) {
         self.track(s);
+        self.hide(s);
         std::mem::swap(&mut self.intents, &mut s.outbox.physics);
         for intent in &self.intents {
             if let PhysicsIntent::Teleport {
@@ -462,6 +465,7 @@ impl Physics {
                 speed: 0.0,
                 carried: !node.parent.is_none(),
                 turn_rate,
+                hidden: false,
             });
         }
     }
@@ -690,6 +694,21 @@ impl Physics {
                 Vec2::ZERO
             },
         });
+    }
+
+    /// Tells the collision module which actors are hidden, so it can keep
+    /// them out of other actors' way.
+    fn hide(&mut self, s: &State) {
+        for m in self.actors.iter_mut().flatten() {
+            let hidden = s.world.node(m.entity).is_some_and(|n| !n.visible);
+            if hidden != m.hidden {
+                m.hidden = hidden;
+                self.world.apply(Intent::SetHidden {
+                    actor: m.id,
+                    hidden,
+                });
+            }
+        }
     }
 
     /// The player's hero walks where the runtime's control points it; one

@@ -383,7 +383,13 @@ without `--headless` the pack plays in a window.
   same jump limit. `set_collider` on an actor switches its body: off, a
   hidden or stowed actor is no invisible obstacle (others walk through it,
   doors swing through it), while it still walks with collision; the body
-  stays off in every room until the game turns it on. With `motion.builtin` the runtime moves actors
+  stays off in every room until the game turns it on. A hidden actor
+  (`set_visible` off) is in no other actor's way by default, as an unseen
+  body would read as an invisible wall; it still stands on floors and stays
+  out of walls. `physics.hidden_actors_block` keeps hidden actors in the
+  way, as before. This, and a walk held back by an actor now ending
+  `blocked` after `move_to.stuck_steps`, change `physics_hash`, and replays
+  recorded before need recording again. With `motion.builtin` the runtime moves actors
   itself; a collision module takes the same intents
   ([the engine](engine.md) wires `sariema-physics` in when the room has a
   collision pack). `traverse` carries an actor along one of the room's

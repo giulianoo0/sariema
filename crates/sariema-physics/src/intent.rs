@@ -79,6 +79,9 @@ pub enum Intent {
     /// still walks on the room's floors, stops at its walls and is seen by
     /// triggers.
     SetSolid { actor: ActorId, solid: bool },
+    /// Hidden, the actor is out of other actors' way as if its body were
+    /// off ([`Intent::SetSolid`]), unless `hidden_actors_block` is set.
+    SetHidden { actor: ActorId, hidden: bool },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

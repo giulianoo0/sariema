@@ -278,8 +278,9 @@ to the compiler.
 
 A change to the simulation changes the hashes, and replays recorded before
 it need recording again. The latest: a walk's end and a hero taken from
-the player now drop the stick (`docs/physics.md`, scripted moves;
-`docs/game-api.md`, `control`).
+the player now drop the stick, a walk is blocked by net progress over a
+window, and a hidden actor is in no one's way (`docs/physics.md`, scripted
+moves and `SetHidden`; `docs/game-api.md`, `control` and movement).
 
 ## Hosts
 

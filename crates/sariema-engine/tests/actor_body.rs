@@ -3,7 +3,7 @@
 //! `set_collider` on an actor switches its body: a hidden actor whose body
 //! is off is no invisible obstacle, the hero walks through where it
 //! stands without moving it, in its room and in the next one; with its
-//! body on, the hero pushes it aside.
+//! body on and `physics.hidden_actors_block`, the hero pushes it aside.
 
 mod common;
 
@@ -25,8 +25,8 @@ fn room(name: &str) -> RoomAssets {
 /// Where the hidden actor and the hero end after the hero walks +x at
 /// 1.5 m/s for four seconds through where the hidden one stands, its body
 /// on or off; with `switch`, in the second room, entered after the body
-/// was set.
-fn walk_through(body: bool, switch: bool) -> (Vec3, Vec3) {
+/// was set; `block` is `physics.hidden_actors_block`.
+fn walk_through(body: bool, switch: bool, block: bool) -> (Vec3, Vec3) {
     let logic = native(move |n, events, out| match n {
         _ if events.iter().any(|e| matches!(e, Event::Rejected { .. })) => {
             panic!("{events:?}")
@@ -83,7 +83,9 @@ fn walk_through(body: bool, switch: bool) -> (Vec3, Vec3) {
     });
     let mut assets = assets();
     assets.rooms = vec![room("first"), room("next")];
-    let sim = Simulation::new(wired(), Vec::new(), logic, 1);
+    let mut settings = wired();
+    settings.physics.hidden_actors_block = block;
+    let sim = Simulation::new(settings, Vec::new(), logic, 1);
     let mut engine = Engine::new(sim, assets, EngineSettings::default()).unwrap();
     let actions = Actions::for_settings(&engine.state().settings.input);
     for _ in 0..244 {
@@ -96,7 +98,7 @@ fn walk_through(body: bool, switch: bool) -> (Vec3, Vec3) {
 #[test]
 fn a_hidden_actor_with_its_body_off_is_no_obstacle() {
     for switch in [false, true] {
-        let (hidden, hero) = walk_through(false, switch);
+        let (hidden, hero) = walk_through(false, switch, true);
         assert_eq!(
             (hidden.x, hidden.z),
             (HIDDEN[0], HIDDEN[2]),
@@ -106,7 +108,7 @@ fn a_hidden_actor_with_its_body_off_is_no_obstacle() {
             hero.x > 5.5 && hero.z.abs() < 1e-3,
             "switch {switch}: {hero}"
         );
-        let (pushed, _) = walk_through(true, switch);
+        let (pushed, _) = walk_through(true, switch, true);
         assert!(
             pushed.distance(Vec3::from(HIDDEN)) > 0.1,
             "switch {switch}: {pushed}"

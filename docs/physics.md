@@ -57,6 +57,7 @@ step, in id order, and appends events to a buffer the caller owns.
 | `SetSpeedScale` | Multiply the walk speed. |
 | `Face { yaw }` | Turn towards `yaw`. With nothing driving the actor (no route, the stick in its dead zone) it turns in place, dropping the speed left from a walk so it does not slide; a walk under way keeps its speed, and walking turns towards where the actor goes instead. |
 | `SetSolid { solid }` | Off, the actor is in no other actor's way: they neither push it nor are pushed by it, and hinged platforms turn through it; it still walks on floors, stops at walls and enters triggers. The engine sends it for `set_collider` on an actor. |
+| `SetHidden { hidden }` | Hidden, the actor is in no other actor's way, as `SetSolid` off, unless `hidden_actors_block` is set: an unseen body would read as an invisible wall. It keeps its own collision with the world: it stands on floors and stays out of walls. The engine sends it when an actor's node is hidden or shown (`set_visible`). Changes `physics_hash`, and the replays of games that hid an actor in another's way need recording again. |
 | `SetMaxYawSpeed { speed }` | Radians per second this actor turns at most, in place of `controller.max_yaw_speed`; `None` gives it the setting back. The engine sends it for `set_turn_rate`. |
 
 `World::set_actor_active(id, false)` leaves an actor out of every step (it
@@ -169,8 +170,12 @@ target, so a target the actor cannot stand on has no path.
 
 `MoveTo` follows the waypoints with the same controller as the stick, so
 nothing ever snaps through geometry. It emits `Arrived` within
-`arrive_distance` and `face_tolerance`, or `Blocked(Stuck)` after
-`stuck_steps` steps of less than `stuck_progress` of the expected travel.
+`arrive_distance` and `face_tolerance`, or `Blocked(Stuck)` when, over a
+window of `stuck_steps` steps, it came less than `stuck_progress` of the
+travel expected over the window nearer its waypoint. Progress is net, after
+everything the step does, so a walker another actor holds back (pushed
+forward by the walk and back by the actors' separation) is blocked rather
+than left walking forever.
 Reaching the target drops the walk's speed, so with acceleration the actor
 stops on its mark rather than easing past it, and a `Face` sent as it
 arrives turns it there. A `MoveTo` drops the stick when it starts, and
@@ -180,7 +185,10 @@ With `accel_steps` above 0 this changes the `physics_hash` after an
 arrival compared with builds that let the actor ease past the mark. Both
 this and the engine letting go of the stick when the hero is taken from
 the player change `physics_hash` and the replays of games that walked the
-player into a script walk, and those replays need recording again.
+player into a script walk, and those replays need recording again. The
+net measure of progress hashes its window, so it changes `physics_hash`
+for every replay with a `MoveTo`, and a walk that used to hang on an actor
+now ends `Blocked(Stuck)`: those replays need recording again too.
 
 ### Traversals and intended contact
 
@@ -293,7 +301,7 @@ it stops the same way.
 The walkable grid leaves platforms out: a path goes through a doorway
 whatever its leaf does, and a closed leaf stops an actor walked into it
 like a wall: a `MoveTo` that meets it stops there, and after
-`stuck_steps` steps without progress the game gets `blocked` (stuck). A
+`stuck_steps` steps of too little progress the game gets `blocked` (stuck). A
 game opens a door before it walks an actor through it.
 
 ### Queries and the camera
@@ -323,7 +331,8 @@ queries and path searches the game runs between them:
 comparable; `tests/determinism.rs` pins one replay's hash, and checks that
 runs batching 2 or 5 steps per frame, with path searches, walkable-cell
 listings, ray casts and overlap queries between steps, give the same hash at
-every step as the plain run. An actor's body (`SetSolid`) and its own
+every step as the plain run. An actor's body (`SetSolid`), whether it is
+hidden (`SetHidden`) and its own
 turn cap (`SetMaxYawSpeed`) count only when set off their defaults, so
 two runs that differ in them alone hash apart while a world that never
 sets them keeps its pinned hash.
@@ -488,8 +497,9 @@ it feels.
 | `move_to.arrive_distance` | 0.02 m | Counts as arrived. |
 | `move_to.waypoint_distance` | 0.1 m | Distance at which the next waypoint is taken. |
 | `move_to.face_tolerance` | 0.05 rad | Counts as turned. |
-| `move_to.stuck_steps` | 30 | Steps of too little progress before `Blocked(Stuck)`. |
-| `move_to.stuck_progress` | 0.2 | Fraction of the expected travel below which progress is too little. |
+| `move_to.stuck_steps` | 30 | Steps of the window progress is measured over; too little, and `Blocked(Stuck)`. |
+| `move_to.stuck_progress` | 0.2 | Fraction of the travel expected over the window below which progress is too little. |
+| `hidden_actors_block` | false | A hidden actor (`SetHidden`) stays in other actors' way; off, it is in no one's way. |
 
 Actor defaults (`ActorDesc`): collider radius 0.30 m, height 1.0 m, no head;
 walk speed 2.1 m/s; mass 1.
@@ -592,7 +602,8 @@ room with 135 colliders in 0.2 s.
 - `physics-map` does not draw traversals or contact points.
 - Actors push each other apart as vertical circles (radius of the body
   capsule, overlapping heights); head spheres do not push. An actor whose
-  body is off (`SetSolid`) takes no part in it.
+  body is off (`SetSolid`), or that is hidden (`SetHidden`) without
+  `hidden_actors_block`, takes no part in it.
 - The pinned replay hash was produced on aarch64 macOS and reproduced on
   x86_64-apple-darwin and on wasm32 under node, in debug and release builds.
   Other targets are untested.

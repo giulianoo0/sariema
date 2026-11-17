@@ -20,6 +20,10 @@ pub struct Settings {
     pub controller: ControllerSettings,
     pub nav: NavSettings,
     pub move_to: MoveToSettings,
+    /// A hidden actor ([`crate::Intent::SetHidden`]) stays in other actors'
+    /// way; off, it is in no one's way, as an unseen body would read as an
+    /// invisible wall.
+    pub hidden_actors_block: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -201,6 +205,7 @@ impl Default for Settings {
             controller: ControllerSettings::default(),
             nav: NavSettings::default(),
             move_to: MoveToSettings::default(),
+            hidden_actors_block: false,
         }
     }
 }

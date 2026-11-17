@@ -60,3 +60,44 @@ fn a_walk_onto_an_actor_held_against_a_wall_ends_blocked() {
         world.actor(walker).position
     );
 }
+
+#[test]
+fn a_hidden_actor_lets_a_walker_through_unless_hidden_actors_block() {
+    let (mut world, walker, other) = against_a_wall(Settings::default());
+    world.apply(Intent::SetHidden {
+        actor: other,
+        hidden: true,
+    });
+    let stood = world.actor(other).position;
+    let end = walk(&mut world, walker, 600);
+    assert!(
+        matches!(end, Some((EventKind::Arrived, _))),
+        "{end:?}: the walker passes through the hidden actor"
+    );
+    let now = world.actor(other).position;
+    assert!(
+        Vec2::new(now.x - stood.x, now.z - stood.z).length() < 1e-4,
+        "the hidden actor stands where it stood: {stood} then {now}"
+    );
+    assert!(
+        world.actor(other).grounded,
+        "the hidden actor stands on its floor"
+    );
+
+    let settings = Settings {
+        hidden_actors_block: true,
+        ..Settings::default()
+    };
+    let stuck_steps = settings.move_to.stuck_steps;
+    let (mut world, walker, other) = against_a_wall(settings);
+    world.apply(Intent::SetHidden {
+        actor: other,
+        hidden: true,
+    });
+    let within = 70 + 2 * stuck_steps;
+    let end = walk(&mut world, walker, 1800);
+    assert!(
+        matches!(end, Some((EventKind::Blocked(BlockReason::Stuck), step)) if step <= within),
+        "{end:?}: held by the hidden actor, the walker is blocked by step {within}"
+    );
+}

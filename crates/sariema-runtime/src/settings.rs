@@ -439,10 +439,14 @@ pub const DOCS: &[(&str, &str)] = &[
     ),
     (
         "physics.move_to.stuck_steps",
-        "Steps of too little progress before a scripted move is blocked.",
+        "Steps over which a scripted move's progress is measured; too little, and it is blocked.",
     ),
     (
         "physics.move_to.stuck_progress",
-        "Share of the expected travel below which progress is too little.",
+        "Share of the travel expected over stuck_steps below which progress is too little.",
+    ),
+    (
+        "physics.hidden_actors_block",
+        "Whether a hidden actor stays in other actors' way; off, it is in no one's way.",
     ),
 ];
