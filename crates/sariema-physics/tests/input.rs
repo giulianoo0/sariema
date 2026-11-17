@@ -139,7 +139,10 @@ fn facing_with_the_stick_held_keeps_the_speed_of_the_walk() {
         yaw: std::f32::consts::PI,
     });
     let q = hold(&mut world, id, Vec2::X, 2, &mut events);
-    for (k, after) in [(q[0] - p[19]).length(), (q[1] - q[0]).length()].into_iter().enumerate() {
+    for (k, after) in [(q[0] - p[19]).length(), (q[1] - q[0]).length()]
+        .into_iter()
+        .enumerate()
+    {
         assert!(
             (after - STEP).abs() < 1e-5,
             "facing stalled the walk at step {k}: {after} m, not {STEP}"
