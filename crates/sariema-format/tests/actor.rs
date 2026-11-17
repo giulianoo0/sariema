@@ -123,3 +123,35 @@ fn quantized_rotations_round_trip() {
     a.clips[0].channels[0].values = Values::QuatSnorm16(vec![[0, 0, 0, i16::MAX]; 3]);
     assert_eq!(decode(&encode(&a)).unwrap(), a);
 }
+
+#[test]
+fn a_version_1_pack_facing_plus_z_is_read_turned_half_a_turn() {
+    let actor = demo_arm();
+    let mut old = encode(&actor);
+    old[4..8].copy_from_slice(&1u32.to_le_bytes());
+    let mut turned = actor.clone();
+    sariema_format::actor::turn_half(&mut turned);
+    assert_eq!(decode(&old).unwrap(), turned);
+    assert_eq!(actor.joints[0].rest.rotation, [0.0, 0.0, 0.0, 1.0]);
+    assert_eq!(
+        turned.joints[0].rest.rotation,
+        [0.0, 1.0, 0.0, 0.0],
+        "its root turned half a turn about +Y"
+    );
+    let b = turned.bounds;
+    assert_eq!(
+        (b.min, b.max),
+        (
+            [
+                -actor.bounds.max[0],
+                actor.bounds.min[1],
+                -actor.bounds.max[2]
+            ],
+            [
+                -actor.bounds.min[0],
+                actor.bounds.max[1],
+                -actor.bounds.min[2]
+            ]
+        )
+    );
+}

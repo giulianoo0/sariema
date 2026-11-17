@@ -6,7 +6,8 @@
 //! A pack is the 4-byte [`MAGIC`], the [`VERSION`] as a little-endian `u32`,
 //! then a postcard body holding an [`ActorPack`]. Conventions are the room
 //! pack's: right-handed, Y up, metres, column-major matrices. An actor faces
-//! +Z, glTF's front, with its feet at y = 0.
+//! −Z, the way yaw 0 faces, with its feet at y = 0: a model whose front is
+//! glTF's +Z is turned half a turn about +Y ([`turn_half`]).
 
 use std::fmt;
 
@@ -19,7 +20,10 @@ pub mod demo;
 mod validate;
 
 pub const MAGIC: [u8; 4] = *b"SRMK";
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
+/// The oldest version [`decode`] reads. Version 1 faced +Z; it is read
+/// turned half a turn.
+pub const OLDEST_VERSION: u32 = 1;
 
 const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
@@ -245,7 +249,7 @@ impl fmt::Display for ActorPackError {
             }
             ActorPackError::Version { found } => write!(
                 f,
-                "actor pack version {found} is not supported (expected {VERSION})"
+                "actor pack version {found} is not supported (expected {OLDEST_VERSION} to {VERSION})"
             ),
             ActorPackError::Truncated => write!(f, "actor pack is truncated"),
             ActorPackError::Invalid(why) => write!(f, "actor pack is invalid: {why}"),
@@ -275,10 +279,10 @@ pub fn decode(bytes: &[u8]) -> Result<ActorPack, ActorPackError> {
         return Err(ActorPackError::Truncated);
     };
     let found = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
-    if found != VERSION {
+    if !(OLDEST_VERSION..=VERSION).contains(&found) {
         return Err(ActorPackError::Version { found });
     }
-    let (actor, rest) = postcard::take_from_bytes::<ActorPack>(body).map_err(|e| match e {
+    let (mut actor, rest) = postcard::take_from_bytes::<ActorPack>(body).map_err(|e| match e {
         postcard::Error::DeserializeUnexpectedEnd => ActorPackError::Truncated,
         other => ActorPackError::Invalid(other.to_string()),
     })?;
@@ -289,7 +293,46 @@ pub fn decode(bytes: &[u8]) -> Result<ActorPack, ActorPackError> {
         )));
     }
     validate(&actor).map_err(ActorPackError::Invalid)?;
+    if found == 1 {
+        turn_half(&mut actor);
+    }
     Ok(actor)
+}
+
+/// Turns the actor half a turn about +Y: its root joints at rest and in
+/// every clip, and its bounds. Every joint, socket and vertex turns with
+/// them, since each hangs from a root joint.
+pub fn turn_half(actor: &mut ActorPack) {
+    let turn = |t: [f32; 3]| [-t[0], t[1], -t[2]];
+    // The quaternion [0, 1, 0, 0] times [x, y, z, w].
+    let spin = |[x, y, z, w]: [f32; 4]| [z, w, -x, -y];
+    let spin16 = |[x, y, z, w]: [i16; 4]| [z, w, x.saturating_neg(), y.saturating_neg()];
+    let around = |b: &Aabb| Aabb {
+        min: [-b.max[0], b.min[1], -b.max[2]],
+        max: [-b.min[0], b.max[1], -b.min[2]],
+    };
+    let roots: Vec<bool> = actor.joints.iter().map(|j| j.parent.is_none()).collect();
+    for joint in actor.joints.iter_mut().filter(|j| j.parent.is_none()) {
+        joint.rest.translation = turn(joint.rest.translation);
+        joint.rest.rotation = spin(joint.rest.rotation);
+    }
+    for clip in &mut actor.clips {
+        clip.bounds = around(&clip.bounds);
+        let at_root = |c: &&mut Channel| roots.get(c.joint as usize) == Some(&true);
+        for channel in clip.channels.iter_mut().filter(at_root) {
+            match (channel.property, &mut channel.values) {
+                (Property::Translation, Values::Vec3(v)) => {
+                    v.iter_mut().for_each(|t| *t = turn(*t))
+                }
+                (Property::Rotation, Values::Quat(q)) => q.iter_mut().for_each(|r| *r = spin(*r)),
+                (Property::Rotation, Values::QuatSnorm16(q)) => {
+                    q.iter_mut().for_each(|r| *r = spin16(*r))
+                }
+                _ => {}
+            }
+        }
+    }
+    actor.bounds = around(&actor.bounds);
 }
 
 /// Every index points at something that exists, joints come after their

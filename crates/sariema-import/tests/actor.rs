@@ -224,7 +224,9 @@ fn imports_joints_parents_first_with_their_bind_pose() {
     assert_eq!(names, ["shoulder", "elbow", "wrist"]);
     let parents: Vec<Option<u32>> = pack.joints.iter().map(|j| j.parent).collect();
     assert_eq!(parents, [None, Some(0), Some(1)]);
-    assert_eq!(pack.joints, demo_arm().joints);
+    let mut turned = demo_arm();
+    sariema_format::actor::turn_half(&mut turned);
+    assert_eq!(pack.joints, turned.joints, "the glTF arm, facing −Z");
 }
 
 #[test]
@@ -278,7 +280,8 @@ fn imported_clips_animate_like_the_source() {
     rig.sample(rig.clip("wave").unwrap(), 0.4, &mut pose);
     assert!((pose[2].scale - Vec3::splat(1.5)).abs().max_element() < 1e-6);
     rig.sample(rig.clip("turn").unwrap(), 0.5, &mut pose);
-    let half = Quat::from_rotation_y(45f32.to_radians());
+    // 45° of the source, after the half turn that makes the model face −Z.
+    let half = Quat::from_rotation_y(225f32.to_radians());
     assert!(
         pose[0].rotation.angle_between(half).to_degrees() < 0.05,
         "{}",
@@ -433,10 +436,14 @@ fn every_clip_has_bounds_around_its_motion() {
     let pack = build(&arm_glb("bounds.glb"), json!({}));
     let bend = &pack.clips[0].bounds;
     // The hand's far corner, 0.9 m up and 0.1 m aside from the elbow, reaches
-    // furthest along −X, sqrt(0.82) m, at atan(9) ≈ 83.7°.
-    assert!((bend.min[0] + 0.82f32.sqrt()).abs() < 0.003, "{bend:?}");
+    // furthest along the source's −X, sqrt(0.82) m, at atan(9) ≈ 83.7°: +X
+    // once the model is turned to face −Z.
+    assert!((bend.max[0] - 0.82f32.sqrt()).abs() < 0.003, "{bend:?}");
     let wave = &pack.clips[1].bounds;
-    assert!(wave.max[2] > 0.25, "the wrist waves towards +Z: {wave:?}");
+    assert!(
+        wave.min[2] < -0.25,
+        "the wrist waves towards the front, −Z: {wave:?}"
+    );
     for clip in &pack.clips {
         for k in 0..3 {
             assert!(

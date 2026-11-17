@@ -284,6 +284,7 @@ pub fn build_actor(source: &ActorSource, assets_root: &Path) -> Result<ActorPack
             max: [0.0; 3],
         },
     };
+    sariema_format::actor::turn_half(&mut pack);
     finish::measure(&mut pack, source)?;
     Ok(pack)
 }

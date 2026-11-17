@@ -88,6 +88,15 @@ and listed in the project file under `actors`:
   a transform is an error. Nodes above the root joint (an `Armature` with a
   scale, a gltfpack dequantisation node) are folded into the root joint when
   their scale is uniform, and refused otherwise.
+- The model is turned half a turn about +Y: glTF's front is +Z, and an
+  actor at yaw 0 faces −Z (north), as the runtime, the camera and the
+  collision module have it. The turn goes into the root joints, at rest
+  and in every clip, so the mesh and everything placed on a joint or socket
+  (a held node, a carried light, a camera anchor, an effect) face the way
+  the yaw says. A socket's offset and a direction given in a socket's frame
+  stay in the model's own terms: +Z there is still the model's front, which
+  the actor's yaw turns to −Z. Actor packs of version 1, which faced +Z, are
+  read turned the same way.
 - A mesh that is not skinned but sits under a joint becomes a rigid part of
   that joint. A mesh that is neither is an error.
 - Parts are named by the node name before `__` (`body__MI_body` is part
