@@ -47,12 +47,12 @@ step, in id order, and appends events to a buffer the caller owns.
 
 | Intent | Effect |
 |---|---|
-| `Move { stick }` | Stick input on the ground plane; stays until replaced, or until a `MoveTo` starts or arrives. |
+| `Move { stick }` | Stick input on the ground plane; stays until replaced, or until a `MoveTo` starts or ends. |
 | `MoveTo { target, face }` | Walk along a searched path, with collision, then turn to `face`. |
 | `Stop` | Drop the stick and any scripted move. |
 | `Knockback { push, steps }` | Push over `steps` steps, fastest first; input ignored meanwhile. |
-| `Teleport { position, yaw }` | Place, then push out of overlaps; rejected if that fails. |
-| `Pose { position, yaw }` | Place exactly, collider off, for a traversal: no collision, gravity or pushing until the next `Move`, `MoveTo`, `Stop`, `Knockback` or `Teleport`. |
+| `Teleport { position, yaw }` | Place, then push out of overlaps; rejected if that fails. Keeps the stick on purpose: a player teleported with the stick held walks on. |
+| `Pose { position, yaw }` | Place exactly, collider off, for a traversal: no collision, gravity or pushing until the next `Move`, `MoveTo`, `Stop`, `Knockback` or `Teleport`. Keeps the stick on purpose, for after the pose. |
 | `SetColliderEnabled` | Enable or disable a collider. Actors inside a collider being enabled are pushed out of it at the next step, or it stays disabled. |
 | `SetSpeedScale` | Multiply the walk speed. |
 | `Face { yaw }` | Turn towards `yaw`. With nothing driving the actor (no route, the stick in its dead zone) it turns in place, dropping the speed left from a walk so it does not slide; a walk under way keeps its speed, and walking turns towards where the actor goes instead. |
@@ -174,10 +174,13 @@ nothing ever snaps through geometry. It emits `Arrived` within
 Reaching the target drops the walk's speed, so with acceleration the actor
 stops on its mark rather than easing past it, and a `Face` sent as it
 arrives turns it there. A `MoveTo` drops the stick when it starts, and
-arriving drops any stick given meanwhile, so nothing drives the actor
-once it stands on its mark: a `Face` only turns it. With `accel_steps` above 0 this changes the
-`physics_hash` after an arrival compared with builds that let the actor
-ease past the mark, so replays recorded on those builds need recording again.
+its end, `Arrived` or `Blocked`, drops any stick given meanwhile, so
+nothing drives the actor once the walk is over: a `Face` only turns it.
+With `accel_steps` above 0 this changes the `physics_hash` after an
+arrival compared with builds that let the actor ease past the mark. Both
+this and the engine letting go of the stick when the hero is taken from
+the player change `physics_hash` and the replays of games that walked the
+player into a script walk, and those replays need recording again.
 
 ### Traversals and intended contact
 

@@ -342,7 +342,9 @@ The hero (`set_hero`) is driven natively by the move axis while the player
 has control, relative to the camera's view when `motion.camera_relative` is
 on. `control` hands the hero to the player, the script or a cutscene; a
 hero taken from the player lets go of the move axis, so it comes to rest
-unless the script walks it.
+unless the script walks it. This and a walk's end dropping the stick
+change `physics_hash` and the replays of games that walked the player
+into a script walk, and those replays need recording again.
 
 Input is recorded as the steps at which actions changed
 (`schemas/input-log.schema.json`):

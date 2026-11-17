@@ -173,7 +173,7 @@ the longest in the line's node, and lays the HUD out; a resize lays it out
 at once rather than in the next step.
 
 The climb, replayed over its input log and as long again with no input,
-allocates in 18 of its 1,200 steps, 129 times, all before step 600; every
+allocates in 18 of its 1,200 steps, 97 times, all before step 600; every
 host makes the same counts at the same steps
 (`crates/sariema-cli/tests/climb-allocations.json`, checked natively by
 `cargo test -p sariema-cli --test allocations` and in every browser by
@@ -181,11 +181,16 @@ the web package's tests):
 
 | Steps | Allocations | Where |
 |---|---|---|
-| 0 | 74 | the hero spawns: its body's walkable grid (the collision module builds it for an actor, so not before one exists), the world's and the logic's first buffers |
+| 0 | 42 | the hero spawns: its body's walkable grid (the collision module builds it for an actor, so not before one exists), the world's and the logic's first buffers |
 | 186 | 12 | the cutscene starts: its run state and the hero's planned walk |
-| 340 | 20 | the cutscene's line shows: taffy lays the HUD out (15), the runtime keeps the line and the block's state (5) |
-| 214, 243, 436, 460 | 1 each | a cutscene block starts: its boxed state |
-| 20, 30, 31, 50, 65, 66, 98, 185, 213, 259, 266 | 19 | a buffer of the runtime, the collision world or the logic's host grows to a size it had not reached |
+| 341 | 20 | the cutscene's line shows: taffy lays the HUD out (15), the runtime keeps the line and the block's state (5) |
+| 214, 244, 437, 461 | 1 each | a cutscene block starts: its boxed state |
+| 20, 30, 31, 50, 65, 66, 98, 185, 213, 245, 267 | 19 | a buffer of the runtime, the collision world or the logic's host grows to a size it had not reached |
+
+The cutscene's second walk arrives one step later than it used to (244, not
+243): the hero no longer carries the stick the player held into the
+cutscene's trigger, which took it a step further at each arrival, so every
+step after it moved by one.
 
 The audio feed runs between steps. The music's stream decoder (symphonia)
 allocates for every packet it reads: a frame's bytes and its bit
@@ -270,6 +275,11 @@ release and wasm32. The web package's browser tests (`npm test` in
 the hashes `sariema run --headless --game` prints. `audio_hash` covers the mixed samples and is
 repeatable with one build, not across builds: the mixer's arithmetic is left
 to the compiler.
+
+A change to the simulation changes the hashes, and replays recorded before
+it need recording again. The latest: a walk's end and a hero taken from
+the player now drop the stick (`docs/physics.md`, scripted moves;
+`docs/game-api.md`, `control`).
 
 ## Hosts
 
