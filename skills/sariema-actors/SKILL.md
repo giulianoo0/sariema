@@ -116,7 +116,7 @@ own colours under a coloured lamp; 1 is the room's colour as it is.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `--face` has no effect | the clip has a face track for that face, which wins | pick a clip without one, or change `clip_faces` |
-| actor seen from behind | the model faces −Z or +Z | turn it with the yaw, 180 |
+| actor seen from behind at yaw 0 under the room camera | that is right: yaw 0 faces −Z, away from a camera looking north; the importer turns glTF's +Z front to it | turn it with the yaw, 180, to see its face; a model exported facing −Z faces backwards: export it facing +Z, as glTF asks |
 | E_ACTOR_NAME | a name the model lacks; the message lists those it has | copy the name from the list |
 | huge disc shadow or culling box | a clip (a fall) moves far; bounds hold every clip | expected; the disc comes from the bind pose height |
 | no shadow from an actor | `Quality::actor_shadow_slots` is 0 or the room has no shadowed light reaching it | a disc is drawn instead; raise the setting |
