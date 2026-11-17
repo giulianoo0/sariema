@@ -173,7 +173,9 @@ nothing ever snaps through geometry. It emits `Arrived` within
 `stuck_steps` steps of less than `stuck_progress` of the expected travel.
 Reaching the target drops the walk's speed, so with acceleration the actor
 stops on its mark rather than easing past it, and a `Face` sent as it
-arrives turns it there.
+arrives turns it there. With `accel_steps` above 0 this changes the
+`physics_hash` after an arrival compared with builds that let the actor
+ease past the mark, so replays recorded on those builds need recording again.
 
 ### Traversals and intended contact
 
@@ -471,7 +473,7 @@ it feels.
 | `controller.stick_dead_zone` | 0.15 | Deflection that moves nothing. |
 | `controller.stick_full` | 0.7 | Deflection that gives full speed. |
 | `controller.stick_exponent` | 1.0 | Speed curve between the two; 1 is linear. |
-| `controller.accel_steps` | 0 | Steps to full speed and to stop; 0 is instant. |
+| `controller.accel_steps` | 0 | Steps to full speed and to stop; 0 is instant. A `MoveTo` that arrives stops at once. |
 | `controller.yaw_rate` | 14 /s | Facing closes `1 − e^(−rate·dt)` of the remaining angle per step. |
 | `controller.yaw_filter` | 0.1 rad | Smaller changes of the wanted facing are ignored. |
 | `controller.max_yaw_speed` | infinite | Radians per second an actor turns at most; the engine sets it to the runtime's `motion.turn_rate`, so no turn is fast enough to count as a jump, and an actor's own `set_turn_rate` overrides it for that actor. |
