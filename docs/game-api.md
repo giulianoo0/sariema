@@ -340,7 +340,9 @@ clears the buffer.
 
 The hero (`set_hero`) is driven natively by the move axis while the player
 has control, relative to the camera's view when `motion.camera_relative` is
-on. `control` hands the hero to the player, the script or a cutscene.
+on. `control` hands the hero to the player, the script or a cutscene; a
+hero taken from the player lets go of the move axis, so it comes to rest
+unless the script walks it.
 
 Input is recorded as the steps at which actions changed
 (`schemas/input-log.schema.json`):

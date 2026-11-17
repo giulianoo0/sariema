@@ -692,10 +692,18 @@ impl Physics {
         });
     }
 
-    /// The player's hero walks where the runtime's control points it.
+    /// The player's hero walks where the runtime's control points it; one
+    /// handed to anything else lets go of the player's stick.
     fn drive_hero(&mut self, s: &State) {
         let hero = s.control.hero;
-        if s.control.by != Controller::Player || self.traversing(hero) {
+        if self.traversing(hero) {
+            return;
+        }
+        if s.control.by != Controller::Player {
+            let idle = matches!(s.motion.get(hero).map(|m| m.goal), Some(Goal::Idle) | None);
+            if idle && self.mapped(hero).is_some_and(|m| m.speed > 0.0) {
+                self.velocity(s, hero, Vec3::ZERO);
+            }
             return;
         }
         let velocity = match s.motion.get(hero).map(|m| m.goal) {

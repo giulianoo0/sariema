@@ -147,3 +147,66 @@ fn a_face_some_steps_after_arriving_only_turns_the_actor() {
     }
     assert!(failed.is_empty(), "{failed:#?}");
 }
+
+#[test]
+fn a_hero_the_script_takes_from_a_walking_player_comes_to_rest() {
+    let logic = native(move |n, _, out| match n {
+        0 => {
+            send(
+                out,
+                Command::Spawn {
+                    entity: entity(0),
+                    kind: Kind::Actor,
+                    asset: name_id("hero"),
+                },
+            );
+            send(
+                out,
+                Command::SetTransform {
+                    entity: entity(0),
+                    position: [0.6, 0.0, -5.0],
+                    yaw: 0.0,
+                },
+            );
+            send(
+                out,
+                Command::SetHero {
+                    entity: entity(0),
+                    speed: 1.0,
+                },
+            );
+            send(
+                out,
+                Command::Control {
+                    by: Controller::Player,
+                },
+            );
+        }
+        WALK => send(
+            out,
+            Command::Control {
+                by: Controller::Script,
+            },
+        ),
+        _ => {}
+    });
+    let mut settings = wired();
+    settings.physics.controller.accel_steps = 6;
+    let sim = Simulation::new(settings, Vec::new(), logic, 1);
+    let mut engine = Engine::new(sim, assets(), EngineSettings::default()).unwrap();
+    let mut actions = Actions::for_settings(&engine.state().settings.input);
+    let mut trace = Vec::new();
+    for n in 0..WALK + 60 {
+        actions.axes[0] = if n < WALK { Vec2::X } else { Vec2::ZERO };
+        engine.step(&actions);
+        trace.push(engine.state().world.node(entity(0)).unwrap().local.position);
+    }
+    let walked = trace[WALK as usize - 2].x - trace[0].x;
+    assert!(walked > 0.3, "the player walks the hero first: {walked} m");
+    let (a, b) = (trace[trace.len() - 2], trace[trace.len() - 1]);
+    let still = (b - a).length();
+    assert!(
+        still < 1e-6,
+        "still walking {still} m a step under the script"
+    );
+}
