@@ -23,10 +23,12 @@ enum Ending {
     Stopped,
     /// `face` the step `arrived` comes.
     Arrived,
+    /// `face` at step 40, still walking.
+    Walking,
 }
 
-/// The hero's place and yaw from the step before the one `face` is sent at.
-fn turned(ending: Ending) -> Vec<(Vec3, f32)> {
+/// The hero's place and yaw at every step, and the step `face` is sent at.
+fn walked(ending: Ending) -> (Vec<(Vec3, f32)>, usize) {
     let faced = std::rc::Rc::new(std::cell::Cell::new(None));
     let at = faced.clone();
     let logic = native(move |n, events, out| {
@@ -81,6 +83,7 @@ fn turned(ending: Ending) -> Vec<(Vec3, f32)> {
                 send(out, Command::Stop { entity: entity(0) })
             }
             41 if matches!(ending, Ending::Stopped) => face(out),
+            40 if matches!(ending, Ending::Walking) => face(out),
             _ if matches!(ending, Ending::Arrived)
                 && events.iter().any(|e| matches!(e, Event::Arrived { .. })) =>
             {
@@ -106,6 +109,12 @@ fn turned(ending: Ending) -> Vec<(Vec3, f32)> {
             trace.last()
         )
     }) as usize;
+    (trace, faced)
+}
+
+/// The hero's place and yaw from the step before the one `face` is sent at.
+fn turned(ending: Ending) -> Vec<(Vec3, f32)> {
+    let (mut trace, faced) = walked(ending);
     trace.split_off(faced - 1)
 }
 
@@ -124,6 +133,24 @@ fn a_face_after_a_walk_turns_in_place_at_the_turn_rate() {
         assert!(
             to(first) > 30.0,
             "{ending:?}: it turned over time, not at once: {first}"
+        );
+    }
+}
+
+#[test]
+fn a_face_while_walking_somewhere_keeps_its_speed() {
+    let (trace, faced) = walked(Ending::Walking);
+    let step = |k: usize| {
+        let (a, b) = (trace[k].0, trace[k + 1].0);
+        Vec3::new(b.x - a.x, 0.0, b.z - a.z).length()
+    };
+    let before = step(faced - 4);
+    assert!(before > 0.02, "it walks before the face: {before} m a step");
+    for k in faced - 3..faced + 4 {
+        let after = step(k);
+        assert!(
+            (after - before).abs() < 1e-4,
+            "the face stalled the walk at step {k}: {after} m, not {before}"
         );
     }
 }

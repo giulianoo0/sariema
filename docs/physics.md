@@ -55,7 +55,7 @@ step, in id order, and appends events to a buffer the caller owns.
 | `Pose { position, yaw }` | Place exactly, collider off, for a traversal: no collision, gravity or pushing until the next `Move`, `MoveTo`, `Stop`, `Knockback` or `Teleport`. |
 | `SetColliderEnabled` | Enable or disable a collider. Actors inside a collider being enabled are pushed out of it at the next step, or it stays disabled. |
 | `SetSpeedScale` | Multiply the walk speed. |
-| `Face { yaw }` | Turn in place towards `yaw`, dropping the speed left from a walk so the actor does not slide while it turns; walking turns towards where the actor goes instead. |
+| `Face { yaw }` | Turn towards `yaw`. With nothing driving the actor (no route, the stick in its dead zone) it turns in place, dropping the speed left from a walk so it does not slide; a walk under way keeps its speed, and walking turns towards where the actor goes instead. |
 | `SetSolid { solid }` | Off, the actor is in no other actor's way: they neither push it nor are pushed by it, and hinged platforms turn through it; it still walks on floors, stops at walls and enters triggers. The engine sends it for `set_collider` on an actor. |
 | `SetMaxYawSpeed { speed }` | Radians per second this actor turns at most, in place of `controller.max_yaw_speed`; `None` gives it the setting back. The engine sends it for `set_turn_rate`. |
 

@@ -116,6 +116,9 @@ struct Actor {
     max_yaw_speed: Option<f32>,
     /// Off: in no other actor's way ([`Intent::SetSolid`]).
     solid: bool,
+    /// Told to [`Intent::Face`]: the next step drops the speed left from a
+    /// walk if nothing drives the actor.
+    facing: bool,
 }
 
 /// A walkable grid being built a share at a time, by
@@ -299,6 +302,7 @@ impl World {
             active: true,
             max_yaw_speed: None,
             solid: true,
+            facing: false,
         };
         actor.ground = self.standing_on(&actor, desc.position, desc.yaw);
         self.actors.push(actor);
@@ -608,7 +612,7 @@ impl World {
             Intent::Face { actor, yaw } => {
                 let a = &mut self.actors[actor.0 as usize];
                 a.target_yaw = wrap_angle(yaw);
-                a.velocity = Vec3::ZERO;
+                a.facing = true;
                 a.awake = true;
             }
             Intent::SetMaxYawSpeed { actor, speed } => {
@@ -791,6 +795,10 @@ impl World {
         }
 
         let desired = self.desired_velocity(i);
+        let a = &mut self.actors[i];
+        if std::mem::take(&mut a.facing) && desired == Vec3::ZERO {
+            a.velocity = Vec3::ZERO;
+        }
         let a = &self.actors[i];
         let c = &self.settings.controller;
         let velocity = match (a.knockback.is_some(), c.accel_steps) {
