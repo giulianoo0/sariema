@@ -145,6 +145,9 @@ pub struct Traversal {
     /// movement command, instead of landing it there: the end need not be
     /// free floor.
     pub hold_end: bool,
+    /// The [`Ease`](crate::script::Ease) that times the distance along the
+    /// points; a timing curve ([`Ease::is_timing`](crate::script::Ease::is_timing)).
+    pub ease: u8,
 }
 
 /// A point of an actor's pose that rests on a surface by design, like a foot
@@ -442,6 +445,9 @@ fn validate(pack: &CollisionPack) -> Result<(), CollisionError> {
             return Err(fail(
                 "needs at least one point, and finite points, yaw and contacts".into(),
             ));
+        }
+        if !crate::script::Ease::from_u8(t.ease).is_some_and(crate::script::Ease::is_timing) {
+            return Err(fail(format!("ease {} is not a timing curve", t.ease)));
         }
         unique("contacts", t.contacts.iter().map(|c| c.name.as_str())).map_err(fail)?;
     }

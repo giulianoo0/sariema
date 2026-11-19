@@ -78,6 +78,7 @@ fn room() -> RoomAssets {
         yaw: 0.0,
         contacts: Vec::new(),
         hold_end,
+        ease: 0,
     };
     pack.traversals = vec![rope("rope", true), rope("rope_down", false)];
     RoomAssets::collision("rig", pack)

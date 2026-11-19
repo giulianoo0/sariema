@@ -16,13 +16,14 @@ use sariema_core::STEP_SECONDS;
 use sariema_format::collision::{CollisionPack, Traversal};
 use sariema_format::script::ray::{RAY_HIT, RAY_INVALID, RAY_MISS, Ray, RayHit};
 use sariema_format::script::{
-    Anchor, BlockReason, Command, Controller, Entity, Event, Kind, Property, name_id,
+    Anchor, BlockReason, Command, Controller, Ease, Entity, Event, Kind, Property, name_id,
 };
 use sariema_physics::{
     ActorCollider, ActorDesc, ActorId, BlockReason as PhysicsBlock, ColliderId, EventKind, Intent,
     RayFilter, RayTarget, Settings as PhysicsSettings, World, WorldBuild, actor_collider,
     hinge_turned, wrap_angle,
 };
+use sariema_runtime::ease::ease;
 use sariema_runtime::events::Happening;
 use sariema_runtime::motion::Goal;
 use sariema_runtime::outbox::PhysicsIntent;
@@ -73,6 +74,8 @@ struct Traversing {
     done: u32,
     /// Held at the last point instead of landing there.
     hold_end: bool,
+    /// Times the distance along `path`.
+    ease: Ease,
 }
 
 impl Traversing {
@@ -86,6 +89,7 @@ impl Traversing {
             steps: 0,
             done: 0,
             hold_end: false,
+            ease: Ease::Linear,
         }
     }
 }
@@ -841,8 +845,8 @@ impl Physics {
         }
     }
 
-    /// Each traversal's pose for this step: along its points, eased onto
-    /// each contact so that the actor's socket or bone of that name (its
+    /// Each traversal's pose for this step: along its points as far as its
+    /// timing curve has come, eased onto each contact so that the actor's socket or bone of that name (its
     /// feet when it has neither) lands on it, and turning to the
     /// traversal's facing no faster than the runtime's turn rate.
     fn traverse(&mut self, s: &State, anim: &mut Animation) {
@@ -856,7 +860,7 @@ impl Physics {
                 continue;
             };
             t.done = (t.done + 1).min(t.steps);
-            let f = t.done as f32 / t.steps as f32;
+            let f = ease(t.ease, t.done as f32 / t.steps as f32);
             let total = t.along[t.along.len() - 1];
             let mut at = point_along(&t.path, &t.along, f * total);
             let max_turn = m.turn_rate.map_or(self.max_turn, |r| r * STEP_SECONDS);
@@ -1031,6 +1035,7 @@ fn traversing(run: &mut Traversing, entity: Entity, t: &Traversal, start: Vec3, 
     run.steps = (duration / STEP_SECONDS).round().max(1.0) as u32;
     run.done = 0;
     run.hold_end = t.hold_end;
+    run.ease = Ease::from_u8(t.ease).unwrap_or(Ease::Linear);
 }
 
 /// The arc length at which `path` passes nearest to `point`.

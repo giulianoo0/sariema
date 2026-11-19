@@ -18,6 +18,7 @@ use std::path::Path;
 use glam::{Mat3, Mat4, Vec3};
 use meshopt::SimplifyOptions;
 use sariema_format::collision::{self as pack, CollisionPack};
+use sariema_format::script::Ease;
 use sariema_format::{Aabb, AlphaMode, Material};
 use sariema_physics::{
     ActorCollider, ColliderDesc, LocalBounds, Settings, Shape, World, convex_hull, yaw_matrix,
@@ -187,6 +188,10 @@ pub struct TraversalSource {
     /// Held at the last point instead of landing on free floor there.
     #[serde(default)]
     pub hold_end: bool,
+    /// The curve that times the distance along the points; linear when
+    /// absent.
+    #[serde(default)]
+    pub ease: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -368,6 +373,7 @@ pub fn build_collision(
                     })
                     .collect(),
                 hold_end: t.hold_end,
+                ease: timing(&t.name, t.ease.as_deref())? as u8,
             })
         })
         .collect::<Result<_, String>>()
@@ -672,6 +678,18 @@ fn actor_body(source: &ActorSource) -> Result<pack::ActorBody, String> {
             min: b.min,
             max: b.max,
         }),
+    })
+}
+
+/// The timing curve named `name` for traversal `traversal`; linear for none.
+fn timing(traversal: &str, name: Option<&str>) -> Result<Ease, String> {
+    let Some(name) = name else {
+        return Ok(Ease::Linear);
+    };
+    Ease::from_name(name).filter(|e| e.is_timing()).ok_or_else(|| {
+        format!(
+            "traversal {traversal}: ease {name} is not a timing curve (linear, in_quad, out_quad, in_out_quad, in_cubic, out_cubic, in_out_cubic, in_quart, out_quart, in_out_quart, smoothstep)"
+        )
     })
 }
 

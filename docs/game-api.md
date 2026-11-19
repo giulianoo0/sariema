@@ -451,10 +451,11 @@ without `--headless` the pack plays in a window.
   itself; a collision module takes the same intents
   ([the engine](engine.md) wires `sariema-physics` in when the room has a
   collision pack). `traverse` carries an actor along one of the room's
-  declared traversals, collider off, and ends with `arrived`; without a
-  collision module it ends at once with `blocked`. A traversal that
-  declares `hold_end` leaves the actor held at its last point (see
-  "Held ends").
+  declared traversals, collider off, over `duration` seconds timed by
+  the traversal's `ease` ([physics](physics.md#traversals-and-intended-contact)),
+  and ends with `arrived`; without a collision module it ends at once
+  with `blocked`. A traversal that declares `hold_end` leaves the actor
+  held at its last point (see "Held ends").
 - **Held ends**: a kinematic move can end with the actor held where it
   stops instead of landing: a `traverse` whose traversal declares
   `hold_end`, a `clip_path` with `hold_end`, a cutscene `path` step with

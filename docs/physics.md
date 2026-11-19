@@ -234,9 +234,9 @@ body over geometry it could never walk through. They follow five rules.
    way instead of pushing it (see "Hinged leaves").
 
 A room declares a traversal's geometry under `collision.traversals`, so
-`check` can prove it. The clip timing (which points the clip reaches at
-which time, easing and speed) belongs to the timeline that plays the clip,
-not to the collision pack. The fixture below is in
+`check` can prove it, and the curve that times the body along it. How long
+it takes is the `traverse` command's; which points the clip reaches at
+which time belongs to the timeline that plays the clip. The fixture below is in
 `examples/collision/rooms/sill.json`: an opening whose sill is 0.9 m high,
 climbed from the spot `start` to free floor on the far side, with a foot
 resting on the sill on the way.
@@ -261,6 +261,16 @@ resting on the sill on the way.
   purpose.
 - `hold_end`: holds the actor at the last point instead of landing it
   there (rule 2); `false` when absent.
+- `ease`: the curve that maps the time of the traversal, from 0 to 1, to
+  the distance along its points, from 0 to 1: `linear` when absent, or
+  `in_quad`, `out_quad`, `in_out_quad`, `in_cubic`, `out_cubic`,
+  `in_out_cubic`, `in_quart`, `out_quart`, `in_out_quart` or
+  `smoothstep`. A slide down a root that eases in and out, or one that
+  speeds up (`in_quad`), ends on the same step and at the same point as
+  the linear one. These are the curves that are polynomials, products and
+  sums of the time only, so every platform and every replay rate gives the
+  same bits, and that never go back along the way; the sine, expo and back
+  curves a tween may use are refused (`E_SCHEMA`).
 
 `check` reports three problems:
 
@@ -679,3 +689,14 @@ room with 135 colliders in 0.2 s.
   scene parameter. Godot's body moves whatever is in its way; a leaf here
   stops short of an actor and tells the game, because a scripted door
   must never shove the hero into a wall.
+- **Timing curves.** Godot's `Tween` pairs a transition (`TRANS_QUAD`,
+  `TRANS_CUBIC`, `TRANS_QUART`, `TRANS_SINE`, `TRANS_EXPO`, `TRANS_BACK`…)
+  with an ease (`EASE_IN`, `EASE_OUT`, `EASE_IN_OUT`); CSS offers named
+  curves and `cubic-bezier(x1, y1, x2, y2)`, whose time must be solved for
+  each sample; Unity's `AnimationCurve` is a list of Hermite keys. A
+  traversal takes Godot's polynomial transitions and smoothstep by name,
+  which need no data beyond a byte and no solving, and leaves out the
+  transcendental transitions, whose bits depend on a `libm`, and the
+  overshooting ones, which would carry the body back along its way. A
+  Bézier, with its four numbers and a fixed number of solving iterations,
+  can join them as data when a scene needs a shape the presets lack.

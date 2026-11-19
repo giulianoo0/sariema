@@ -398,6 +398,20 @@ fn a_traversal_that_holds_its_end_may_end_inside_the_sill_or_in_the_air() {
 }
 
 #[test]
+fn a_traversal_is_timed_by_a_polynomial_curve_that_never_goes_back() {
+    for (ease, passes) in [
+        ("in_out_cubic", true),
+        ("in_sine", false),
+        ("out_back", false),
+    ] {
+        let tmp = TempDir::new().unwrap();
+        let dir = project_with(&tmp, sill_with(|t| t["ease"] = json!(ease)));
+        let (code, out) = sariema(&["check", arg(&dir), "--room", "hall"]);
+        assert_eq!(code == 0, passes, "{ease}: {out}");
+    }
+}
+
+#[test]
 fn a_contact_off_the_sill_or_sunk_into_it_fails() {
     for (at, says) in [
         ([3.5, 1.2, -3.2], "is not within 0.02 m of a surface"),

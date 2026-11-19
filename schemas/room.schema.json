@@ -376,6 +376,10 @@
         "hold_end": {
           "type": "boolean",
           "description": "Holds the actor at the last point, collider off, with no gravity and no push-out, until its next movement command, instead of landing it there; the end need not be free floor. false when absent."
+        },
+        "ease": {
+          "enum": ["linear", "in_quad", "out_quad", "in_out_quad", "in_cubic", "out_cubic", "in_out_cubic", "in_quart", "out_quart", "in_out_quart", "smoothstep"],
+          "description": "The curve that times the distance along the points over the traverse's duration: polynomial, so the same on every platform, and never going back. linear when absent."
         }
       }
     },

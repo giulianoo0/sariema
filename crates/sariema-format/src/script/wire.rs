@@ -515,6 +515,17 @@ wire_enum! {
     }
 }
 
+impl Ease {
+    /// Whether the curve may time a distance along a path: a polynomial,
+    /// so the same bits on every platform, that never goes back. The
+    /// linear, quad, cubic and quart curves and smoothstep are; the sine
+    /// and expo ones need transcendental functions and the back ones
+    /// overshoot.
+    pub const fn is_timing(self) -> bool {
+        (self as u8) <= Ease::InOutQuart as u8 || matches!(self, Ease::Smoothstep)
+    }
+}
+
 wire_enum! {
     /// A numeric property a tween or spring drives. `var` selects the world
     /// variable for `Var` and is ignored otherwise.
