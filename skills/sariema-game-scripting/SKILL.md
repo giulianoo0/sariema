@@ -1,6 +1,6 @@
 ---
 name: sariema-game-scripting
-description: Use when writing or fixing the Rust logic of a Sariema game with sariema-sdk — spawning entities, reacting to events, moving the hero, timers, saves, input presses, opening doors, changing a room's light, sun, hemisphere, fog or look while playing — or when a run reports E_GAME_TRAP, E_GAME_BUDGET, E_GAME_MEMORY, a rejected event such as E_ENTITY_STALE, E_TELEPORT_VISIBLE, E_SCENE_UNKNOWN or E_SCENE_VALUES, or hashes that differ between runs.
+description: Use when writing or fixing the Rust logic of a Sariema game with sariema-sdk — spawning entities, reacting to events, moving the hero, telling why a walk was blocked, casting a ray against the room, timers, saves, input presses, opening doors, changing a room's light, sun, hemisphere, fog or look while playing — or when a run reports E_GAME_TRAP, E_GAME_BUDGET, E_GAME_MEMORY, E_BATCH_VERSION, a rejected event such as E_ENTITY_STALE, E_TELEPORT_VISIBLE, E_SCENE_UNKNOWN or E_SCENE_VALUES, or hashes that differ between runs.
 ---
 
 # Sariema game scripting
@@ -56,14 +56,16 @@ game!(Hello);
 | Want | Send / read |
 |---|---|
 | a new entity | `ctx.spawn(kind, asset)`; place it in the same tick with `set_transform` |
+| no allocation when spawning | `ctx.reserve_entities(count)` in `Game::new`, with the most entities alive at once |
 | the player to walk it | `SetHero { entity, speed }`; the move axis drives it natively |
 | a place on the floor to report who stands in it | `ZoneCylinder { zone, center, radius, height }` (centre halfway up, feet within the radius and the height; a size below 0 is `E_ZONE_SIZE`), then `Event::TriggerEnter`/`TriggerExit`; `Zone` is a sphere, which bulges at mid-height |
-| walk somewhere | `MoveTo { entity, target, speed }`, then `Event::Arrived` |
+| walk somewhere | `MoveTo { entity, target, speed }`, then `Event::Arrived`, or `Event::Blocked { entity, reason }`: `NoPath` (no way there), `Stuck` (held back on the way), `Stopped` (something else ended it), `Unavailable` (a traversal the room lacks) |
+| what lies along a line: which side of the hero is free, what a look hits | `ctx.ray(&Ray { origin, dir, max, colliders: true, actors: true, exclude: hero })` → `Ok(Some(RayHit { distance, point, normal, entity, collider }))`, `Ok(None)` for a miss; it sees the room as the step began, before this tick's commands; `vm.rays_per_step` (256) a tick, then `Err(RayRefused::OverBudget)`. `TestHost::ray_hit` answers it in tests |
 | a hidden actor out of the way | `SetCollider { entity: actor, enabled: false }`: others walk through it and doors swing through it; it still walks with collision. Hiding (`SetVisible`) alone leaves its body in the way |
 | one actor to turn slower than the rest | `SetTurnRate { entity, rate }` in degrees per second, at most `motion.turn_rate` (set that to the fastest actor's rate); `rate: 0.0` goes back to the setting |
 | later | `Timer { timer, duration, repeat }`, then `Event::TimerFired` |
 | a smooth value | `Tween { … ease }` or `Spring { … }`, then `Event::TweenDone` |
-| the room's light or look to change | `ctx.scene_tween(tween, &[(id("look.exposure"), 0.6), (id("fog.density"), 0.05)], 2.0, Ease::InOutSine)`, one `TweenDone` when all arrive; names in `docs/lighting.md` |
+| the room's light or look to change | `ctx.scene_tween(tween, &[(id("look.exposure"), 0.6), (id("fog.density"), 0.05)], 2.0, Ease::InOutSine)`, one `TweenDone` when all arrive; names in `docs/lighting.md`. `ctx.reserve_scene_tween(pairs)` in `Game::new` keeps it from allocating; size your own `put_scene_value` buffers with `SCENE_VALUE_BYTES` |
 | a button's index | `ctx.button(id("action"))` in `Game::new`; never copy its place in `input.buttons` |
 | a button press | `Event::Button { action, down }`, or `Event::Buffered { action, .. }` until you send `Consume { action }` |
 | randomness | `ctx.rng()`, seeded by the engine; never another source |
@@ -98,7 +100,9 @@ with `sariema run --headless … --json`.
 | `rejected` with `E_ENTITY_STALE` | a handle kept after `despawn` or a `despawned` event | drop handles when they die |
 | `rejected` with `E_HOST_QUEUE_FULL` | more `save`, `host_send` or other host messages than the host takes between its frames (256, or 4 MiB) | send fewer or smaller ones; save when something changes, not every tick |
 | `rejected` with `E_SCENE_UNKNOWN` from `scene_tween` | a parameter the active room lacks (`sun.*` in a room without a sun, a light's name misspelt); nothing was tweened | list the room's parameters with `sariema inspect <room>.srma --json` (`params`) |
-| `rejected` with `E_SCENE_VALUES` | `values` not a whole number of 8-byte pairs, or a value not finite | build them with `ctx.scene_tween` (or `put_scene_value`) |
+| `rejected` with `E_SCENE_VALUES` | `values` not a whole number of `SCENE_VALUE_BYTES` pairs, or a value not finite | build them with `ctx.scene_tween` (or `put_scene_value`) |
+| `E_BATCH_VERSION` at load | the logic was built against an older SDK (version 2 added `reason` to `blocked`) | rebuild it against the engine's SDK |
+| every `ctx.ray` misses | the pack carries no room collision, or the room is still loading | check `game.room` has collision; cast after `RoomSwitched` |
 | `E_GAME_TRAP` at step 0 with "time not implemented" | `std::time` | count steps (`ctx.step()`) |
 | `E_GAME_BUDGET` | heavy work in one tick | spread it over steps; bulk regions for many placements |
 | `state_hash` changed after a rebuild, same log | it covers the module's memory, which a rebuild moves | compare `world_hash` across builds, `state_hash` within one |
