@@ -63,6 +63,10 @@ impl WireError {
     }
 }
 
+/// Bytes [`put_scene_value`] appends for one parameter: its id, then the
+/// value it goes to.
+pub const SCENE_VALUE_BYTES: usize = size_of::<u32>() + size_of::<f32>();
+
 /// Appends to a `scene_tween`'s `values` the parameter `param`, a
 /// [`name_id`], going to `value`.
 pub fn put_scene_value(out: &mut impl Sink, param: u32, value: f32) {

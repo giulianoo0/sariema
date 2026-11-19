@@ -201,13 +201,19 @@ game!(Hello);
 - `ctx.send(Command::…)` is the typed builder for every command; commands
   apply after the tick, in order.
 - `ctx.spawn`, `ctx.reserve` (a handle for an entity a cutscene spawns),
-  `ctx.despawn`, `ctx.entities().is_alive(e)`.
+  `ctx.despawn`, `ctx.entities().is_alive(e)`. `ctx.reserve_entities(count)`,
+  called while the game sets up with the most entities it keeps alive at
+  once, keeps spawning and despawning them, and their commands, from
+  allocating.
 - Cutscene control: `ctx.bind(role, entity)`, `ctx.play_cutscene`,
   `ctx.skip_cutscene`, `ctx.signal`.
 - `ctx.scene_tween(tween, &[(id("fog.density"), 0.05), …], duration, ease)`
   tweens scene parameters of the active room together.
   `ctx.reserve_scene_tween(pairs)`, called while the game sets up with its
-  largest tween's count, keeps every later one from allocating.
+  largest tween's count, keeps every later one from allocating. A game that
+  builds `values` itself with `put_scene_value` sizes its buffer with
+  `SCENE_VALUE_BYTES`, the bytes one parameter takes, the same constant the
+  engine's decoder reads by.
 - `ctx.rng()` is a PCG32 seeded from the engine's `started` event.
 - `ctx.button(id("action"))` is the index `button` events carry for the
   input button named `action`, whatever its place in `input.buttons`;

@@ -328,3 +328,13 @@ fn a_ray_reaches_the_host_and_its_hit_comes_back_whole() {
     assert_eq!(host.rays, [ahead(), ahead()]);
     assert_eq!(runner.game().unwrap().seen, [Ok(Some(wall)), Ok(None)]);
 }
+
+#[test]
+fn the_scene_value_size_is_what_the_encoder_writes_and_the_engine_reads() {
+    let mut values = Vec::new();
+    sariema_sdk::put_scene_value(&mut values, sariema_sdk::id("fog.density"), 0.25);
+    assert_eq!(values.len(), sariema_sdk::SCENE_VALUE_BYTES);
+    sariema_sdk::put_scene_value(&mut values, sariema_sdk::id("look.exposure"), 2.0);
+    assert_eq!(engine::scene_values(&values).unwrap().count(), 2);
+    assert!(engine::scene_values(&values[..sariema_sdk::SCENE_VALUE_BYTES + 1]).is_none());
+}

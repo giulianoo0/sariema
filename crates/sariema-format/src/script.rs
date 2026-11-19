@@ -28,20 +28,18 @@ pub use table::{BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Event};
 pub use wire::{
     Advance, Anchor, BlockReason, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec,
     FieldSpec, Kind, MessageSpec, Orientation, PointList, Points, Property, Reader, RoomTransition,
-    Sink, Str, Value, VariantSpec, Vec3, Wire, WireError, name_id, put_scene_value,
+    SCENE_VALUE_BYTES, Sink, Str, Value, VariantSpec, Vec3, Wire, WireError, name_id,
+    put_scene_value,
 };
 
 use crate::scenery::{RoomIndex, Target};
 use cutscene::{Await, Block, Cutscene, Place, Point, Shot, Toward};
 
-/// Bytes of one parameter in a `scene_tween`'s `values`.
-const SCENE_VALUE: usize = 8;
-
 /// The parameters of a `scene_tween`'s `values` with the value each goes
 /// to, as [`put_scene_value`] writes them; `None` when its length is not a
 /// whole number of them.
 pub fn scene_values(values: &[u8]) -> Option<impl Iterator<Item = (u32, f32)> + Clone + '_> {
-    let (pairs, rest) = values.as_chunks::<SCENE_VALUE>();
+    let (pairs, rest) = values.as_chunks::<SCENE_VALUE_BYTES>();
     rest.is_empty().then(|| {
         pairs.iter().map(|&[a, b, c, d, e, f, g, h]| {
             let param = u32::from_le_bytes([a, b, c, d]);

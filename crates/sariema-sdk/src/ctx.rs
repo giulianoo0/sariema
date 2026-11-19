@@ -6,7 +6,7 @@ use crate::Rng;
 use crate::host::Host;
 use crate::ray::{RAY_HIT, RAY_MISS, RAY_OVER_BUDGET, Ray, RayHit};
 use crate::table::{Command, Event};
-use crate::wire::{Ease, Entity, Kind, Sink, put_scene_value};
+use crate::wire::{Ease, Entity, Kind, SCENE_VALUE_BYTES, Sink, put_scene_value};
 
 impl Sink for Vec<u8> {
     fn put(&mut self, bytes: &[u8]) {
@@ -60,6 +60,15 @@ impl Entities {
         }
     }
 
+    /// Makes room for `count` entities alive at once, and for all of them
+    /// freed.
+    fn reserve(&mut self, count: usize) {
+        self.generations
+            .reserve(count.saturating_sub(self.generations.len()));
+        self.alive.reserve(count.saturating_sub(self.alive.len()));
+        self.free.reserve(count.saturating_sub(self.free.len()));
+    }
+
     fn release(&mut self, e: Entity) {
         if self.is_alive(e) {
             self.alive[e.index as usize] = false;
@@ -77,9 +86,6 @@ pub(crate) struct Shared {
     pub(crate) rng: Rng,
     pub(crate) step: u64,
 }
-
-/// Bytes one parameter takes in a `scene_tween`'s values.
-const SCENE_VALUE_BYTES: usize = size_of::<u32>() + size_of::<f32>();
 
 /// The stream of the game's generator, apart from the engine's own.
 const GAME_STREAM: u64 = 0x5a;
@@ -184,6 +190,22 @@ impl Ctx<'_> {
             ease: Ease::Linear,
         };
         self.shared.commands.reserve(empty.size() + values);
+    }
+
+    /// Makes room for `count` entities alive at once, and for the commands
+    /// spawning and despawning them in one tick, so neither allocates. A
+    /// game that knows its largest cast while it sets up calls it then.
+    pub fn reserve_entities(&mut self, count: usize) {
+        self.shared.entities.reserve(count);
+        let spawn = Command::Spawn {
+            entity: Entity::NONE,
+            kind: Kind::Empty,
+            asset: 0,
+        };
+        let despawn = Command::Despawn {
+            entity: Entity::NONE,
+        };
+        (self.shared.commands).reserve(count * (spawn.size() + despawn.size()));
     }
 
     /// Spawns an entity in a free slot and returns its handle.

@@ -49,7 +49,8 @@ pub use span::{CLIP_SPAN, ClipSpan, clip_spans};
 pub use table::{BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Event};
 pub use wire::{
     Advance, Anchor, BlockReason, Bus, ClipMode, Controller, Ease, Entity, Kind, Orientation,
-    PointList, Property, Reader, RoomTransition, Value, WireError, name_id, put_scene_value,
+    PointList, Property, Reader, RoomTransition, SCENE_VALUE_BYTES, Value, WireError, name_id,
+    put_scene_value,
 };
 
 /// The id of a name (flag, cutscene, role, clip, sound, signal), computed at
