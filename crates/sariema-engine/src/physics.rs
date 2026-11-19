@@ -453,6 +453,8 @@ impl Physics {
                 actor: id,
                 solid: s.motion.get(entity).is_none_or(|m| m.body),
             });
+            let hidden = !node.visible;
+            self.world.apply(Intent::SetHidden { actor: id, hidden });
             self.owners[id.0 as usize] = entity;
             if self.actors.len() <= i {
                 self.actors.resize_with(i + 1, || None);
@@ -465,7 +467,7 @@ impl Physics {
                 speed: 0.0,
                 carried: !node.parent.is_none(),
                 turn_rate,
-                hidden: false,
+                hidden,
             });
         }
     }

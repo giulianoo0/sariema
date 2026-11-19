@@ -90,3 +90,71 @@ fn a_walk_onto_a_hidden_actor_passes_through_it_and_arrives() {
         "the walker ends at {walker}"
     );
 }
+
+#[test]
+fn a_visible_actor_that_reuses_a_hidden_ones_body_is_in_the_way() {
+    let logic = native(move |n, events, out| {
+        assert!(
+            !events.iter().any(|e| matches!(e, Event::Rejected { .. })),
+            "{events:?}"
+        );
+        let spawn = |out: &mut Vec<u8>, k: u32, at: [f32; 3]| {
+            send(
+                out,
+                Command::Spawn {
+                    entity: entity(k),
+                    kind: Kind::Actor,
+                    asset: name_id("hero"),
+                },
+            );
+            send(
+                out,
+                Command::SetTransform {
+                    entity: entity(k),
+                    position: at,
+                    yaw: 0.0,
+                },
+            );
+        };
+        match n {
+            0 => {
+                spawn(out, 0, [0.6, 0.0, -5.0]);
+                spawn(out, 1, SPOT);
+            }
+            2 => send(
+                out,
+                Command::SetVisible {
+                    entity: entity(1),
+                    visible: false,
+                },
+            ),
+            4 => send(out, Command::Despawn { entity: entity(1) }),
+            6 => spawn(out, 2, SPOT),
+            8 => send(
+                out,
+                Command::MoveTo {
+                    entity: entity(0),
+                    target: SPOT,
+                    speed: 1.5,
+                },
+            ),
+            _ => {}
+        }
+    });
+    let sim = Simulation::new(wired(), Vec::new(), logic, 1);
+    let mut engine = Engine::new(sim, assets(), EngineSettings::default()).unwrap();
+    let actions = Actions::for_settings(&engine.state().settings.input);
+    for _ in 0..8 {
+        engine.step(&actions);
+    }
+    let at = |engine: &Engine<_>| engine.state().world.node(entity(2)).unwrap().local.position;
+    let stood = at(&engine);
+    for _ in 0..400 {
+        engine.step(&actions);
+    }
+    let pushed = (at(&engine) - stood).length();
+    assert!(
+        pushed > 0.1,
+        "the walker went through the new actor: pushed {pushed} m"
+    );
+}
