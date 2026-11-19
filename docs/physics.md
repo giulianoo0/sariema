@@ -317,7 +317,10 @@ game opens a door before it walks an actor through it.
 filter)` sees colliders, actors' body capsules or both as its `RayFilter`
 says, passes through the actor it excludes, and returns the nearest
 `RayContact`: distance, point, a normal facing the origin and the collider or
-actor hit. An actor counts only while it is in other actors' way. It is what
+actor hit. An actor counts only while it is in other actors' way, and a
+collider or actor whose inside holds the origin is passed through, whichever
+way the ray goes (a solid within its planes, a sphere or capsule within its
+radius; an open mesh holds nothing). It is what
 a game's `ray` import asks ([game API](game-api.md#rays)), and it allocates
 nothing. `camera_clearance(target, camera,
 radius, out)` lists every static collider between the target and the camera,

@@ -265,7 +265,10 @@ A game asks the active room what lies along a line with the `ray` import,
 during its tick, and gets the answer at once. The engine answers from the
 room as it stood when the step began: the game ticks before anything moves,
 so the commands it sent earlier in the same tick have not moved anything
-yet. The answer is the same on every host and every frame rate, and a cast
+yet. A ray passes through every shape its origin lies inside, a collider
+or an actor's body alike, whichever way it goes, as Godot's rays do unless
+`hit_from_inside` is set: a ray cast outward from inside the hero sees what
+is around the hero. The answer is the same on every host and every frame rate, and a cast
 allocates nothing.
 
 The query is a fixed little-endian record of 37 bytes

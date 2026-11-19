@@ -1114,8 +1114,9 @@ impl World {
         a.route = Some(route);
     }
 
-    /// The first body of an actor in other actors' way, but `exclude`, along
-    /// unit `dir` from `origin` within `max`: its distance, normal and id.
+    /// The first body of an actor in other actors' way, but `exclude` and
+    /// those holding `origin`, along unit `dir` from `origin` within `max`:
+    /// its distance, normal and id.
     pub(crate) fn ray_actors(
         &self,
         origin: Vec3,
@@ -1132,6 +1133,9 @@ impl World {
                 continue;
             }
             let probe = a.desc.collider.probe(a.position, a.yaw, 0.0);
+            if probe.rounds().iter().any(|r| r.holds(origin)) {
+                continue;
+            }
             for round in probe.rounds() {
                 let part = Part::Round(*round);
                 if let Some(s) = sweep(origin, origin, 0.0, dir * max, &part, tol) {

@@ -85,6 +85,13 @@ pub struct Occluder {
     pub distance: f32,
 }
 
+/// What [`World::cast_ray`] sees of the colliders: all, but those holding
+/// its origin.
+const PASS_HOLDING: Filter = Filter {
+    pass_holding: true,
+    ..Filter::ALL
+};
+
 /// A capsule from `a` to `b` of `radius`; `a == b` is a sphere and radius 0 a segment.
 fn capsule(a: Vec3, b: Vec3, radius: f32) -> Probe {
     Probe::single(Round { a, b, r: radius })
@@ -108,7 +115,8 @@ impl World {
     }
 
     /// First collider or actor along `dir` from `origin` within `max` metres,
-    /// as `filter` allows.
+    /// as `filter` allows. A collider or actor whose inside holds `origin`
+    /// is passed through, whichever way the ray goes.
     pub fn cast_ray(
         &self,
         origin: Vec3,
@@ -121,7 +129,7 @@ impl World {
             return None;
         }
         let wall = (filter.colliders)
-            .then(|| self.scene().raycast(origin, dir, max, Filter::ALL))
+            .then(|| self.scene().raycast(origin, dir, max, PASS_HOLDING))
             .flatten()
             .map(|h| {
                 (

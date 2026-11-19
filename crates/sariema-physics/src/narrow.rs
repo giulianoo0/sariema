@@ -46,6 +46,15 @@ pub struct Round {
     pub r: f32,
 }
 
+impl Round {
+    /// Whether `point` lies strictly inside.
+    pub fn holds(&self, point: Vec3) -> bool {
+        let (on_point, on_axis) = closest_segments(point, point, self.a, self.b);
+        let d = on_point - on_axis;
+        d.dot(d) < self.r * self.r
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Part {
     Tri(Tri),

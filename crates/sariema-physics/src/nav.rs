@@ -34,6 +34,7 @@ const STATIC: Filter = Filter {
     exclude: None,
     only: None,
     skip_platforms: true,
+    pass_holding: false,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]

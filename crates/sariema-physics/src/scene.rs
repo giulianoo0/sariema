@@ -48,6 +48,8 @@ pub(crate) struct Filter {
     pub exclude: Option<u32>,
     pub only: Option<u32>,
     pub skip_platforms: bool,
+    /// A ray passes through the colliders its origin lies inside.
+    pub pass_holding: bool,
 }
 
 impl Filter {
@@ -55,6 +57,7 @@ impl Filter {
         exclude: None,
         only: None,
         skip_platforms: false,
+        pass_holding: false,
     };
 
     pub fn except(collider: Option<u32>) -> Filter {
@@ -462,6 +465,19 @@ impl Scene {
         best
     }
 
+    /// Whether `point`, in the collider's own frame, lies strictly inside
+    /// it: within a solid's planes or one of its rounds.
+    fn holds(&self, collider: u32, point: Vec3) -> bool {
+        let c = &self.colliders[collider as usize];
+        let planes = &self.planes[c.planes.start as usize..c.planes.end as usize];
+        let within_planes =
+            !planes.is_empty() && inside(planes, point, point, 0.0).is_some_and(|(s, _)| s < 0.0);
+        within_planes
+            || self.parts[c.parts.start as usize..c.parts.end as usize]
+                .iter()
+                .any(|p| matches!(p, Part::Round(r) if r.holds(point)))
+    }
+
     /// First surface along the ray from `origin` in unit direction `dir`, within `max`.
     pub fn raycast(&self, origin: Vec3, dir: Vec3, max: f32, filter: Filter) -> Option<RayHit> {
         let mut best: Option<RayHit> = None;
@@ -486,6 +502,7 @@ impl Scene {
             }
             if let Some((distance, normal)) = ray_part(&self.parts[i as usize], origin, dir)
                 && best.is_none_or(|b| distance < b.distance)
+                && !(filter.pass_holding && self.holds(collider, origin))
             {
                 best = Some(RayHit {
                     distance,
@@ -502,6 +519,9 @@ impl Scene {
             let k = c.kinematic.as_ref().expect("a platform");
             let to_local = k.rotation.transpose();
             let (o, d) = (to_local * (origin - k.pose.translation), to_local * dir);
+            if filter.pass_holding && self.holds(collider, o) {
+                continue;
+            }
             for part in &self.parts[c.parts.start as usize..c.parts.end as usize] {
                 if let Some((distance, normal)) = ray_part(part, o, d)
                     && best.is_none_or(|b| distance < b.distance)
