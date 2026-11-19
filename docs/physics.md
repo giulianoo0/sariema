@@ -175,7 +175,9 @@ window of `stuck_steps` steps, it came less than `stuck_progress` of the
 travel expected over the window nearer its waypoint. Progress is net, after
 everything the step does, so a walker another actor holds back (pushed
 forward by the walk and back by the actors' separation) is blocked rather
-than left walking forever.
+than left walking forever. The verdict comes at a window's end, so
+`Blocked(Stuck)` can come up to about 2 × `stuck_steps` steps after the
+walker stops: the window it stopped in, then the next.
 Reaching the target drops the walk's speed, so with acceleration the actor
 stops on its mark rather than easing past it, and a `Face` sent as it
 arrives turns it there. A `MoveTo` drops the stick when it starts, and
@@ -186,9 +188,11 @@ arrival compared with builds that let the actor ease past the mark. Both
 this and the engine letting go of the stick when the hero is taken from
 the player change `physics_hash` and the replays of games that walked the
 player into a script walk, and those replays need recording again. The
-net measure of progress hashes its window, so it changes `physics_hash`
-for every replay with a `MoveTo`, and a walk that used to hang on an actor
-now ends `Blocked(Stuck)`: those replays need recording again too.
+net measure of progress hashes its window while a route is under way, so
+it changes `physics_hash` for a replay that hashes a world with a `MoveTo`
+in progress (a replay whose walks are all over keeps its hash), and a walk
+that used to hang on an actor now ends `Blocked(Stuck)`: those replays need
+recording again too.
 
 ### Traversals and intended contact
 
@@ -294,8 +298,9 @@ tween writes it. If an actor is in the way, the tween is held for the
 step (it writes nothing and goes on from where it was the step after),
 the parameter keeps the angle the leaf holds, and the game gets
 `hinge_blocked { hinge, entity }` once, until the leaf moves again or
-another actor stops it. The game decides what then: wait, open again, or
-cancel the tween. A cutscene's `hinge` step drives the same parameter, so
+another actor stops it. A hidden actor without `hidden_actors_block` is in
+no leaf's way: the door swings through it and no `hinge_blocked` comes.
+The game decides what then: wait, open again, or cancel the tween. A cutscene's `hinge` step drives the same parameter, so
 it stops the same way.
 
 The walkable grid leaves platforms out: a path goes through a doorway
@@ -593,7 +598,8 @@ room with 135 colliders in 0.2 s.
   turning but collides where it was placed.
 - A leaf never pushes and is never pushed: it waits for the game, which
   hears `hinge_blocked`. Actors placed by a pose (as a traversal carries
-  them) or left out with `set_actor_active` are not in a leaf's way.
+  them), left out with `set_actor_active`, with their body off, or hidden
+  without `hidden_actors_block` are not in a leaf's way.
 - Paths do not see leaves: the grid does not mark a door closed, so a
   `MoveTo` through a closed door ends against the leaf with `blocked`
   (stuck) instead of `blocked` (no path) at once.

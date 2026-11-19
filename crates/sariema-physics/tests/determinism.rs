@@ -318,7 +318,7 @@ fn the_replay_hash_is_the_same_on_every_platform() {
     let (hashes, _) = replay(1200, 1);
     assert_eq!(
         *hashes.last().unwrap(),
-        9_237_084_439_031_553_643,
+        5_986_915_845_059_425_419,
         "final hash"
     );
 }

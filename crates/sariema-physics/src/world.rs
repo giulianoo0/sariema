@@ -1258,7 +1258,9 @@ impl World {
             h.u32(a.pressing_wall as u32);
             h.u32(a.route.map_or(u32::MAX, |r| r.next as u32));
             h.u32(a.route.map_or(0, |r| r.stuck));
-            h.f32(a.route.map_or(0.0, |r| r.window_from));
+            if let Some(r) = a.route {
+                h.f32(r.window_from);
+            }
             h.u32(a.knockback.map_or(0, |k| k.done));
             for &t in &a.triggers {
                 h.u32(t);
