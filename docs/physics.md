@@ -300,8 +300,9 @@ the parameter keeps the angle the leaf holds, and the game gets
 `hinge_blocked { hinge, entity }` once, until the leaf moves again or
 another actor stops it. A hidden actor without `hidden_actors_block` is in
 no leaf's way: the door swings through it and no `hinge_blocked` comes.
-The game decides what then: wait, open again, or cancel the tween. A cutscene's `hinge` step drives the same parameter, so
-it stops the same way.
+The game decides what then: wait, open again, or cancel the tween. A
+cutscene's `hinge` step drives the same parameter, so it stops the same
+way.
 
 The walkable grid leaves platforms out: a path goes through a doorway
 whatever its leaf does, and a closed leaf stops an actor walked into it
