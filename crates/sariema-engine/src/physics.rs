@@ -1019,6 +1019,10 @@ fn point_along(path: &[Vec3], along: &[f32], distance: f32) -> Vec3 {
 }
 
 impl Queries for Physics {
+    fn ray_records(&self) -> Option<(usize, usize)> {
+        Some((Ray::BYTES, RayHit::BYTES))
+    }
+
     fn ray(&mut self, query: &[u8], hit: &mut [u8]) -> i32 {
         let (Some(ray), Ok(out)) = (Ray::read(query), <&mut [u8; RayHit::BYTES]>::try_from(hit))
         else {

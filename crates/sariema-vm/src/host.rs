@@ -15,7 +15,9 @@
 //! - `ray(query, query_len, hit, hit_len) -> answer`: casts the ray record
 //!   at `query` against the world as it stood when the tick began; on a
 //!   hit (1) the hit record is written at `hit`. 0 is a miss, −1 a record
-//!   that is not a ray, −2 a ray past `rays_per_step` in this tick.
+//!   that is not a ray (records of another size than the world's are
+//!   refused before they are read), −2 a ray past `rays_per_step` in this
+//!   tick.
 //!
 //! An access outside memory traps the call. Submitting more than
 //! `commands_bytes_per_step` in one tick stops the game as over budget; log
@@ -28,6 +30,11 @@ use crate::{VmError, VmSettings};
 /// Answers the queries a game makes during its tick, from the world as it
 /// stood when the tick began.
 pub trait Queries {
+    /// Bytes of the ray record [`Queries::ray`] reads and of the hit record
+    /// it writes; `None` when there is no world, and every ray misses
+    /// unread.
+    fn ray_records(&self) -> Option<(usize, usize)>;
+
     /// Reads the ray record `query` and, on a hit, writes the hit record
     /// into `hit`: returns 1 for a hit, 0 for a miss, −1 for a record that
     /// is not a ray. The records' layout is the engine's, not the machine's.
@@ -36,6 +43,10 @@ pub trait Queries {
 
 /// No world to query: every ray misses.
 impl Queries for () {
+    fn ray_records(&self) -> Option<(usize, usize)> {
+        None
+    }
+
     fn ray(&mut self, _: &[u8], _: &mut [u8]) -> i32 {
         0
     }
@@ -152,14 +163,21 @@ impl HostState {
         let Some(mut queries) = self.queries else {
             return Ok(0);
         };
+        // SAFETY: `Vm::tick_with` sets `queries` from a live `&mut` borrow
+        // that outlasts the tick, and clears it before returning; host
+        // calls only happen during the tick, one at a time.
+        let queries = unsafe { queries.as_mut() };
+        let Some((query_bytes, hit_bytes)) = queries.ray_records() else {
+            return Ok(0);
+        };
+        if q.len() != query_bytes || h.len() != hit_bytes {
+            return Ok(-1);
+        }
         self.ray_query.clear();
         self.ray_query.extend_from_slice(&memory[q]);
         self.ray_hit.clear();
         self.ray_hit.resize(h.len(), 0);
-        // SAFETY: `Vm::tick_with` sets `queries` from a live `&mut` borrow
-        // that outlasts the tick, and clears it before returning; host
-        // calls only happen during the tick, one at a time.
-        let answer = unsafe { queries.as_mut() }.ray(&self.ray_query, &mut self.ray_hit);
+        let answer = queries.ray(&self.ray_query, &mut self.ray_hit);
         if answer == 1 {
             memory[h].copy_from_slice(&self.ray_hit);
         }

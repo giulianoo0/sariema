@@ -320,6 +320,10 @@ struct Sevens {
 }
 
 impl sariema_vm::Queries for Sevens {
+    fn ray_records(&self) -> Option<(usize, usize)> {
+        Some((6, 4))
+    }
+
     fn ray(&mut self, query: &[u8], hit: &mut [u8]) -> i32 {
         self.queries.push(query.to_vec());
         hit.fill(7);
@@ -414,6 +418,10 @@ static GLOBAL: Counting = Counting;
 struct Quiet;
 
 impl sariema_vm::Queries for Quiet {
+    fn ray_records(&self) -> Option<(usize, usize)> {
+        Some((37, 40))
+    }
+
     fn ray(&mut self, _query: &[u8], hit: &mut [u8]) -> i32 {
         hit.fill(7);
         1
@@ -441,5 +449,55 @@ fn rays_allocate_nothing_once_warmed_up() {
         vm.tick_with(&[], &[], &mut out, &mut Quiet).unwrap();
     }
     ARMED.with(|a| a.set(false));
+    assert_eq!(ALLOCATIONS.with(std::cell::Cell::get), 0);
+}
+
+/// Hits every ray of a 37-byte record with a 40-byte hit, keeping the
+/// longest record handed to it.
+#[derive(Default)]
+struct Sized {
+    longest: usize,
+}
+
+impl sariema_vm::Queries for Sized {
+    fn ray_records(&self) -> Option<(usize, usize)> {
+        Some((37, 40))
+    }
+
+    fn ray(&mut self, query: &[u8], hit: &mut [u8]) -> i32 {
+        self.longest = self.longest.max(query.len()).max(hit.len());
+        hit.fill(7);
+        1
+    }
+}
+
+#[test]
+fn a_ray_with_records_of_another_size_is_refused_before_they_are_read() {
+    let wasm = wat::parse_str(format!(
+        r#"(module {IMPORTS}
+             (import "sariema" "ray" (func $ray (param i32 i32 i32 i32) (result i32)))
+             (memory (export "memory") 64 1024)
+             (func (export "sariema_tick")
+               (i32.store (i32.const 128) (call $ray (i32.const 0) (i32.const 37) (i32.const 64) (i32.const 40)))
+               (i32.store (i32.const 132) (call $ray (i32.const 0) (i32.const 37) (i32.const 64) (i32.const 4000000)))
+               (i32.store (i32.const 136) (call $ray (i32.const 0) (i32.const 4000000) (i32.const 64) (i32.const 40)))
+               (call $submit (i32.const 128) (i32.const 12))))"#
+    ))
+    .unwrap();
+    let mut vm = load(&wasm, settings()).unwrap();
+    let mut sized = Sized::default();
+    let mut out = Vec::new();
+    for _ in 0..4 {
+        vm.tick_with(&[], &[], &mut out, &mut sized).unwrap();
+    }
+    ARMED.with(|a| a.set(true));
+    vm.tick_with(&[], &[], &mut out, &mut sized).unwrap();
+    ARMED.with(|a| a.set(false));
+    let answers: Vec<i32> = out
+        .chunks(4)
+        .map(|c| i32::from_le_bytes(c.try_into().unwrap()))
+        .collect();
+    assert_eq!(answers, [1, -1, -1]);
+    assert_eq!(sized.longest, 40, "only whole records reach the world");
     assert_eq!(ALLOCATIONS.with(std::cell::Cell::get), 0);
 }

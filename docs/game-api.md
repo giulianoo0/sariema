@@ -31,7 +31,7 @@ and imports only these functions from module `sariema`:
 | `register` | `(kind, ptr, len) -> i32` | A bulk region the engine reads in place after every tick; its id, or −1. Kind 1 is transforms. |
 | `log` | `(level, ptr, len)` | A line of UTF-8 text, level 0 (debug) to 3 (error). |
 | `button` | `(name) -> i32` | The index `button` events carry for the input button whose name has the id `name`, or −1. |
-| `ray` | `(query, query_len, hit, hit_len) -> i32` | Casts the ray record at `query` against the active room ([Rays](#rays)): 1 with the hit record written at `hit`, 0 for a miss, −1 for a record that is not a ray, −2 past `vm.rays_per_step`. |
+| `ray` | `(query, query_len, hit, hit_len) -> i32` | Casts the ray record at `query` against the active room ([Rays](#rays)): 1 with the hit record written at `hit`, 0 for a miss, −1 for a record that is not a ray (a query or hit length other than the records' is refused before anything is read), −2 past `vm.rays_per_step`. |
 
 Nothing else exists: no files, no network, no clock, no system calls. A
 module that imports anything else does not load (`E_GAME_MODULE`).
