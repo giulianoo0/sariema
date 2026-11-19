@@ -270,8 +270,8 @@ so the commands it sent earlier in the same tick have not moved anything
 yet. A ray passes through every shape its origin lies inside, a collider
 or an actor's body alike, whichever way it goes, as Godot's rays do unless
 `hit_from_inside` is set: a ray cast outward from inside the hero sees what
-is around the hero. The answer is the same on every host and every frame rate, and a cast
-allocates nothing.
+is around the hero. The answer is the same on every host and every frame
+rate, and a cast allocates nothing.
 
 The query is a fixed little-endian record of 37 bytes
 (`sariema_sdk::ray::Ray::BYTES`): origin and direction (three `f32` each),
