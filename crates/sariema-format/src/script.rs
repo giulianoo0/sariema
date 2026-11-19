@@ -171,7 +171,7 @@ impl fmt::Display for GameFormatError {
             GameFormatError::Invalid(why) => write!(f, "game pack is invalid: {why}"),
             GameFormatError::BatchVersion { found } => write!(
                 f,
-                "the game targets batch version {found}; this engine speaks {BATCH_VERSION}"
+                "the game targets batch version {found}; this engine speaks {BATCH_VERSION}: rebuild the game with this engine's SDK"
             ),
         }
     }

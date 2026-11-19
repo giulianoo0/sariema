@@ -131,17 +131,19 @@ pub fn start_with_settings(
     seed: u64,
 ) -> Result<Simulation<WasmLogic>, LoadError> {
     let mut vm = Vm::load(&pack.wasm, settings.vm)?;
-    match vm.batch_version()? {
-        Some(v) if v != BATCH_VERSION => {
-            return Err(LoadError {
-                code: "E_BATCH_VERSION",
-                message: format!(
-                    "game pack {}: its logic was built against batch version {v}; this engine reads version {BATCH_VERSION}",
-                    pack.name
-                ),
-            });
-        }
-        _ => {}
+    let built = match vm.batch_version()? {
+        Some(v) if v == BATCH_VERSION => None,
+        Some(v) => Some(format!("was built against batch version {v}")),
+        None => Some("does not export sariema_batch_version".into()),
+    };
+    if let Some(built) = built {
+        return Err(LoadError {
+            code: "E_BATCH_VERSION",
+            message: format!(
+                "game pack {}: its logic {built}; this engine reads version {BATCH_VERSION}: rebuild the game with this engine's SDK",
+                pack.name
+            ),
+        });
     }
     vm.set_buttons(settings.input.buttons.iter().map(|b| name_id(&b.name)));
     Ok(Simulation::new(

@@ -478,7 +478,7 @@ fn module() -> Value {
     json!({
         "exports": [
             { "name": "sariema_tick", "signature": "() -> ()", "doc": "Called once per step: read events, submit commands." },
-            { "name": "sariema_batch_version", "signature": "() -> i32", "doc": "Optional; the batch version the logic was built against." },
+            { "name": "sariema_batch_version", "signature": "() -> i32", "doc": "The batch version the logic was built against; without it the pack is refused with E_BATCH_VERSION." },
             { "name": "memory", "signature": "memory", "doc": "The linear memory." },
         ],
         "imports": [

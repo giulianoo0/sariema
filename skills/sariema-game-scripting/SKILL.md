@@ -101,7 +101,7 @@ with `sariema run --headless … --json`.
 | `rejected` with `E_HOST_QUEUE_FULL` | more `save`, `host_send` or other host messages than the host takes between its frames (256, or 4 MiB) | send fewer or smaller ones; save when something changes, not every tick |
 | `rejected` with `E_SCENE_UNKNOWN` from `scene_tween` | a parameter the active room lacks (`sun.*` in a room without a sun, a light's name misspelt); nothing was tweened | list the room's parameters with `sariema inspect <room>.srma --json` (`params`) |
 | `rejected` with `E_SCENE_VALUES` | `values` not a whole number of `SCENE_VALUE_BYTES` pairs, or a value not finite | build them with `ctx.scene_tween` (or `put_scene_value`) |
-| `E_BATCH_VERSION` at load | the logic was built against an older SDK (version 2 added `reason` to `blocked`) | rebuild it against the engine's SDK |
+| `E_BATCH_VERSION` at load | the logic was built against an older SDK (version 2 added `reason` to `blocked`), or exports no `sariema_batch_version` (logic without `game!`) | rebuild it against the engine's SDK, ending `lib.rs` with `game!(YourGame);` |
 | every `ctx.ray` misses | the pack carries no room collision, or the room is still loading | check `game.room` has collision; cast after `RoomSwitched` |
 | `E_GAME_TRAP` at step 0 with "time not implemented" | `std::time` | count steps (`ctx.step()`) |
 | `E_GAME_BUDGET` | heavy work in one tick | spread it over steps; bulk regions for many placements |

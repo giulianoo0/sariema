@@ -51,11 +51,19 @@ const ECHO: &str = r#"(module
       (then (call $submit (i32.const 16) (i32.const 15))))
     (global.set $ticks (i32.add (global.get $ticks) (i32.const 1)))))"#;
 
+/// `wat` with the export that says which batch version it was written for.
+fn versioned(wat: &str) -> String {
+    let module = wat.trim_end().strip_suffix(')').expect("a module");
+    format!(
+        r#"{module} (func (export "sariema_batch_version") (result i32) (i32.const {BATCH_VERSION})))"#
+    )
+}
+
 fn pack(wat: &str) -> Vec<u8> {
     encode_game(&GamePack {
         name: "test".into(),
         batch_version: BATCH_VERSION,
-        wasm: wat::parse_str(wat).unwrap(),
+        wasm: wat::parse_str(versioned(wat)).unwrap(),
         cutscenes: Vec::new(),
         names: Vec::new(),
         settings: "{}".into(),

@@ -94,6 +94,14 @@ fn beep_bank(rate: u32) -> Vec<u8> {
     sariema_format::sound::encode(&bank)
 }
 
+/// `wat` with the export that says which batch version it was written for.
+fn versioned(wat: &str) -> String {
+    let module = wat.trim_end().strip_suffix(')').expect("a module");
+    format!(
+        r#"{module} (func (export "sariema_batch_version") (result i32) (i32.const {BATCH_VERSION})))"#
+    )
+}
+
 fn native_reference(pack: &Path) -> Value {
     let bytes = std::fs::read(pack).unwrap();
     let room = sariema_format::decode(&bytes).unwrap();
@@ -129,7 +137,7 @@ fn main() {
     let looping = |name: &str, wat: &str| GamePack {
         name: name.into(),
         batch_version: BATCH_VERSION,
-        wasm: wat::parse_str(wat).unwrap(),
+        wasm: wat::parse_str(versioned(wat)).unwrap(),
         cutscenes: Vec::new(),
         names: Vec::new(),
         settings: "{}".into(),

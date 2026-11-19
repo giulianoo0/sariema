@@ -2,8 +2,9 @@
 
 //! The sandboxed WebAssembly machine that runs a game's logic.
 //!
-//! A game module exports `memory` and `sariema_tick`, optionally
-//! `sariema_batch_version() -> i32`, and imports only the functions in
+//! A game module exports `memory`, `sariema_tick` and
+//! `sariema_batch_version() -> i32` (the runtime refuses logic without
+//! it), and imports only the functions in
 //! [`host`]. No file, network or system access exists. Every tick runs
 //! under a fuel budget and the memory ceiling; exceeding either, or a trap,
 //! stops the game for good with a [`VmError`]; the host is never hung or

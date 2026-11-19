@@ -19,7 +19,7 @@ A game module exports:
 | Export | Signature | |
 |---|---|---|
 | `sariema_tick` | `() -> ()` | One step: read events, submit commands. |
-| `sariema_batch_version` | `() -> i32` | Optional. The batch version it was built against; any other is refused at load with `E_BATCH_VERSION`. |
+| `sariema_batch_version` | `() -> i32` | The batch version it was built against; any other, or none exported, is refused at load with `E_BATCH_VERSION`. The SDK's `game!` exports it. |
 | `memory` | memory | Its linear memory. |
 
 and imports only these functions from module `sariema`:
@@ -81,7 +81,9 @@ record and byte offset. The version is checked once, at load, never per
 step. Records carry no length, so a field added to a message changes the
 layout and the version: version 2 added `reason` to `blocked`, and a pack
 built against version 1 is refused with `E_BATCH_VERSION` until it is
-rebuilt against the current SDK.
+rebuilt against the current SDK. A module that does not export
+`sariema_batch_version` is refused the same way rather than read as some
+version it may not speak.
 
 Names (cutscenes, roles, flags, clips, sounds, signals) travel as ids: the
 FNV-1a hash of the name's UTF-8 bytes (`name_id`, a `const fn` in the SDK).
