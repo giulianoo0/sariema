@@ -120,4 +120,4 @@ fn the_climbs_steps_allocate_only_where_pinned() {
     assert_eq!(seconds, pins.feed_per_second);
 }
 
-const ENGINE_HASH_1200: &str = "aa58adab3351cb84";
+const ENGINE_HASH_1200: &str = "46bbe56ae1750f6d";

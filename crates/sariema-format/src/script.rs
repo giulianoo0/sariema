@@ -25,9 +25,9 @@ mod wire;
 pub use span::{CLIP_SPAN, ClipSpan, clip_spans};
 pub use table::{BATCH_VERSION, COMMANDS, Command, ENUMS, EVENTS, Event};
 pub use wire::{
-    Advance, Anchor, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,
-    MessageSpec, Orientation, PointList, Points, Property, Reader, RoomTransition, Sink, Str,
-    Value, VariantSpec, Vec3, Wire, WireError, name_id, put_scene_value,
+    Advance, Anchor, BlockReason, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec,
+    FieldSpec, Kind, MessageSpec, Orientation, PointList, Points, Property, Reader, RoomTransition,
+    Sink, Str, Value, VariantSpec, Vec3, Wire, WireError, name_id, put_scene_value,
 };
 
 use crate::scenery::{RoomIndex, Target};

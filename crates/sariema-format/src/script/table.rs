@@ -11,14 +11,14 @@
 //! `zone`, `line` and `var` ids are chosen by the game.
 
 use super::wire::{
-    Advance, Anchor, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec, FieldSpec, Kind,
-    MessageSpec, Orientation, PointList, Points, Property, Reader, RoomTransition, Sink, Str,
-    Value, Vec3, Wire, WireError,
+    Advance, Anchor, BlockReason, Bus, Bytes, ClipMode, Controller, Ease, Entity, EnumSpec,
+    FieldSpec, Kind, MessageSpec, Orientation, PointList, Points, Property, Reader, RoomTransition,
+    Sink, Str, Value, Vec3, Wire, WireError,
 };
 
 batch_table! {
-    version 1;
-    enums [Kind, Ease, Property, ClipMode, Bus, Controller, Advance, Orientation, Anchor, RoomTransition]
+    version 2;
+    enums [Kind, Ease, Property, ClipMode, Bus, Controller, Advance, Orientation, Anchor, RoomTransition, BlockReason]
     commands {
         /// Brings an entity to life in a free slot the game chose. The slot's
         /// generation must be newer than any it had before.
@@ -298,7 +298,8 @@ batch_table! {
         0x0005 Control control { by: Controller }
 
         0x0010 Arrived arrived { entity: Entity }
-        0x0011 Blocked blocked { entity: Entity }
+        /// A walk, a clip path or a traversal ended short; `reason` says why.
+        0x0011 Blocked blocked { entity: Entity, reason: BlockReason }
         0x0012 HitWall hit_wall { entity: Entity, normal: Vec3 }
         0x0013 Landed landed { entity: Entity }
         0x0014 TriggerEnter trigger_enter { trigger: u32, entity: Entity }

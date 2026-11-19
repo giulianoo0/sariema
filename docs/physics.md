@@ -70,8 +70,8 @@ an actor whose entity is gone, and reuses the id for the next one.
 | `Landed { speed }` | The actor reaches ground after falling; an actor added or teleported onto ground is standing, not landing. |
 | `TriggerEnter`, `TriggerExit` | Once per entry and exit, teleports included. |
 | `Arrived` | A scripted move reached its target and facing. |
-| `Blocked(NoPath)` | A scripted move has no path; the actor does not move. |
-| `Blocked(Stuck)` | A scripted move stopped making progress (a door closed on it). |
+| `Blocked(NoPath)` | A scripted move has no path; the actor does not move. The game reads `blocked` with `reason: no_path`. |
+| `Blocked(Stuck)` | A scripted move stopped making progress: a door closed on it, or an actor holds it back. The game reads `blocked` with `reason: stuck`. |
 | `TeleportRejected` | The push-out failed; the actor stays where it was. |
 | `PushedOut { collider }` | A collider enabled where the actor stood (a door closing on it) pushed it out. |
 | `EnableRefused { collider }` | The actor stood where the collider was being enabled and could not be pushed out; the collider stays disabled. |

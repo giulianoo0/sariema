@@ -8,7 +8,7 @@
 //! until the last span ends and gets it back on, pushed out of any overlap.
 
 use glam::Vec3;
-use sariema_format::script::{ClipSpan, Ease, Entity, Event};
+use sariema_format::script::{BlockReason, ClipSpan, Ease, Entity, Event};
 
 use crate::ease::ease;
 use crate::events::Happening;
@@ -156,7 +156,10 @@ pub fn step(s: &mut State) {
         let (Some((_, t)), Some(node)) = (playing, s.world.node(entity)) else {
             s.paths.forget(entity);
             give_back(s, entity);
-            s.events.push(Event::Blocked { entity });
+            s.events.push(Event::Blocked {
+                entity,
+                reason: BlockReason::Stopped,
+            });
             s.happen(Happening::Blocked(entity));
             continue;
         };

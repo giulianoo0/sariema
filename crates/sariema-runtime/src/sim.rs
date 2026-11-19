@@ -374,7 +374,7 @@ fn push_host(q: &mut EventQueue, message: HostIn) {
 fn happening(s: &mut State, event: &Event<'_>) {
     match *event {
         Event::Arrived { entity } => s.happen(Happening::Arrived(entity)),
-        Event::Blocked { entity } => s.happen(Happening::Blocked(entity)),
+        Event::Blocked { entity, .. } => s.happen(Happening::Blocked(entity)),
         Event::ClipFinished { entity, .. } => s.happen(Happening::ClipFinished(entity)),
         Event::ClipMarker {
             entity,

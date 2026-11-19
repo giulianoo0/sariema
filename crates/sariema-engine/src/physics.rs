@@ -14,10 +14,12 @@ use std::sync::Arc;
 use glam::{Quat, Vec2, Vec3};
 use sariema_core::STEP_SECONDS;
 use sariema_format::collision::{CollisionPack, Traversal};
-use sariema_format::script::{Anchor, Command, Controller, Entity, Event, Kind, Property, name_id};
+use sariema_format::script::{
+    Anchor, BlockReason, Command, Controller, Entity, Event, Kind, Property, name_id,
+};
 use sariema_physics::{
-    ActorCollider, ActorDesc, ActorId, ColliderId, EventKind, Intent, Settings as PhysicsSettings,
-    World, WorldBuild, actor_collider, hinge_turned, wrap_angle,
+    ActorCollider, ActorDesc, ActorId, BlockReason as PhysicsBlock, ColliderId, EventKind, Intent,
+    Settings as PhysicsSettings, World, WorldBuild, actor_collider, hinge_turned, wrap_angle,
 };
 use sariema_runtime::events::Happening;
 use sariema_runtime::motion::Goal;
@@ -633,7 +635,10 @@ impl Physics {
                         yaw,
                     },
                 );
-                s.events.push(Event::Blocked { entity });
+                s.events.push(Event::Blocked {
+                    entity,
+                    reason: BlockReason::NoPath,
+                });
                 s.happen(Happening::Blocked(entity));
             }
         }
@@ -775,7 +780,10 @@ impl Physics {
             .position(|t| name_id(&t.name) == traversal);
         let start = s.world.node(entity).map(|n| n.local.position);
         let (Some(t), Some(start), true) = (found, start, self.mapped(entity).is_some()) else {
-            s.events.push(Event::Blocked { entity });
+            s.events.push(Event::Blocked {
+                entity,
+                reason: BlockReason::Unavailable,
+            });
             s.happen(Happening::Blocked(entity));
             return;
         };
@@ -889,12 +897,16 @@ impl Physics {
                     if let Some(m) = self.mapped_mut(entity) {
                         m.speed = 0.0;
                     }
-                    if e.kind == EventKind::Arrived {
+                    if let EventKind::Blocked(why) = e.kind {
+                        let reason = match why {
+                            PhysicsBlock::NoPath => BlockReason::NoPath,
+                            PhysicsBlock::Stuck => BlockReason::Stuck,
+                        };
+                        s.events.push(Event::Blocked { entity, reason });
+                        s.happen(Happening::Blocked(entity));
+                    } else {
                         s.events.push(Event::Arrived { entity });
                         s.happen(Happening::Arrived(entity));
-                    } else {
-                        s.events.push(Event::Blocked { entity });
-                        s.happen(Happening::Blocked(entity));
                     }
                 }
                 EventKind::HitWall { normal, .. } => s.events.push(Event::HitWall {

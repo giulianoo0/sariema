@@ -110,7 +110,7 @@ where
                     self.refused.push((step, code.to_string()));
                     heard.named.push((step, entity));
                 }
-                Ok(Event::Blocked { entity }) => heard.blocked.push((step, entity)),
+                Ok(Event::Blocked { entity, .. }) => heard.blocked.push((step, entity)),
                 Ok(Event::Arrived { entity }) => heard.arrived.push((step, entity)),
                 Ok(Event::TweenDone { tween }) => heard.done.push((step, tween)),
                 _ => {}

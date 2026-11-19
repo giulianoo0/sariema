@@ -6,7 +6,7 @@
 use glam::{EulerRot, Vec3};
 use sariema_core::STEP_SECONDS;
 use sariema_format::script::{
-    Bus, Command, Entity, Event, Kind, Property, clip_spans, scene_values,
+    BlockReason, Bus, Command, Entity, Event, Kind, Property, clip_spans, scene_values,
 };
 
 use crate::camera::{CameraPose, CameraSettings, Framing};
@@ -238,7 +238,10 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
         } => {
             actor(s, entity)?;
             if s.settings.motion.builtin {
-                s.events.push(Event::Blocked { entity });
+                s.events.push(Event::Blocked {
+                    entity,
+                    reason: BlockReason::Unavailable,
+                });
                 s.happen(Happening::Blocked(entity));
             } else {
                 s.motion.mover_mut(entity).goal = Goal::Idle;

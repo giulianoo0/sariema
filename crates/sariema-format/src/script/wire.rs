@@ -569,6 +569,22 @@ wire_enum! {
 }
 
 wire_enum! {
+    /// Why a walk or a traversal ended with `blocked`.
+    BlockReason {
+        /// No path leads to where it was sent, or the walk a skipped
+        /// cutscene would have taken could not have reached it.
+        NoPath = 0 => "no_path",
+        /// It stopped getting nearer: something held it back.
+        Stuck = 1 => "stuck",
+        /// The engine stopped it: the jump rule, or the clip a clip path
+        /// follows stopped playing.
+        Stopped = 2 => "stopped",
+        /// The traversal is unknown, or no collision module moves actors.
+        Unavailable = 3 => "unavailable",
+    }
+}
+
+wire_enum! {
     /// Who moves the hero.
     Controller {
         /// The input's move axis, natively, every step.

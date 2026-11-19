@@ -10,7 +10,7 @@
 
 use glam::Vec3;
 use sariema_core::STEP_SECONDS;
-use sariema_format::script::{Ease, Entity, Event, Kind, Property};
+use sariema_format::script::{BlockReason, Ease, Entity, Event, Kind, Property};
 
 use crate::apply::Refusal;
 use crate::ease::ease;
@@ -119,7 +119,10 @@ fn stop(s: &mut State, e: Entity) -> bool {
     if s.motion.get(e).is_some_and(|m| m.goal != Goal::Idle) {
         s.motion.mover_mut(e).goal = Goal::Idle;
         s.outbox.physics.push(PhysicsIntent::Stop { entity: e });
-        s.events.push(Event::Blocked { entity: e });
+        s.events.push(Event::Blocked {
+            entity: e,
+            reason: BlockReason::Stopped,
+        });
         s.happen(Happening::Blocked(e));
         stopped = true;
     }

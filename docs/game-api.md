@@ -77,7 +77,10 @@ takes a `PointList::Slice(&[[x, y, z], …])`); enums are one byte.
 A command batch that does not decode stops the game for good with
 `E_BATCH_TRUNCATED`, `E_BATCH_UNKNOWN` or `E_BATCH_INVALID`, naming the
 record and byte offset. The version is checked once, at load, never per
-step.
+step. Records carry no length, so a field added to a message changes the
+layout and the version: version 2 added `reason` to `blocked`, and a pack
+built against version 1 is refused with `E_BATCH_VERSION` until it is
+rebuilt against the current SDK.
 
 Names (cutscenes, roles, flags, clips, sounds, signals) travel as ids: the
 FNV-1a hash of the name's UTF-8 bytes (`name_id`, a `const fn` in the SDK).
@@ -373,7 +376,12 @@ without `--headless` the pack plays in a window.
 
 - **Movement**: `move_to` walks at a speed, in metres per second of the
   world whatever the actor's speed scale, and ends with `arrived` (exactly
-  on the target) or `blocked`; `set_speed_scale` scales the player's axis
+  on the target) or `blocked`, whose `reason` says why: `no_path` (no path
+  leads to the target, or a skipped cutscene's walk could not have reached
+  it), `stuck` (it stopped getting nearer: a closed door or an actor held
+  it back), `stopped` (the engine stopped it: the jump rule, or the clip a
+  clip path follows stopped) or `unavailable` (an unknown traversal, or no
+  collision module to carry one); `set_speed_scale` scales the player's axis
   and `move_intent`; `move_intent` holds a velocity; `face` turns at
   the actor's turn rate, in place when nothing drives the actor (it drops
   the speed left from a walk); a walk under way keeps its speed. `motion.turn_rate` is every actor's rate and the

@@ -159,7 +159,7 @@ fn a_traversal_without_a_collision_module_ends_at_once_with_blocked() {
     let seen = blocked.clone();
     let logic = native(move |n, events, out| {
         for e in events {
-            if let Event::Blocked { entity } = e {
+            if let Event::Blocked { entity, .. } = e {
                 seen.borrow_mut().push((n, *entity));
             }
         }
