@@ -5,7 +5,8 @@
 //! time, so a slowed span, slow motion or a held first frame keep body and
 //! root together. The runtime moves the root; a collision module poses the
 //! actor there with its collider off and keeps it posed, between spans too,
-//! until the last span ends and gets it back on, pushed out of any overlap.
+//! until the last span ends and gets it back on, pushed out of any overlap;
+//! a path that holds its end leaves it posed there, held.
 
 use glam::Vec3;
 use sariema_format::script::{BlockReason, ClipSpan, Ease, Entity, Event};
@@ -34,6 +35,8 @@ struct Path {
     at: usize,
     /// Where the root stood when span `at` began, once it has.
     start: Option<(Vec3, f32)>,
+    /// Held where the last span leaves the root instead of landing.
+    hold_end: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -45,8 +48,14 @@ pub struct Paths {
 
 impl Paths {
     /// `entity` moves along `spans` of `clip` from now, replacing any path
-    /// it had.
-    pub fn start(&mut self, entity: Entity, clip: u32, spans: impl Iterator<Item = ClipSpan>) {
+    /// it had; held at its end with `hold_end`.
+    pub fn start(
+        &mut self,
+        entity: Entity,
+        clip: u32,
+        spans: impl Iterator<Item = ClipSpan>,
+        hold_end: bool,
+    ) {
         self.forget(entity);
         let mut path = self.spare.pop().unwrap_or(Path {
             entity,
@@ -54,11 +63,13 @@ impl Paths {
             spans: Vec::new(),
             at: 0,
             start: None,
+            hold_end,
         });
         path.entity = entity;
         path.clip = clip;
         path.at = 0;
         path.start = None;
+        path.hold_end = hold_end;
         path.spans.clear();
         path.spans.extend(spans.map(|s| Span {
             from: s.from,
@@ -84,6 +95,10 @@ impl Paths {
 
     pub fn moving(&self, entity: Entity) -> bool {
         self.list.iter().any(|p| p.entity == entity)
+    }
+
+    fn holds_end(&self, entity: Entity) -> bool {
+        self.list.iter().any(|p| p.entity == entity && p.hold_end)
     }
 
     /// Where `entity`'s path ends from `at` facing `yaw`.
@@ -155,7 +170,7 @@ pub fn step(s: &mut State) {
         let playing = s.clips.time(entity).filter(|&(c, _)| c == path.clip);
         let (Some((_, t)), Some(node)) = (playing, s.world.node(entity)) else {
             s.paths.forget(entity);
-            give_back(s, entity);
+            end(s, entity, false);
             s.events.push(Event::Blocked {
                 entity,
                 reason: BlockReason::Stopped,
@@ -179,6 +194,7 @@ pub fn step(s: &mut State) {
             path.start = None;
         }
         let ended = path.at == path.spans.len();
+        let hold_end = path.hold_end;
         if root != moved
             && let Ok(node) = s.world.node_mut(entity)
         {
@@ -186,7 +202,7 @@ pub fn step(s: &mut State) {
         }
         if ended {
             s.paths.forget(entity);
-            give_back(s, entity);
+            end(s, entity, hold_end);
             s.events.push(Event::Arrived { entity });
             s.happen(Happening::Arrived(entity));
         } else {
@@ -201,23 +217,36 @@ pub fn finish(s: &mut State, entity: Entity) {
         return;
     };
     let (at, yaw) = (node.local.position, node.local.yaw);
-    let Some(end) = s.paths.end(entity, at, yaw) else {
+    let Some(last) = s.paths.end(entity, at, yaw) else {
         return;
     };
+    let hold_end = s.paths.holds_end(entity);
     s.paths.forget(entity);
     if let Ok(node) = s.world.node_mut(entity) {
-        (node.local.position, node.local.yaw) = end;
+        (node.local.position, node.local.yaw) = last;
     }
-    give_back(s, entity);
+    end(s, entity, hold_end);
 }
 
-/// The collider on again where the root stands.
-fn give_back(s: &mut State, entity: Entity) {
+/// The collider on again where the root stands, or the actor held there.
+fn end(s: &mut State, entity: Entity, hold_end: bool) {
+    if hold_end {
+        s.motion.mover_mut(entity).held = true;
+    }
     if let Some(node) = s.world.node(entity) {
-        s.outbox.physics.push(PhysicsIntent::Teleport {
-            entity,
-            position: node.local.position,
-            yaw: node.local.yaw,
+        let (position, yaw) = (node.local.position, node.local.yaw);
+        s.outbox.physics.push(if hold_end {
+            PhysicsIntent::Hold {
+                entity,
+                position,
+                yaw,
+            }
+        } else {
+            PhysicsIntent::Teleport {
+                entity,
+                position,
+                yaw,
+            }
         });
     }
 }

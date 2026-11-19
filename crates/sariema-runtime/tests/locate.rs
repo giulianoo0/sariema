@@ -44,6 +44,7 @@ fn run() -> (Vec<Answer>, Vec<String>, Vec<Placed>) {
                     entity,
                     position,
                     yaw,
+                    held: false,
                 } => log.borrow_mut().0.push(Answer {
                     tick: n,
                     entity: entity.index,

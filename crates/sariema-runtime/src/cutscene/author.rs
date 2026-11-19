@@ -89,6 +89,10 @@ pub struct PathSource {
     /// Seconds it stays on its first frame before playing.
     #[serde(default)]
     pub hold: f32,
+    /// Held where the last span leaves the root, collider off, until the
+    /// role's next movement, instead of landing.
+    #[serde(default)]
+    pub hold_end: bool,
     #[serde(default = "PathSource::mode")]
     pub mode: String,
     #[serde(default = "PathSource::blend")]
@@ -778,6 +782,7 @@ impl Compiler<'_> {
                     blend: p.blend,
                     from: p.from,
                     hold: p.hold,
+                    hold_end: p.hold_end,
                     spans,
                     then,
                 }

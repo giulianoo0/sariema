@@ -127,6 +127,7 @@ fn run_spans(landing: [f32; 3], gap: bool) -> Run {
                         blend: 0.1,
                         from: 0.0,
                         hold: 0.0,
+                        hold_end: false,
                         spans: &bytes,
                     },
                 );

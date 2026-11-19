@@ -170,10 +170,12 @@ impl State {
         self.happen(Happening::LineDone(line));
     }
 
-    /// The world as the player sees it: entities, flags, variables, the
-    /// screen, the camera, the rooms and who controls the hero. Leaves out
-    /// time.
+    /// The world as the player sees it: entities, an actor held where a
+    /// kinematic move ended, flags, variables, the screen, the camera, the
+    /// rooms and who controls the hero. Leaves out time. A hold counts only
+    /// while one is held, so a world that never holds hashes as before.
     pub fn world_hash(&self) -> u64 {
+        const HELD: u32 = u32::MAX;
         let mut h = StateHasher::default();
         for (e, n) in self.world.entities() {
             h.u32(e.index);
@@ -187,6 +189,9 @@ impl State {
             h.u32(n.parent.index);
             h.u32(n.visible as u32);
             n.tags.iter().for_each(|t| h.u32(*t));
+            if self.motion.held(e) {
+                h.u32(HELD);
+            }
         }
         self.store.flags.iter().for_each(|f| h.u32(*f));
         for (k, v) in &self.store.vars {

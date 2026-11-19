@@ -45,6 +45,7 @@ fn a_fade_covered_teleport_is_never_drawn_at_an_intermediate_fade_value() {
                         position: TO,
                         yaw: 90.0,
                         force: false,
+                        hold: false,
                     },
                 );
                 send(out, fade(0.0));

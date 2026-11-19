@@ -17,7 +17,7 @@ use super::wire::{
 };
 
 batch_table! {
-    version 2;
+    version 3;
     enums [Kind, Ease, Property, ClipMode, Bus, Controller, Advance, Orientation, Anchor, RoomTransition, BlockReason]
     commands {
         /// Brings an entity to life in a free slot the game chose. The slot's
@@ -45,8 +45,12 @@ batch_table! {
         0x0014 Stop stop { entity: Entity }
         /// Moves at once. A visible actor may only teleport while the screen is
         /// fully faded, in the step of a camera cut, or with `force`; otherwise
-        /// the command is rejected with E_TELEPORT_VISIBLE.
-        0x0015 Teleport teleport { entity: Entity, position: Vec3, yaw: f32, force: bool }
+        /// the command is rejected with E_TELEPORT_VISIBLE. With `hold` an
+        /// actor is held there instead of landing: exactly at `position`,
+        /// collider off, no gravity and no push-out, until its next movement
+        /// command, as a held end leaves it; a game puts back an actor it
+        /// saved held this way.
+        0x0015 Teleport teleport { entity: Entity, position: Vec3, yaw: f32, force: bool, hold: bool }
         /// Turns at the configured turn rate until facing `yaw`.
         0x0016 Face face { entity: Entity, yaw: f32 }
         /// Head and eyes follow `target`; NONE stops.
@@ -62,7 +66,8 @@ batch_table! {
         /// Carries an actor along the room's traversal `traversal` (a name in
         /// its collision pack) over `duration` seconds, collider off, its
         /// declared contacts touched by the actor's socket or joint of the
-        /// same name; ends with `arrived` on free floor. Needs a collision
+        /// same name; ends with `arrived` on free floor, or held at its last
+        /// point when the traversal declares `hold_end`. Needs a collision
         /// module: with `motion.builtin` it ends at once with `blocked`.
         0x001B Traverse traverse { entity: Entity, traversal: u32, duration: f32 }
 
@@ -246,11 +251,13 @@ batch_table! {
         /// span begins to the span's point, eased, collider off; outside
         /// them the root stays and the clip plays at its own rate. Ends with
         /// `arrived` when the last span ends, the collider on again where
-        /// the root stands, pushed out of any overlap. Refused with
+        /// the root stands, pushed out of any overlap; with `hold_end` it is
+        /// held there instead, collider off, no gravity and no push-out,
+        /// until its next movement command. Refused with
         /// E_CLIP_SPANS for spans out of order, past the clip's end or not
         /// finite, and with E_TELEPORT_VISIBLE when a span would carry a
         /// visible actor faster than it may be seen to move.
-        0x0021 ClipPath clip_path { entity: Entity, clip: u32, mode: ClipMode, blend: f32, from: f32, hold: f32, spans: Bytes }
+        0x0021 ClipPath clip_path { entity: Entity, clip: u32, mode: ClipMode, blend: f32, from: f32, hold: f32, hold_end: bool, spans: Bytes }
         /// Plays the clip `entity` plays at `rate` from this step, going on
         /// from where it is: no restart and no crossfade, so a walk cycle
         /// follows the actor's pace without its feet sliding. 0 holds it
@@ -341,7 +348,8 @@ batch_table! {
 
         /// Where `entity` stood at the end of the step `locate` asked in:
         /// its origin (an actor's feet) in the world and its yaw about +Y in
-        /// degrees, in (-180, 180], with a parent or without.
-        0x00D0 Located located { entity: Entity, position: Vec3, yaw: f32 }
+        /// degrees, in (-180, 180], with a parent or without; `held` when a
+        /// held end keeps it there (`teleport` with `hold` puts it back so).
+        0x00D0 Located located { entity: Entity, position: Vec3, yaw: f32, held: bool }
     }
 }

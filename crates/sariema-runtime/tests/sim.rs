@@ -235,6 +235,7 @@ fn stale_handles_and_jumps_of_visible_actors_are_rejected_at_run_time() {
                     position: [5.0, 0.0, 0.0],
                     yaw: 0.0,
                     force: false,
+                    hold: false,
                 },
             ),
             2 => {
@@ -262,6 +263,7 @@ fn stale_handles_and_jumps_of_visible_actors_are_rejected_at_run_time() {
                         position: [6.0, 0.0, 0.0],
                         yaw: 0.0,
                         force: false,
+                        hold: false,
                     },
                 );
             }

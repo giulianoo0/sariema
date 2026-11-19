@@ -207,10 +207,16 @@ body over geometry it could never walk through. They follow five rules.
    clip. A posed actor is not pushed out of the sill, gravity does not pull
    it, and other actors neither push it nor are pushed by it. Triggers
    still see it.
-2. **A traversal ends on free floor.** At its last point, the actor's
-   collider must be clear of the room and stand on walkable ground. The
-   next `Move`, `MoveTo`, `Stop`, `Knockback` or `Teleport` turns the
-   collider back on, and walking resumes with collision from there.
+2. **A traversal ends on free floor, or holds its end.** At its last
+   point, the actor's collider must be clear of the room and stand on
+   walkable ground. The next `Move`, `MoveTo`, `Stop`, `Knockback` or
+   `Teleport` turns the collider back on, and walking resumes with
+   collision from there. A traversal that declares `hold_end` instead
+   leaves the actor posed at its last point (a climber at the top of a
+   rope, hands on a window leaf), collider off, with no gravity and no
+   push-out, until one of those intents, or the next traversal, which
+   starts from the held pose. Its end need not be free floor; `check`
+   proves it only for the traversals that land.
 3. **Intended contact is authored, not penetration.** A foot hooked on the
    sill is a pose of the clip plus a declared contact point where the foot
    meets the sill. The traversal places the actor's feet so that the foot
@@ -253,10 +259,13 @@ resting on the sill on the way.
   stands again, facing `yaw_deg`.
 - `contacts`: the declared points where the pose touches the room on
   purpose.
+- `hold_end`: holds the actor at the last point instead of landing it
+  there (rule 2); `false` when absent.
 
 `check` reports three problems:
 
-- `E_TRAVERSAL_END` when the end is not free floor.
+- `E_TRAVERSAL_END` when the end of a traversal that lands is not free
+  floor.
 - `E_CONTACT_OFF_SURFACE` when a contact lies farther than
   `--contact-tolerance` from every surface, or deeper than that inside one.
 - `E_CONTACT_OUT_OF_REACH` when a contact lies outside the carried actor's
@@ -347,9 +356,9 @@ comparable; `tests/determinism.rs` pins one replay's hash, and checks that
 runs batching 2 or 5 steps per frame, with path searches, walkable-cell
 listings, ray casts and overlap queries between steps, give the same hash at
 every step as the plain run. An actor's body (`SetSolid`), whether it is
-hidden (`SetHidden`) and its own
-turn cap (`SetMaxYawSpeed`) count only when set off their defaults, so
-two runs that differ in them alone hash apart while a world that never
+hidden (`SetHidden`), its own turn cap (`SetMaxYawSpeed`) and whether it
+is posed (`Pose`, so a held end) count only when set off their defaults,
+so two runs that differ in them alone hash apart while a world that never
 sets them keeps its pinned hash.
 
 A step allocates nothing once warm: buffers are kept between steps. The walkable
@@ -362,7 +371,9 @@ colliders, triggers, actor colliders, action spots (feet and facing, for one
 actor), the routes scripts walk between spots, the traversals scripts
 carry actors along and the hinges that turn colliders. Encoding follows the room
 pack: magic, version, postcard body; `decode` validates numbers, sizes,
-indices and unique names and never panics.
+indices and unique names and never panics. Version 4 added a traversal's
+`hold_end`; a pack of another version is refused with `E_PACK_VERSION`
+and rebuilt by `sariema build`.
 
 ### Baking
 

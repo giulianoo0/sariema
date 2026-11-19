@@ -184,6 +184,9 @@ pub struct TraversalSource {
     pub yaw_deg: f32,
     #[serde(default)]
     pub contacts: Vec<ContactSource>,
+    /// Held at the last point instead of landing on free floor there.
+    #[serde(default)]
+    pub hold_end: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -364,6 +367,7 @@ pub fn build_collision(
                         point: c.at,
                     })
                     .collect(),
+                hold_end: t.hold_end,
             })
         })
         .collect::<Result<_, String>>()

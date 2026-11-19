@@ -64,6 +64,13 @@ pub enum PhysicsIntent {
         position: Vec3,
         yaw: f32,
     },
+    /// Hold exactly at `position` facing `yaw`, collider off, with no
+    /// gravity and no push-out, until the next movement intent.
+    Hold {
+        entity: Entity,
+        position: Vec3,
+        yaw: f32,
+    },
     Knockback {
         entity: Entity,
         impulse: Vec3,

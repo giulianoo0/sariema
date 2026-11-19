@@ -62,6 +62,9 @@ pub struct Mover {
     pub turn_rate: Option<f32>,
     /// Its body stands in other actors' way (`set_collider`).
     pub body: bool,
+    /// Held where a kinematic move ended, collider off, until its next
+    /// movement command.
+    pub held: bool,
 }
 
 const IDLE: Mover = Mover {
@@ -70,6 +73,7 @@ const IDLE: Mover = Mover {
     speed_scale: 1.0,
     turn_rate: None,
     body: true,
+    held: false,
 };
 
 /// Degrees about +Y of a horizontal direction; 0 is −Z.
@@ -118,6 +122,10 @@ impl Motion {
 
     pub fn turning(&self, e: Entity) -> bool {
         self.get(e).is_some_and(|m| m.face.is_some())
+    }
+
+    pub fn held(&self, e: Entity) -> bool {
+        self.get(e).is_some_and(|m| m.held)
     }
 
     pub fn walking(&self, e: Entity) -> bool {

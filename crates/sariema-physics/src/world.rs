@@ -1268,12 +1268,14 @@ impl World {
     }
 
     /// FNV-1a over every value the simulation carries from step to step.
-    /// An actor's body and turn cap count only off their defaults, so a
-    /// world that never sets them hashes as before they existed.
+    /// An actor's body, its turn cap and a pose count only off their
+    /// defaults, so a world that never sets them hashes as before they
+    /// existed.
     pub fn state_hash(&self) -> u64 {
         const BODY_OFF: u32 = u32::MAX - 1;
         const OWN_TURN_CAP: u32 = u32::MAX - 2;
         const HIDDEN: u32 = u32::MAX - 3;
+        const POSED: u32 = u32::MAX - 4;
         let mut h = Fnv::new();
         h.u64(self.steps);
         for c in &self.scene.colliders {
@@ -1305,6 +1307,9 @@ impl World {
             }
             if a.hidden {
                 h.u32(HIDDEN);
+            }
+            if a.posed {
+                h.u32(POSED);
             }
             if let Some(speed) = a.max_yaw_speed {
                 h.u32(OWN_TURN_CAP);

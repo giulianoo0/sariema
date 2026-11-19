@@ -40,6 +40,7 @@ fn teleport(e: Entity, x: f32) -> Command<'static> {
         position: [x, 0.0, 0.0],
         yaw: 0.0,
         force: false,
+        hold: false,
     }
 }
 
@@ -607,6 +608,7 @@ fn a_forced_teleport_carries_a_visible_child_without_sliding_it() {
         position: [50.0, 0.0, 0.0],
         yaw: 0.0,
         force: true,
+        hold: false,
     };
     let r = run(vec![vec![], vec![parent], vec![force]]);
     assert!(r.refused.is_empty(), "{:?}", r.refused);
@@ -657,6 +659,7 @@ fn a_carrier_placed_in_the_step_cannot_carry_a_visible_actor_off() {
         position: [100.0, 0.0, 0.0],
         yaw: 0.0,
         force: true,
+        hold: false,
     };
     let r = run(vec![vec![], vec![force, parent(ACTOR, PROP)], vec![]]);
     assert_eq!(

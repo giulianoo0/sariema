@@ -79,9 +79,12 @@ A command batch that does not decode stops the game for good with
 `E_BATCH_TRUNCATED`, `E_BATCH_UNKNOWN` or `E_BATCH_INVALID`, naming the
 record and byte offset. The version is checked once, at load, never per
 step. Records carry no length, so a field added to a message changes the
-layout and the version: version 2 added `reason` to `blocked`, and a pack
-built against version 1 is refused with `E_BATCH_VERSION` until it is
-rebuilt against the current SDK. A module that does not export
+layout and the version: version 2 added `reason` to `blocked`, version 3
+`hold` to `teleport`, `hold_end` to `clip_path` and `held` to `located`,
+and a pack built against an older one is refused with `E_BATCH_VERSION`
+until it is rebuilt against the current SDK. Game packs older than the
+current one (5) carry such logic, so they are refused the same way, from
+the batch version their head names. A module that does not export
 `sariema_batch_version` is refused the same way rather than read as some
 version it may not speak.
 
@@ -449,7 +452,23 @@ without `--headless` the pack plays in a window.
   ([the engine](engine.md) wires `sariema-physics` in when the room has a
   collision pack). `traverse` carries an actor along one of the room's
   declared traversals, collider off, and ends with `arrived`; without a
-  collision module it ends at once with `blocked`.
+  collision module it ends at once with `blocked`. A traversal that
+  declares `hold_end` leaves the actor held at its last point (see
+  "Held ends").
+- **Held ends**: a kinematic move can end with the actor held where it
+  stops instead of landing: a `traverse` whose traversal declares
+  `hold_end`, a `clip_path` with `hold_end`, a cutscene `path` step with
+  `"hold_end": true`. The actor stays exactly there, posed, collider off,
+  with no gravity and no push-out (a hand on a window leaf stays on it, a
+  climber stays at the top of a rope), until its next movement command:
+  `move_to`, `move_intent`, `stop`, `knockback`, `teleport`,
+  `set_transform`, another `clip_path` or `traverse`, or the player's
+  stick when it drives the hero. A path or traversal given to a held
+  actor starts from the held pose and keeps it posed until it moves; a
+  walk or a stop gets the collider back where it is, so a held actor high
+  up falls. `located` says `held: true` for a held actor, and `teleport`
+  with `hold` puts an actor back held, so a save brings it back as it
+  was.
 - **Hinged leaves**: a door or window leaf of the room turns with its
   scene parameter `hinge.<node>` (degrees from closed), and its collider
   with it. A `tween` of it that would turn the leaf into an actor stops
@@ -516,7 +535,8 @@ without `--headless` the pack plays in a window.
   step takes over within it. With a collision module the actor is posed
   with its collider off for the spans (over a sill, onto a ledge) and gets
   it back where the root stands when the last span ends, pushed out of any
-  overlap, then hears `arrived`; a `move_to`, `move_intent`, `stop` or
+  overlap, then hears `arrived`, or with `hold_end` stays held where the
+  root stands (see "Held ends"); a `move_to`, `move_intent`, `stop` or
   `teleport` ends the path where the root stands, and another clip ends it
   with `blocked`. Refused with `E_CLIP_SPANS` (out of order, overlapping,
   past the clip's end, a rate of 0, not finite) or `E_TELEPORT_VISIBLE`
@@ -635,7 +655,9 @@ in degrees, in (-180, 180], whether something carries the actor or not.
 An entity despawned before that step ends gets `rejected` with
 `E_ENTITY_STALE` and the opcode of `locate` instead. The answer comes from the step's state, so a replay, the native build and the web
 build give the same numbers. Saving it and teleporting there on load puts
-the actor back where the player last saw it.
+the actor back where the player last saw it; `located` also says whether
+the actor is `held` at a held end, and a `teleport` with `hold` puts it
+back held, with no push-out and no fall.
 
 ## Settings
 

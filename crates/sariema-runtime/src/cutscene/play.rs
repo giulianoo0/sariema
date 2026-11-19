@@ -215,6 +215,7 @@ impl Ctx<'_> {
             position: position.to_array(),
             yaw,
             force: true,
+            hold: false,
         });
     }
 }
@@ -880,6 +881,7 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
             blend,
             from,
             hold,
+            hold_end,
             spans,
             then,
         } => {
@@ -905,6 +907,7 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
                 blend: *blend,
                 from: *from,
                 hold: if skip { 0.0 } else { *hold },
+                hold_end: *hold_end,
                 spans: &bytes,
             };
             if !ctx.try_issue(path) {
@@ -1118,6 +1121,7 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
                 position: to.position,
                 yaw: to.yaw,
                 force: false,
+                hold: false,
             });
             None
         }

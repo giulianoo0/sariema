@@ -125,6 +125,7 @@ impl<L: Logic> Logic for Tee<L> {
                     entity,
                     position,
                     yaw,
+                    held: false,
                 } => self
                     .heard
                     .located

@@ -52,6 +52,7 @@ fn interrupt(out: &mut Vec<u8>, how: Interrupt) {
                 position: [1.5, 0.0, -0.5],
                 yaw: 0.0,
                 force: true,
+                hold: false,
             },
         ),
         Interrupt::MoveIntent => send(
@@ -68,6 +69,7 @@ fn interrupt(out: &mut Vec<u8>, how: Interrupt) {
                 position: [3.5, 0.3, -3.0],
                 yaw: 0.0,
                 force: true,
+                hold: false,
             },
         ),
     }
@@ -202,6 +204,7 @@ fn a_role_teleported_as_its_cutscene_starts_is_placed_from_where_it_landed() {
                     position: [3.5, 0.3, -3.0],
                     yaw: 0.0,
                     force: true,
+                    hold: false,
                 },
             );
             send(
@@ -265,6 +268,7 @@ fn a_role_the_game_teleports_every_tick_is_still_placed() {
                     position: START,
                     yaw: 0.0,
                     force: true,
+                    hold: false,
                 },
             );
         }

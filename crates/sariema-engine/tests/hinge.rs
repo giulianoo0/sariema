@@ -189,6 +189,7 @@ fn a_leaf_closing_on_the_hero_in_its_swing_stops_tells_the_game_once_and_goes_on
                     position: [0.0, 0.0, -2.5],
                     yaw: 0.0,
                     force: true,
+                    hold: false,
                 },
             );
         }

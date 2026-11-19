@@ -71,6 +71,8 @@ struct Traversing {
     yaw: f32,
     steps: u32,
     done: u32,
+    /// Held at the last point instead of landing there.
+    hold_end: bool,
 }
 
 impl Traversing {
@@ -83,6 +85,7 @@ impl Traversing {
             yaw: 0.0,
             steps: 0,
             done: 0,
+            hold_end: false,
         }
     }
 }
@@ -463,6 +466,13 @@ impl Physics {
             });
             let hidden = !node.visible;
             self.world.apply(Intent::SetHidden { actor: id, hidden });
+            if s.motion.held(entity) {
+                self.world.apply(Intent::Pose {
+                    actor: id,
+                    position: pose.position,
+                    yaw: to_physics(yaw),
+                });
+            }
             self.owners[id.0 as usize] = entity;
             if self.actors.len() <= i {
                 self.actors.resize_with(i + 1, || None);
@@ -614,6 +624,11 @@ impl Physics {
                 duration,
             } => self.start_traversal(s, entity, traversal, duration),
             PhysicsIntent::Teleport { .. } | PhysicsIntent::Stop { .. } => self.halt(s, intent),
+            PhysicsIntent::Hold {
+                entity,
+                position,
+                yaw,
+            } => self.hold(s, entity, position, yaw),
             PhysicsIntent::TurnRate { entity, rate } => {
                 if let Some(m) = self.mapped_mut(entity) {
                     m.turn_rate = rate;
@@ -682,6 +697,26 @@ impl Physics {
             }
             _ => {}
         }
+    }
+
+    /// Poses `entity` exactly at `position`, collider off, until its next
+    /// movement intent releases it.
+    fn hold(&mut self, s: &State, entity: Entity, position: Vec3, yaw: f32) {
+        self.end_traversal(entity);
+        if s.world.node(entity).is_some_and(|n| !n.parent.is_none()) {
+            return;
+        }
+        let Some(m) = self.mapped_mut(entity) else {
+            return;
+        };
+        m.written = (position, yaw);
+        m.speed = 0.0;
+        let id = m.id;
+        self.world.apply(Intent::Pose {
+            actor: id,
+            position,
+            yaw: to_physics(yaw),
+        });
     }
 
     fn velocity(&mut self, s: &State, entity: Entity, velocity: Vec3) {
@@ -857,9 +892,14 @@ impl Physics {
                 continue;
             }
             let run = self.traversals.remove(k);
-            let entity = run.entity;
+            let (entity, hold_end) = (run.entity, run.hold_end);
             self.spare.push(run);
-            if let Some(m) = self.mapped(entity) {
+            if hold_end {
+                s.motion.mover_mut(entity).held = true;
+                if let Some(m) = self.mapped_mut(entity) {
+                    m.speed = 0.0;
+                }
+            } else if let Some(m) = self.mapped(entity) {
                 let id = m.id;
                 self.world.apply(Intent::Stop { actor: id });
             }
@@ -949,6 +989,7 @@ const TELEPORT: Command<'static> = Command::Teleport {
     position: [0.0; 3],
     yaw: 0.0,
     force: false,
+    hold: false,
 };
 
 const SET_COLLIDER: Command<'static> = Command::SetCollider {
@@ -989,6 +1030,7 @@ fn traversing(run: &mut Traversing, entity: Entity, t: &Traversal, start: Vec3, 
     run.yaw = to_runtime(t.yaw);
     run.steps = (duration / STEP_SECONDS).round().max(1.0) as u32;
     run.done = 0;
+    run.hold_end = t.hold_end;
 }
 
 /// The arc length at which `path` passes nearest to `point`.

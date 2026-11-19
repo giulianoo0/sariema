@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 #[macro_use]
 mod codegen;
 pub mod cutscene;
-mod previous;
 pub mod ray;
 mod span;
 mod table;
@@ -49,7 +48,11 @@ pub fn scene_values(values: &[u8]) -> Option<impl Iterator<Item = (u32, f32)> + 
 }
 
 pub const GAME_MAGIC: [u8; 4] = *b"SRMG";
-pub const GAME_VERSION: u32 = 4;
+pub const GAME_VERSION: u32 = 5;
+
+/// The oldest game pack version whose head, its name then its batch
+/// version, this engine still reads, to refuse it for that batch version.
+const OLDEST_GAME_VERSION: u32 = 3;
 
 const HEADER_LEN: usize = GAME_MAGIC.len() + size_of::<u32>();
 
@@ -164,8 +167,7 @@ impl fmt::Display for GameFormatError {
             }
             GameFormatError::Version { found } => write!(
                 f,
-                "game pack version {found} is not supported (reads {} and {GAME_VERSION})",
-                previous::VERSION
+                "game pack version {found} is not supported (reads {GAME_VERSION})"
             ),
             GameFormatError::Truncated => write!(f, "game pack is truncated"),
             GameFormatError::Invalid(why) => write!(f, "game pack is invalid: {why}"),
@@ -200,7 +202,7 @@ pub fn decode_game(bytes: &[u8]) -> Result<GamePack, GameFormatError> {
     let found = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
     let game = match found {
         GAME_VERSION => read::<GamePack>(body)?,
-        previous::VERSION => read::<previous::GamePack3>(body)?.into(),
+        OLDEST_GAME_VERSION..GAME_VERSION => return Err(older_batch(found, body)),
         _ => return Err(GameFormatError::Version { found }),
     };
     if game.batch_version != BATCH_VERSION {
@@ -216,6 +218,17 @@ pub fn decode_game(bytes: &[u8]) -> Result<GamePack, GameFormatError> {
         })?;
     }
     Ok(game)
+}
+
+/// An older game pack: its logic speaks the batch version it was built
+/// against, always an older one, so it is refused for that, which says to
+/// rebuild it.
+fn older_batch(version: u32, body: &[u8]) -> GameFormatError {
+    match postcard::take_from_bytes::<(String, u32)>(body) {
+        Ok(((_, found), _)) if found != BATCH_VERSION => GameFormatError::BatchVersion { found },
+        Ok(_) => GameFormatError::Version { found: version },
+        Err(_) => GameFormatError::Truncated,
+    }
 }
 
 fn read<T: serde::de::DeserializeOwned>(body: &[u8]) -> Result<T, GameFormatError> {

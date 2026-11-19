@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::Aabb;
 
 pub const MAGIC: [u8; 4] = *b"SRMC";
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 
 const HEADER_LEN: usize = MAGIC.len() + size_of::<u32>();
 
@@ -141,6 +141,10 @@ pub struct Traversal {
     pub yaw: f32,
     /// Where an authored pose touches the room on purpose.
     pub contacts: Vec<Contact>,
+    /// Holds the actor at the last point, collider off, until its next
+    /// movement command, instead of landing it there: the end need not be
+    /// free floor.
+    pub hold_end: bool,
 }
 
 /// A point of an actor's pose that rests on a surface by design, like a foot

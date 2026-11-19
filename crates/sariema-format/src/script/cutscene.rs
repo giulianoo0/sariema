@@ -167,7 +167,8 @@ pub enum Block {
     /// seconds first, moving the role's root only within `spans`, as the
     /// `clip_path` command does; then the clips of `then` in a row, each
     /// from where the one before ends. Ends when the last clip has played
-    /// through and the root has landed.
+    /// through and the root has landed, or, with `hold_end`, is held where
+    /// the last span left it.
     Path {
         role: u16,
         clip: u32,
@@ -175,6 +176,7 @@ pub enum Block {
         blend: f32,
         from: f32,
         hold: f32,
+        hold_end: bool,
         spans: Vec<PathSpan>,
         then: Vec<Then>,
     },

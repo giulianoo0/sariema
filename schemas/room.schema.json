@@ -185,7 +185,7 @@
         },
         "traversals": {
           "type": "array",
-          "description": "Scripted moves with the actor's collider off, such as climbing in through a window; sariema check proves that each ends on free floor and that its contacts lie on a surface.",
+          "description": "Scripted moves with the actor's collider off, such as climbing in through a window; sariema check proves that each ends on free floor, unless it holds its end, and that its contacts lie on a surface.",
           "items": { "$ref": "#/$defs/collision_traversal" }
         },
         "nav_bounds": {
@@ -372,6 +372,10 @@
         "contacts": {
           "type": "array",
           "items": { "$ref": "#/$defs/collision_contact" }
+        },
+        "hold_end": {
+          "type": "boolean",
+          "description": "Holds the actor at the last point, collider off, with no gravity and no push-out, until its next movement command, instead of landing it there; the end need not be free floor. false when absent."
         }
       }
     },

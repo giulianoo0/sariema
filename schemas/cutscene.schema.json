@@ -1061,6 +1061,11 @@
                   "default": 0,
                   "description": "Seconds the clip stays on its first frame before playing; keep it under a fade or a cut."
                 },
+                "hold_end": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Holds the role where the last span leaves its root, collider off, with no gravity and no push-out, until its next movement, instead of landing it there; a skip holds it there too."
+                },
                 "mode": {
                   "enum": [
                     "loop",

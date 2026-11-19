@@ -218,6 +218,7 @@ fn command(rng: &mut Pcg32, slots: &mut Slots, out: &mut Step) {
             position: at,
             yaw,
             force: rng.next_u32().is_multiple_of(2),
+            hold: false,
         }),
         9 => out.push(Command::Fade {
             to: if coin { 1.0 } else { 0.0 },
@@ -424,6 +425,7 @@ fn no_random_program_draws_a_visible_actor_jumping_with_collision_wired() {
                     Command::Teleport {
                         entity,
                         force: true,
+                        hold: false,
                         ..
                     } => Some(entity.index),
                     _ => None,

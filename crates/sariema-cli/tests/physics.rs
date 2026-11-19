@@ -382,6 +382,22 @@ fn a_traversal_ending_inside_the_sill_or_in_the_air_fails() {
 }
 
 #[test]
+fn a_traversal_that_holds_its_end_may_end_inside_the_sill_or_in_the_air() {
+    for end in [[3.5, 0.0, -3.2], [3.5, 0.5, -4.2]] {
+        let tmp = TempDir::new().unwrap();
+        let dir = project_with(
+            &tmp,
+            sill_with(|t| {
+                t["points"][1] = json!(end);
+                t["hold_end"] = json!(true);
+            }),
+        );
+        let (code, out) = sariema(&["check", arg(&dir), "--room", "hall"]);
+        assert_eq!(code, 0, "{out}");
+    }
+}
+
+#[test]
 fn a_contact_off_the_sill_or_sunk_into_it_fails() {
     for (at, says) in [
         ([3.5, 1.2, -3.2], "is not within 0.02 m of a surface"),

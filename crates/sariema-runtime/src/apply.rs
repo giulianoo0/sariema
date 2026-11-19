@@ -68,7 +68,14 @@ fn v3(v: [f32; 3]) -> Vec3 {
     Vec3::from_array(v)
 }
 
-fn place(s: &mut State, e: Entity, position: Vec3, yaw: f32, force: bool) -> Result<(), Reject> {
+fn place(
+    s: &mut State,
+    e: Entity,
+    position: Vec3,
+    yaw: f32,
+    force: bool,
+    hold: bool,
+) -> Result<(), Reject> {
     let node = s.world.node_mut(e)?;
     s.paths.forget(e);
     node.local.position = position;
@@ -82,10 +89,21 @@ fn place(s: &mut State, e: Entity, position: Vec3, yaw: f32, force: bool) -> Res
         m.goal = Goal::Idle;
         m.face = None;
     }
-    s.outbox.physics.push(PhysicsIntent::Teleport {
-        entity: e,
-        position,
-        yaw,
+    if s.world.node(e).is_some_and(|n| n.kind == Kind::Actor) {
+        s.motion.mover_mut(e).held = hold;
+    }
+    s.outbox.physics.push(if hold {
+        PhysicsIntent::Hold {
+            entity: e,
+            position,
+            yaw,
+        }
+    } else {
+        PhysicsIntent::Teleport {
+            entity: e,
+            position,
+            yaw,
+        }
     });
     Ok(())
 }
@@ -144,7 +162,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
         } => {
             s.world.check(entity).map_err(refuse(entity))?;
             no_jump::may_place(s, entity, v3(position), yaw)?;
-            place(s, entity, v3(position), yaw, false).map_err(refuse(entity))?;
+            place(s, entity, v3(position), yaw, false, false).map_err(refuse(entity))?;
         }
         C::SetParent { entity, parent } => {
             s.world.can_parent(entity, parent).map_err(refuse(entity))?;
@@ -189,7 +207,9 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
                 speed,
             };
             no_jump::may_walk(s, entity, goal)?;
-            s.motion.mover_mut(entity).goal = goal;
+            let mover = s.motion.mover_mut(entity);
+            mover.goal = goal;
+            mover.held = false;
             s.paths.forget(entity);
             s.outbox.physics.push(PhysicsIntent::MoveTo {
                 entity,
@@ -201,7 +221,9 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             actor(s, entity)?;
             let goal = Goal::Velocity(v3(velocity));
             no_jump::may_walk(s, entity, goal)?;
-            s.motion.mover_mut(entity).goal = goal;
+            let mover = s.motion.mover_mut(entity);
+            mover.goal = goal;
+            mover.held = false;
             s.paths.forget(entity);
             s.outbox.physics.push(PhysicsIntent::Velocity {
                 entity,
@@ -211,7 +233,9 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
         C::Stop { entity } => {
             actor(s, entity)?;
             s.paths.forget(entity);
-            s.motion.mover_mut(entity).goal = Goal::Idle;
+            let mover = s.motion.mover_mut(entity);
+            mover.goal = Goal::Idle;
+            mover.held = false;
             s.outbox.physics.push(PhysicsIntent::Stop { entity });
         }
         C::Teleport {
@@ -219,12 +243,13 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             position,
             yaw,
             force,
+            hold,
         } => {
             s.world.check(entity).map_err(refuse(entity))?;
             if !force {
                 no_jump::may_place(s, entity, v3(position), yaw)?;
             }
-            place(s, entity, v3(position), yaw, force).map_err(refuse(entity))?;
+            place(s, entity, v3(position), yaw, force, hold).map_err(refuse(entity))?;
         }
         C::Face { entity, yaw } => {
             actor(s, entity)?;
@@ -244,7 +269,9 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
                 });
                 s.happen(Happening::Blocked(entity));
             } else {
-                s.motion.mover_mut(entity).goal = Goal::Idle;
+                let mover = s.motion.mover_mut(entity);
+                mover.goal = Goal::Idle;
+                mover.held = false;
                 s.outbox.physics.push(PhysicsIntent::Traverse {
                     entity,
                     traversal,
@@ -266,6 +293,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
         }
         C::Knockback { entity, impulse } => {
             actor(s, entity)?;
+            s.motion.mover_mut(entity).held = false;
             s.outbox.physics.push(PhysicsIntent::Knockback {
                 entity,
                 impulse: v3(impulse),
@@ -308,6 +336,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             blend,
             from,
             hold,
+            hold_end,
             spans,
         } => {
             actor(s, entity)?;
@@ -326,8 +355,17 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             let root = (node.local.position, node.local.yaw);
             let moved = paths::fastest(root, spans(), STEP_SECONDS, no_jump::turn_step(s));
             no_jump::may_path(s, entity, moved)?;
-            s.motion.mover_mut(entity).goal = Goal::Idle;
+            let mover = s.motion.mover_mut(entity);
+            mover.goal = Goal::Idle;
+            let held = std::mem::take(&mut mover.held);
             s.outbox.physics.push(PhysicsIntent::Stop { entity });
+            if held {
+                s.outbox.physics.push(PhysicsIntent::Hold {
+                    entity,
+                    position: root.0,
+                    yaw: root.1,
+                });
+            }
             s.outbox.clips.push(ClipRequest {
                 entity,
                 clip,
@@ -345,7 +383,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
                 s.clips.rate_at(entity, span.from, span.rate);
                 s.clips.rate_at(entity, span.until, 1.0);
             }
-            s.paths.start(entity, clip, spans());
+            s.paths.start(entity, clip, spans(), hold_end);
         }
         C::ClipNext {
             entity,

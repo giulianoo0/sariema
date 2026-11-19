@@ -38,6 +38,8 @@ struct Played {
     roots: Vec<Vec3>,
     clips: Vec<Option<(u32, f32)>>,
     after: Option<u64>,
+    /// Whether the role was held after each step.
+    held: Vec<bool>,
 }
 
 fn play(cutscene: &str, skip_at: Option<u64>, steps: u64) -> Played {
@@ -82,17 +84,19 @@ fn play(cutscene: &str, skip_at: Option<u64>, steps: u64) -> Played {
     sim.learn_clip(0, name_id("vault"), VAULT);
     sim.learn_clip(0, name_id("land"), LAND);
     let actions = Actions::for_settings(&settings.input);
-    let (mut roots, mut clips) = (Vec::new(), Vec::new());
+    let (mut roots, mut clips, mut held) = (Vec::new(), Vec::new(), Vec::new());
     for _ in 0..steps {
         sim.step(&actions);
         roots.push(sim.state().world.node(entity(0)).unwrap().local.position);
         clips.push(sim.state().clip_time(entity(0)));
+        held.push(sim.state().motion.held(entity(0)));
     }
     let after = *after.borrow();
     Played {
         roots,
         clips,
         after,
+        held,
     }
 }
 
@@ -134,6 +138,21 @@ fn a_skipped_path_lands_where_playing_would_have() {
     assert_eq!(skipped.roots[ended - 1], played.roots[199]);
     let (clip, t) = skipped.clips[ended - 1].unwrap();
     assert_eq!((clip, t >= LAND), (name_id("land"), true));
+}
+
+#[test]
+fn a_path_that_holds_its_end_leaves_the_role_held_played_or_skipped() {
+    let holding = OVER.replace(
+        r#""clip": "vault", "spans""#,
+        r#""clip": "vault", "hold_end": true, "spans""#,
+    );
+    for skip in [None, Some(20)] {
+        let p = play(&holding, skip, 200);
+        assert!(!p.held[5], "not held while the path plays");
+        assert!(p.held[199], "held where the path ended, skip at {skip:?}");
+        assert_eq!(p.roots[199], Vec3::new(0.0, 0.0, -2.0));
+        assert!(!play(OVER, skip, 200).held[199], "landed without hold_end");
+    }
 }
 
 #[test]

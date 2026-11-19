@@ -2,7 +2,7 @@
 
 use sariema_format::demo::demo_room;
 use sariema_format::scenery::{CutawayIndex, Param, Target};
-use sariema_format::script::cutscene::{Block, Cutscene, PathSpan, Place, Role, Then};
+use sariema_format::script::cutscene::Block;
 use sariema_format::script::{
     GAME_MAGIC, GameFormatError, GamePack, GameRoom, decode_game, encode_game,
 };
@@ -221,10 +221,18 @@ fn game() -> GamePack {
 }
 
 #[test]
-fn a_game_pack_of_version_3_still_loads_with_rooms_without_cutaways() {
-    let game = game();
-    assert!(!game.assets.rooms[0].index.params.is_empty());
-    assert_eq!(decode_game(&written_by_3(&game)).unwrap(), game);
+fn an_older_game_pack_is_refused_for_the_older_batch_its_logic_speaks() {
+    let game = GamePack {
+        batch_version: 2,
+        ..game()
+    };
+    for version in [3, 4] {
+        let mut old = written_by_3(&game);
+        old[4] = version;
+        let error = decode_game(&old).unwrap_err();
+        assert_eq!(error, GameFormatError::BatchVersion { found: 2 });
+        assert!(error.to_string().contains("rebuild the game"), "{error}");
+    }
     let mut version = written_by_3(&game);
     version[4] = 2;
     assert_eq!(
@@ -304,6 +312,7 @@ fn cutscene_blocks_keep_their_wire_numbers() {
         blend: 0.25,
         from: 0.0,
         hold: 0.0,
+        hold_end: false,
         spans: Vec::new(),
         then: Vec::new(),
     };
@@ -317,95 +326,4 @@ fn cutscene_blocks_keep_their_wire_numbers() {
     assert_eq!(number(hinge), 24);
     assert_eq!(number(path), 25);
     assert_eq!(number(scene), 26);
-}
-
-/// A cutscene with a `hinge` step and a `path` step, byte by byte as
-/// game pack 3 stores it.
-fn hinge_and_path_as_written_by_3() -> Vec<u8> {
-    let f = |v: f32| v.to_le_bytes();
-    let mut c = Vec::new();
-    c.extend([4, b'd', b'o', b'o', b'r', 1]);
-    c.extend([1, 4, b'h', b'e', b'r', b'o', 1]);
-    c.extend([f(0.0), f(0.0), f(0.0), f(0.0)].concat());
-    c.push(0);
-    c.push(2);
-    c.extend([24, 7, 0, 9]);
-    c.extend([f(0.25), f(0.5), f(90.0)].concat());
-    c.push(0);
-    c.extend([25, 0, 9, 2]);
-    c.extend([f(0.25), f(0.0), f(0.5)].concat());
-    c.push(1);
-    c.extend([f(0.25), f(0.5), f(1.0)].concat());
-    c.push(1);
-    c.extend([f(0.0), f(1.0), f(0.0)].concat());
-    c.extend([0, 0]);
-    c.extend(f(0.5));
-    c.extend([1, 11, 1]);
-    c.extend([f(0.25), f(1.0), f(0.0)].concat());
-    c
-}
-
-#[test]
-fn a_game_pack_of_version_3_reads_its_hinge_and_path_steps() {
-    let game = game();
-    let mut written = written_by_3(&game);
-    let mut body = written.split_off(GAME_MAGIC.len() + 4);
-    let head = postcard::to_allocvec(&(&game.name, game.batch_version, &game.wasm)).unwrap();
-    assert_eq!(body[..head.len()], head[..]);
-    assert_eq!(body[head.len()], 0, "no cutscenes");
-    let rest = body.split_off(head.len() + 1);
-    written.extend(head);
-    written.push(1);
-    written.extend(hinge_and_path_as_written_by_3());
-    written.extend(rest);
-
-    let read = decode_game(&written).unwrap();
-    let expected = Cutscene {
-        name: "door".into(),
-        skippable: true,
-        roles: vec![Role {
-            name: "hero".into(),
-            start: Some(Place {
-                position: [0.0; 3],
-                yaw: 0.0,
-            }),
-            actor: 0,
-        }],
-        body: vec![
-            Block::Hinge {
-                hinge: 7,
-                role: 0,
-                clip: 9,
-                span: [0.25, 0.5],
-                to: 90.0,
-                ease: 0,
-            },
-            Block::Path {
-                role: 0,
-                clip: 9,
-                mode: 2,
-                blend: 0.25,
-                from: 0.0,
-                hold: 0.5,
-                spans: vec![PathSpan {
-                    from: 0.25,
-                    until: 0.5,
-                    rate: 1.0,
-                    to: Some([0.0, 1.0, 0.0]),
-                    yaw: None,
-                    ease: 0,
-                    arc: 0.5,
-                }],
-                then: vec![Then {
-                    clip: 11,
-                    mode: 1,
-                    blend: 0.25,
-                    speed: 1.0,
-                    after: 0.0,
-                }],
-            },
-        ],
-    };
-    assert_eq!(read.cutscenes, vec![expected]);
-    assert_eq!(read.assets, game.assets);
 }

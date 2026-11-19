@@ -106,13 +106,18 @@ pub fn check_room(
             "room {room}: traversal {}: at the end, {}",
             t.name, body.name
         );
-        match placement(
-            &world,
-            &actor_collider(body),
-            t.end().into(),
-            t.yaw,
-            &limits,
-        ) {
+        let end = (!t.hold_end)
+            .then(|| {
+                placement(
+                    &world,
+                    &actor_collider(body),
+                    t.end().into(),
+                    t.yaw,
+                    &limits,
+                )
+            })
+            .flatten();
+        match end {
             Some(Misplaced::Inside(why)) => {
                 findings.push(error("E_TRAVERSAL_END", format!("{at}'s {why}")))
             }

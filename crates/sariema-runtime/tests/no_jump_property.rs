@@ -200,6 +200,7 @@ fn command(rng: &mut Pcg32, spawned: &mut u32, out: &mut Step) {
             position: at,
             yaw,
             force: rng.next_u32().is_multiple_of(2),
+            hold: false,
         }),
         9 => out.push(Command::Fade {
             to: if coin { 1.0 } else { 0.0 },
@@ -382,6 +383,7 @@ fn no_random_program_draws_a_visible_actor_jumping() {
                     Command::Teleport {
                         entity,
                         force: true,
+                        hold: false,
                         ..
                     } => Some(entity),
                     _ => None,

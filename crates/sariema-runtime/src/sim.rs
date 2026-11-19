@@ -437,6 +437,7 @@ fn answer_locates(s: &mut State) {
             entity,
             position: pose.position.to_array(),
             yaw: half_turn(yaw),
+            held: s.motion.held(entity),
         });
     }
     s.locates.clear();
@@ -483,6 +484,7 @@ fn drive_hero(s: &mut State) {
     mover.goal = if velocity == Vec3::ZERO {
         Goal::Idle
     } else {
+        mover.held = false;
         Goal::Velocity(velocity)
     };
 }

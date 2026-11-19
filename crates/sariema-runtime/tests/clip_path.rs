@@ -45,6 +45,7 @@ fn path(spans: &[ClipSpan], from: f32, hold: f32, out: &mut Vec<u8>) {
             blend: 0.1,
             from,
             hold,
+            hold_end: false,
             spans: &bytes,
         },
     );

@@ -96,6 +96,7 @@ fn pack() -> CollisionPack {
                 name: "foot".into(),
                 point: [3.0, 0.9, 0.0],
             }],
+            hold_end: false,
         }],
         nav_bounds: Some(Aabb {
             min: [-1.0, -1.0, -1.0],
