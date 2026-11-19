@@ -199,3 +199,8 @@ cutscene goes on.
 - Skipping: `cutscene_skip` (or the `skip` button) lands the same end state
   as playing through, under a fade; do not undo the cutscene's effects in
   the game after `cutscene_ended { skipped: true }`.
+- Answering a `call` as if it played when it was skipped: the calls a skip
+  runs arrive with `skipped: true`, in the same tick as `cutscene_ended`,
+  with the screen still dark. Put the actors where the call's action ends
+  (a `teleport`, not a `move_to` or a slide); the fade back in waits for
+  that tick.

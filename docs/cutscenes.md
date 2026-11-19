@@ -77,9 +77,21 @@ out over `cutscene.skip_fade` (0.3 s); under the fade every remaining step
 reaches its end state at once (walks land on their targets, lines and waits
 end, flags are set, sounds are dropped; with a collision module, a walk to
 where no path leads stays where the role stood and ends with `blocked`, as
-it would have played); the fade returns to where the
-cutscene would have left it, and `cutscene_ended` says `skipped: true`. The
-world afterwards is the one playing it through would have left.
+it would have played). In the order the game sees it:
+
+1. In one step, still under the fade, the game gets every `cutscene_call`
+   the skip ran, each with `skipped: true`, then `cutscene_ended` with
+   `skipped: true`. The hero is the game's again.
+2. The game's tick that reads them places its own actors at their end
+   state at once: a call it would answer with a 0.9 s slide teleports the
+   actor where the slide ends instead.
+3. Only after that tick does the fade return, over `cutscene.skip_fade`, to
+   where the cutscene would have left it. A game that fades the screen
+   itself in that tick (to switch rooms in the dark, say) keeps its fade.
+
+The world afterwards is the one playing it through would have left. A
+cutscene played through sends each `cutscene_call` with `skipped: false` as
+its step runs, and `cutscene_ended` with `skipped: false`.
 
 ## Steps
 
@@ -105,7 +117,7 @@ world afterwards is the one playing it through would have left.
 | `spawn: { role, position, yaw }` | creates a role that has no start place | at once |
 | `despawn` / `show` / `hide` | removes, shows or hides a role | at once |
 | `teleport: { role, position, yaw, cover }` | moves a role at once, under a declared cover | at once |
-| `call: name` | sends the game `cutscene_call` | at once |
+| `call: name` | sends the game `cutscene_call`; `skipped` says a skip ran it | at once |
 | `time_scale: { scale, blend }` | plays the world at `scale` times real time (below 1 is slow motion), reached over `blend` seconds; the end of the cutscene gives back the scale it found | at once |
 | `camera_shake: { amplitude, frequency, duration }` | shakes the camera, dying out: an impact | at once |
 | `path: { role, clip, from, hold, hold_end, mode, blend, spans, then }` | plays a clip from `from` seconds into it (still for `hold` seconds first) and moves the role's root only within its `spans` (`{ at: [t0, t1], to, yaw, rate, ease, arc }`), collider off, each span at its own `rate`; the clips of `then` follow in a row. Each span's `ease` times its distance; `linear`, the quad, cubic and quart curves and `smoothstep` are polynomials, the same on every platform. With `"hold_end": true` the role is held where the last span leaves it, collider off, no gravity and no push-out, until its next movement, played or skipped | when the last clip has played through and the root has landed, or is held |

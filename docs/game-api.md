@@ -65,6 +65,15 @@ One step, in order:
 Events produced in step 5 and 6 (`arrived`, `tween_done`, `trigger_enter`,
 `hinge_blocked`…) reach the game at its next tick.
 
+A skipped cutscene ends in this order. Once the skip's fade has covered the
+screen, step 4 runs the rest of the cutscene at once; the next tick gets
+the `cutscene_call`s it ran, each with `skipped: true`, then
+`cutscene_ended { skipped: true }`, all in one batch while the screen is
+still covered. The game sets its end state in that tick (teleports rather
+than walks or slides), and the fade back in starts at step 4 of that same
+step, unless the tick sent its own `fade`. A cutscene played through sends
+`cutscene_call` with `skipped: false` as each call step runs.
+
 ## The batch
 
 Commands and events travel as one binary batch each way. A batch is a run of
@@ -80,8 +89,8 @@ A command batch that does not decode stops the game for good with
 record and byte offset. The version is checked once, at load, never per
 step. Records carry no length, so a field added to a message changes the
 layout and the version: version 2 added `reason` to `blocked`, version 3
-`hold` to `teleport`, `hold_end` to `clip_path` and `held` to `located`,
-and a pack built against an older one is refused with `E_BATCH_VERSION`
+`hold` to `teleport`, `hold_end` to `clip_path`, `held` to `located` and
+`skipped` to `cutscene_call`, and a pack built against an older one is refused with `E_BATCH_VERSION`
 until it is rebuilt against the current SDK. Game packs older than the
 current one (5) carry such logic, so they are refused the same way, from
 the batch version their head names. A module that does not export

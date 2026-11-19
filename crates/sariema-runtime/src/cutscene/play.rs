@@ -9,7 +9,10 @@
 //!   walked there; then it turns to the declared yaw. Nothing snaps.
 //! - Skipping fades out, runs the rest of the body to its end state at once
 //!   (walks land on their targets, lines and waits end, sounds are dropped)
-//!   and fades back in, so the world ends as if the cutscene had played.
+//!   and ends, so the world ends as if the cutscene had played. The calls it
+//!   runs and `cutscene_ended` reach the game in one step while the screen
+//!   is still dark; the fade back in starts in the step after, unless the
+//!   game fades the screen itself in that step.
 //! - A walk faster than `motion.max_visible_speed`, at the role's speed
 //!   scale, or one its `move_to` refuses, is reported in `rejected` and ends
 //!   at once where the role stands, played or skipped alike. The walk to a
@@ -32,6 +35,7 @@ use crate::events::Happening;
 use crate::motion::yaw_of;
 use crate::outbox::PhysicsIntent;
 use crate::paths;
+use crate::screen::Fader;
 use crate::settings::CutsceneSettings;
 use crate::state::{CutsceneRequest, State};
 use crate::tween::steps_of;
@@ -145,7 +149,6 @@ enum Phase {
     Placing,
     Playing,
     SkipOut,
-    SkipIn,
 }
 
 #[derive(Debug)]
@@ -181,17 +184,8 @@ impl Ctx<'_> {
         self.try_issue(command);
     }
 
-    /// Applies `command`, reporting a refusal; whether it was applied.
     fn try_issue(&mut self, command: Command<'_>) -> bool {
-        let Err(r) = apply(self.s, &command, Source::Cutscene) else {
-            return true;
-        };
-        self.s.events.push(Event::Rejected {
-            opcode: command.opcode(),
-            code: r.code,
-            entity: r.entity,
-        });
-        false
+        try_issue(self.s, command)
     }
 
     fn role(&self, r: u16) -> Entity {
@@ -225,6 +219,9 @@ pub struct Sequencer {
     by_id: BTreeMap<u32, usize>,
     bindings: BTreeMap<u32, Entity>,
     run: Option<Run>,
+    /// After a skip: the screen as the skip left it, and the fade it goes
+    /// back to unless the game has changed it since.
+    fade_in: Option<(Fader, f32, [f32; 3])>,
 }
 
 fn reject(s: &mut State, code: &'static str, entity: Entity) {
@@ -247,6 +244,7 @@ impl Sequencer {
             by_id,
             bindings: BTreeMap::new(),
             run: None,
+            fade_in: None,
         }
     }
 
@@ -255,6 +253,19 @@ impl Sequencer {
     }
 
     pub fn step(&mut self, s: &mut State) {
+        if let Some((left, to, color)) = self.fade_in.take()
+            && s.screen.fade == left
+        {
+            let duration = s.settings.cutscene.skip_fade;
+            try_issue(
+                s,
+                Command::Fade {
+                    to,
+                    duration,
+                    color,
+                },
+            );
+        }
         for request in std::mem::take(&mut s.requests) {
             match request {
                 CutsceneRequest::Bind { role, entity } => {
@@ -291,18 +302,11 @@ impl Sequencer {
                 }
                 run.placing.iter_mut().for_each(|p| *p = Placing::Done);
                 s.tweens.land(SCENE);
-                let duration = s.settings.cutscene.skip_fade;
                 let mut ctx = ctx!(s, cutscene, run, true);
                 tick_list(&mut run.body, &cutscene.body, &mut ctx);
-                let (to, color) = (*ctx.final_fade, *ctx.final_color);
-                ctx.issue(Command::Fade {
-                    to,
-                    duration,
-                    color,
-                });
-                run.phase = Phase::SkipIn;
+                self.fade_in = Some((s.screen.fade, run.final_fade, run.final_color));
+                ended = Some(true);
             }
-            Phase::SkipIn if s.screen.fade.done() => ended = Some(true),
             _ => {}
         }
         if run.phase == Phase::Playing {
@@ -393,6 +397,19 @@ impl Sequencer {
             skipped,
         });
     }
+}
+
+/// Applies `command`, reporting a refusal; whether it was applied.
+fn try_issue(s: &mut State, command: Command<'_>) -> bool {
+    let Err(r) = apply(s, &command, Source::Cutscene) else {
+        return true;
+    };
+    s.events.push(Event::Rejected {
+        opcode: command.opcode(),
+        code: r.code,
+        entity: r.entity,
+    });
+    false
 }
 
 fn begin_placing(s: &mut State, cutscene: &Cutscene, run: &mut Run) {
@@ -1127,9 +1144,11 @@ fn start(block: &Block, ctx: &mut Ctx<'_>) -> Option<Running> {
         }
         Block::Call { call } => {
             let id = ctx.id;
+            let skipped = ctx.skip;
             ctx.s.events.push(Event::CutsceneCall {
                 cutscene: id,
                 call: *call,
+                skipped,
             });
             None
         }

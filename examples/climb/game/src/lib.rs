@@ -109,6 +109,7 @@ impl Game for Climb {
                 Event::CutsceneCall {
                     cutscene: CLIMB,
                     call: CLIMB,
+                    ..
                 } => ctx.send(Command::Traverse {
                     entity: self.hero,
                     traversal: id("window"),
@@ -153,6 +154,7 @@ mod tests {
         host.event(Event::CutsceneCall {
             cutscene: CLIMB,
             call: CLIMB,
+            skipped: false,
         });
         runner.run(&mut host);
         let sent = host.take_commands();

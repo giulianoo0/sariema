@@ -63,7 +63,7 @@ fn at(events: &[(u64, String)], needle: &str) -> Vec<u64> {
 }
 
 fn call(name: &str) -> String {
-    format!("call: {} }}", name_id(name))
+    format!("call: {},", name_id(name))
 }
 
 fn play(cutscene: &str) -> Command<'static> {

@@ -237,11 +237,11 @@ fn played_through_it_runs_every_block_and_never_jumps_an_actor() {
     let has = |needle: &str| events.iter().any(|e| e.contains(needle));
     assert!(has("CutsceneStarted"));
     assert!(has(&format!(
-        "CutsceneCall {{ cutscene: {}, call: {} }}",
+        "CutsceneCall {{ cutscene: {}, call: {}, skipped: false }}",
         name_id("meet"),
         name_id("greeted")
     )));
-    assert!(!has(&format!("call: {} }}", name_id("never"))));
+    assert!(!has(&format!("call: {},", name_id("never"))));
     assert!(has(&format!(
         "FlagChanged {{ flag: {}, on: true }}",
         name_id("met")

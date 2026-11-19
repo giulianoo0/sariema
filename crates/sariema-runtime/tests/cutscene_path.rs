@@ -47,7 +47,7 @@ fn play(cutscene: &str, skip_at: Option<u64>, steps: u64) -> Played {
     let got = after.clone();
     let logic = native(move |n, events, out| {
         for e in events {
-            if format!("{e:?}").contains(&format!("call: {} }}", name_id("after"))) {
+            if format!("{e:?}").contains(&format!("call: {},", name_id("after"))) {
                 got.borrow_mut().get_or_insert(n);
             }
         }

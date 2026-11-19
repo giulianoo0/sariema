@@ -328,8 +328,10 @@ batch_table! {
 
         0x0040 CutsceneStarted cutscene_started { cutscene: u32 }
         0x0041 CutsceneEnded cutscene_ended { cutscene: u32, skipped: bool }
-        /// A cutscene's `call` block, for the game to act on.
-        0x0042 CutsceneCall cutscene_call { cutscene: u32, call: u32 }
+        /// A cutscene's `call` block, for the game to act on. `skipped`: run
+        /// by a skip, in the step of `cutscene_ended`, under the fade, so the
+        /// game sets its end state at once.
+        0x0042 CutsceneCall cutscene_call { cutscene: u32, call: u32, skipped: bool }
         /// A cutscene changed a flag.
         0x0043 FlagChanged flag_changed { flag: u32, on: bool }
         /// The active room changed, by the game's `room_switch` or a cutscene's.
