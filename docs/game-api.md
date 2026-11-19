@@ -90,8 +90,9 @@ record and byte offset. The version is checked once, at load, never per
 step. Records carry no length, so a field added to a message changes the
 layout and the version: version 2 added `reason` to `blocked`, version 3
 `hold` to `teleport`, `hold_end` to `clip_path`, `held` to `located` and
-`skipped` to `cutscene_call`, and a pack built against an older one is refused with `E_BATCH_VERSION`
-until it is rebuilt against the current SDK. Game packs older than the
+`skipped` to `cutscene_call`, and a pack built against an older one is
+refused with `E_BATCH_VERSION` until it is rebuilt against the current
+SDK. Game packs older than the
 current one (5) carry such logic, so they are refused the same way, from
 the batch version their head names. A module that does not export
 `sariema_batch_version` is refused the same way rather than read as some
@@ -472,9 +473,11 @@ without `--headless` the pack plays in a window.
   with no gravity and no push-out (a hand on a window leaf stays on it, a
   climber stays at the top of a rope), until its next movement command:
   `move_to`, `move_intent`, `stop`, `knockback`, `teleport`,
-  `set_transform`, another `clip_path` or `traverse`, or the player's
-  stick when it drives the hero. A path or traversal given to a held
-  actor starts from the held pose and keeps it posed until it moves; a
+  `set_transform` (on a hidden actor; on a visible one the no-jump rule
+  refuses it and the hold stays), another `clip_path` or `traverse`, or
+  the player's stick when it drives the hero. A path or traversal given
+  to a held actor starts from the held pose and keeps it posed until it
+  moves; a
   walk or a stop gets the collider back where it is, so a held actor high
   up falls. A hero held while the player has control falls at the first
   push of the stick: keep `control` with the game until its next move. A
