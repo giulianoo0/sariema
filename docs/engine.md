@@ -72,8 +72,10 @@ built them.
    ones of despawned entities, and per step: notes teleports, poses actors
    the runtime moved itself (a tween, a follow) collider off, applies the
    intents in the order given, drives the hero from the player's velocity,
-   advances traversals (by arc length, the actor's feet eased onto each
-   contact the pose names; a contact its pose lacks falls back to the feet),
+   advances traversals (by arc length, as far as the traversal's timing
+   curve has come, the actor's feet eased onto each contact the pose names;
+   a contact its pose lacks falls back to the feet; one that holds its end
+   leaves the actor posed there, held),
    steps the world and writes positions and yaws back. A teleport drops the
    moves given before it and keeps those given after it, in the same step
    too; once it lands the runtime's walk is dropped with it, so a

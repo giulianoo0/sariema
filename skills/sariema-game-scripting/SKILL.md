@@ -1,6 +1,6 @@
 ---
 name: sariema-game-scripting
-description: Use when writing or fixing the Rust logic of a Sariema game with sariema-sdk — spawning entities, reacting to events, moving the hero, telling why a walk was blocked, casting a ray against the room, timers, saves, input presses, opening doors, changing a room's light, sun, hemisphere, fog or look while playing — or when a run reports E_GAME_TRAP, E_GAME_BUDGET, E_GAME_MEMORY, E_BATCH_VERSION, a rejected event such as E_ENTITY_STALE, E_TELEPORT_VISIBLE, E_SCENE_UNKNOWN or E_SCENE_VALUES, or hashes that differ between runs.
+description: Use when writing or fixing the Rust logic of a Sariema game with sariema-sdk — spawning entities, reacting to events, moving the hero, telling why a walk was blocked, casting a ray against the room, keeping an actor where a climb or reach ends, saving and restoring a held actor, timers, saves, input presses, opening doors, changing a room's light, sun, hemisphere, fog or look while playing — or when a run reports E_GAME_TRAP, E_GAME_BUDGET, E_GAME_MEMORY, E_BATCH_VERSION, a rejected event such as E_ENTITY_STALE, E_TELEPORT_VISIBLE, E_SCENE_UNKNOWN or E_SCENE_VALUES, or hashes that differ between runs.
 ---
 
 # Sariema game scripting
@@ -70,7 +70,9 @@ game!(Hello);
 | a button press | `Event::Button { action, down }`, or `Event::Buffered { action, .. }` until you send `Consume { action }` |
 | randomness | `ctx.rng()`, seeded by the engine; never another source |
 | persistence | `Save { key, value }`; `SaveLoad {}` → `SaveLoaded`…, `SaveLoadDone`, always, if only as no save (a host without saves, or 5 s without an answer) |
-| where an actor stands, for a save | `Locate { entity }`, then `Event::Located { entity, position, yaw }` at the next tick (yaw in (-180, 180]; an entity despawned in the asking step gets `Rejected` `E_ENTITY_STALE`); save those, never a guess from zones or the last target |
+| where an actor stands, for a save | `Locate { entity }`, then `Event::Located { entity, position, yaw, held }` at the next tick (yaw in (-180, 180]; an entity despawned in the asking step gets `Rejected` `E_ENTITY_STALE`); save those, never a guess from zones or the last target; on load `Teleport { entity, position, yaw, force: true, hold: held }` puts it back, held when it was |
+| an actor to stay where a climb or reach ends (top of a rope, hands on a leaf) | a traversal declared with `"hold_end": true`, or `ClipPath { hold_end: true, .. }`: held there, collider off, no gravity or push-out, until its next `MoveTo`, `MoveIntent`, `Stop`, `Knockback`, `Teleport`, `SetTransform`, `ClipPath` or `Traverse`; the next path or traversal starts from the held pose |
+| a traversal that eases in and out or speeds up | `"ease": "in_out_quad"` (or another polynomial curve) on its declaration in the room; `Traverse { entity, traversal, duration }` keeps the duration |
 | many objects | `Transforms` bulk region: register once, `push` each tick |
 | a name as id | `id("meet")`, a `const fn` |
 | another room | `RoomSwitch { room, transition, duration }`, then `Event::RoomSwitched`; list it under `game.rooms` with its `neighbours` so it is loaded before. `Continuous` for a room whose geometry goes on (walk in, the camera keeps following its rig, or with no rig slides to the next room's camera); `Dissolve` (the last frame fades out over the next room, 0.5 s when `duration` is 0) for another place or a jump in time; `Cut` under a cutscene's fade |

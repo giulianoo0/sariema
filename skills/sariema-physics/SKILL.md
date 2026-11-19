@@ -1,6 +1,6 @@
 ---
 name: sariema-physics
-description: Use when making a Sariema room walkable, placing action spots, scripted routes or traversals (climbing through a window, over a sill) for a scene, when `sariema check` fails with E_SPOT_BLOCKED, E_SPOT_NO_GROUND, E_PATH_NONE, E_TRAVERSAL_END, E_CONTACT_OFF_SURFACE or E_CONTACT_OUT_OF_REACH or warns W_ACTOR_BOUNDS, when a character clips into a door, gets stuck, floats or cannot reach a spot, when a door leaf must turn and collide (hinge_blocked), or when tuning how the character moves.
+description: Use when making a Sariema room walkable, placing action spots, scripted routes or traversals (climbing through a window, over a sill, up a rope, eased or held at their end) for a scene, when `sariema check` fails with E_SPOT_BLOCKED, E_SPOT_NO_GROUND, E_PATH_NONE, E_TRAVERSAL_END, E_CONTACT_OFF_SURFACE or E_CONTACT_OUT_OF_REACH or warns W_ACTOR_BOUNDS, when a character clips into a door, gets stuck, floats or cannot reach a spot, when a door leaf must turn and collide (hinge_blocked), or when tuning how the character moves.
 ---
 
 # Sariema physics
@@ -144,8 +144,18 @@ traversal. A clip carries the body through places it could never walk.
   has reached at that step's time. Seek the clip to the step clock; never
   let it run free. A posed actor is not pushed out of geometry, gravity
   does not pull it, and other actors do not push it. Triggers still see it.
-- **Ends on free floor.** The last pose must leave the collider clear and on
-  walkable ground. Then send `Stop` or `Move` to turn the collider back on.
+- **Ends on free floor, or holds its end.** The last pose must leave the
+  collider clear and on walkable ground. Then send `Stop` or `Move` to turn
+  the collider back on. A traversal that declares `"hold_end": true` keeps
+  the actor posed at its last point instead (the top of a rope, hands on a
+  window leaf): no gravity, no push-out, until the next `Move`, `MoveTo`,
+  `Stop`, `Knockback`, `Teleport` or traversal, and `check` skips its
+  free-floor proof.
+- **Timed by a curve.** `"ease"` maps the traversal's time to its distance
+  along the points: `linear` (default), `in_quad`, `out_quad`,
+  `in_out_quad`, the `cubic` and `quart` ones, `smoothstep`. Polynomials
+  that never go back, so every platform gets the same bits; sine, expo and
+  back are refused. An eased slide ends on the same step as a linear one.
 - **Intended contact is authored.** A foot hooked on the sill is a clip pose
   plus a declared contact point on the sill. Place the actor so the foot
   lands exactly there. Any other overlap with the room is an error.
@@ -168,6 +178,13 @@ its actor is the one carried. The last of `points` is the end, facing
     "points": [[3.5, 0.9, -3.0], [3.5, 0.0, -4.2]],
     "yaw_deg": 180.0,
     "contacts": [{ "name": "foot", "at": [3.5, 0.9, -3.2] }]
+  },
+  {
+    "name": "rope",
+    "from": "rope_foot",
+    "points": [[0.0, 0.6, 0.0], [0.0, 1.2, 0.0]],
+    "ease": "in_out_quad",
+    "hold_end": true
   }
 ]
 ```
@@ -225,7 +242,7 @@ separated by `; `. A blocked spot also fails every route that starts there.
 | `E_SPOT_NO_GROUND` `... stands on nothing within 0.05 m` | Floating, or past the edge of the floor. | Lower the spot or add floor (a `primitives` box). |
 | `E_SPOT_NO_GROUND` `... steeper than 40°` | The ground under the spot is not walkable. | Move the spot to flatter ground. |
 | `E_PATH_NONE` `no path for hero from spot A to spot B` | Nothing walkable connects them: a closed door, a gap narrower than the collider, a step over 0.20 m, or B where the actor cannot stand. | `physics-map --path A:B` and look where the green ends. |
-| `E_TRAVERSAL_END` `traversal window: at the end, hero's collider is 0.500 m inside sill` | The traversal ends inside geometry; the collider would come back on inside it. | Move the last point to free floor beyond the sill. |
+| `E_TRAVERSAL_END` `traversal window: at the end, hero's collider is 0.500 m inside sill` | The traversal ends inside geometry; the collider would come back on inside it. | Move the last point to free floor beyond the sill, or, when the actor must stay there until the next move (hands on a leaf), declare `"hold_end": true`. |
 | `E_TRAVERSAL_END` `... at the end, hero stands on nothing within 0.05 m` | The traversal ends in the air. | Put the last point's y on the floor. |
 | `E_CONTACT_OFF_SURFACE` `traversal window: contact foot is not within 0.02 m of a surface` | The declared contact floats: pose and set do not meet. | Put the contact on the sill, and the traversal's point where the pose's foot lands on it. `--contact-tolerance` sets the distance. |
 | `E_CONTACT_OFF_SURFACE` `... contact foot is 0.400 m inside sill` | The contact is buried in the set. | Move it to the surface. |

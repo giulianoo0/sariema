@@ -123,9 +123,15 @@ Put it in a `parallel` with a branch of `wait_for: clip_marker` and
 too fast to be seen (say `"at": [0.6, 0.62]` to 2 m away) gives
 `E_CUTSCENE_SPEED` naming `steps[2].parallel[0][0].path`.
 
+A path that must leave the role where it ends rather than land it (the top
+of a rope, a hand on a window leaf) says `"hold_end": true`: the role stays
+there posed, collider off, with no fall and no push-out, played or skipped,
+until its next movement, and the next `path` starts from there.
+
 From a game, the same is `clip_path` (spans written with
-`ClipSpan::put`) and `clip_next`; refused with `E_CLIP_SPANS` (out of
-order, past the clip's end) or `E_TELEPORT_VISIBLE` (too fast).
+`ClipSpan::put`, `hold_end` for a held end) and `clip_next`; refused with
+`E_CLIP_SPANS` (out of order, past the clip's end) or
+`E_TELEPORT_VISIBLE` (too fast).
 
 ## Changing the room's light in a cutscene
 
