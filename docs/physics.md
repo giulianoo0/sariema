@@ -216,7 +216,18 @@ body over geometry it could never walk through. They follow five rules.
    rope, hands on a window leaf), collider off, with no gravity and no
    push-out, until one of those intents, or the next traversal, which
    starts from the held pose. Its end need not be free floor; `check`
-   proves it only for the traversals that land.
+   proves it only for the traversals that land. The edges of a hold:
+   - A tween, a spring or a follow that moves a held actor poses it at its
+     new place without releasing it: it stays held there.
+   - The player's stick is a `Move`, so it releases a held hero, and a
+     hero held high up falls from there. Keep control with the game
+     (`control`) until the hero's next movement is sent, or end the hold
+     with a `teleport` or `move_to` first.
+   - A carried actor (one with a parent) is posed where its carrier holds
+     it and cannot be held: `hold` is ignored for it, and giving a held
+     actor a parent releases it.
+   - A `traverse` that is refused (`blocked` with `unavailable`) leaves a
+     held actor held.
 3. **Intended contact is authored, not penetration.** A foot hooked on the
    sill is a pose of the clip plus a declared contact point where the foot
    meets the sill. The traversal places the actor's feet so that the foot
@@ -366,10 +377,12 @@ comparable; `tests/determinism.rs` pins one replay's hash, and checks that
 runs batching 2 or 5 steps per frame, with path searches, walkable-cell
 listings, ray casts and overlap queries between steps, give the same hash at
 every step as the plain run. An actor's body (`SetSolid`), whether it is
-hidden (`SetHidden`), its own turn cap (`SetMaxYawSpeed`) and whether it
-is posed (`Pose`, so a held end) count only when set off their defaults,
-so two runs that differ in them alone hash apart while a world that never
-sets them keeps its pinned hash.
+hidden (`SetHidden`), its own turn cap (`SetMaxYawSpeed`) and a hold
+(`Hold`, with its pose) count only when set off their defaults, so two runs
+that differ in them alone hash apart while a world that never sets them
+keeps its pinned hash. A `Pose` that does not hold (a traversal under way,
+a clip path, a tween) counts only by where it puts the actor, so replays
+without holds keep the hashes they had before holds existed.
 
 A step allocates nothing once warm: buffers are kept between steps. The walkable
 grid allocates when built or rebuilt after a collider changes.
@@ -382,8 +395,9 @@ actor), the routes scripts walk between spots, the traversals scripts
 carry actors along and the hinges that turn colliders. Encoding follows the room
 pack: magic, version, postcard body; `decode` validates numbers, sizes,
 indices and unique names and never panics. Version 4 added a traversal's
-`hold_end`; a pack of another version is refused with `E_PACK_VERSION`
-and rebuilt by `sariema build`.
+`hold_end` and `ease`; an older pack is refused with `E_PACK_VERSION`,
+whose message says to rebuild it with this engine's `sariema build`, and a
+newer one with the same code, saying to run it with a newer engine.
 
 ### Baking
 

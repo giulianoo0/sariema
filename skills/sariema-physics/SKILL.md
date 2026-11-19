@@ -150,7 +150,10 @@ traversal. A clip carries the body through places it could never walk.
   the actor posed at its last point instead (the top of a rope, hands on a
   window leaf): no gravity, no push-out, until the next `Move`, `MoveTo`,
   `Stop`, `Knockback`, `Teleport` or traversal, and `check` skips its
-  free-floor proof.
+  free-floor proof. A tween, spring or follow moves a held actor and keeps
+  it held. The player's stick is a `Move`: a hero held on a rope while the
+  player has control drops at the first push, so keep `control` with the
+  game until the next move. A carried actor cannot be held.
 - **Timed by a curve.** `"ease"` maps the traversal's time to its distance
   along the points: `linear` (default), `in_quad`, `out_quad`,
   `in_out_quad`, the `cubic` and `quart` ones, `smoothstep`. Polynomials

@@ -476,7 +476,12 @@ without `--headless` the pack plays in a window.
   stick when it drives the hero. A path or traversal given to a held
   actor starts from the held pose and keeps it posed until it moves; a
   walk or a stop gets the collider back where it is, so a held actor high
-  up falls. `located` says `held: true` for a held actor, and `teleport`
+  up falls. A hero held while the player has control falls at the first
+  push of the stick: keep `control` with the game until its next move. A
+  tween, spring or follow that moves a held actor keeps it held at its new
+  place. A refused `traverse` leaves the hold as it was. A carried actor
+  (one with a parent) cannot be held, and giving a held actor a parent
+  releases it. `located` says `held: true` for a held actor, and `teleport`
   with `hold` puts an actor back held, so a save brings it back as it
   was.
 - **Hinged leaves**: a door or window leaf of the room turns with its
