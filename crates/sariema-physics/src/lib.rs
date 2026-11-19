@@ -35,7 +35,7 @@ pub use math::{Bounds, forward, wrap_angle, yaw_matrix, yaw_of};
 pub use pack::{
     OwnedShape, WorldBuild, actor_collider, hinge_pose, hinge_turned, spot_actor, visual_bounds,
 };
-pub use query::{ClosestPoint, Occluder, RayHit, ShapeHit};
+pub use query::{ClosestPoint, Occluder, RayContact, RayFilter, RayHit, RayTarget, ShapeHit};
 pub use scene::Pose;
 pub use settings::{CollisionSettings, ControllerSettings, MoveToSettings, NavSettings, Settings};
 pub use shape::{Shape, ShapeError};

@@ -8,6 +8,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::host::Host;
+use crate::ray::{RAY_HIT, RAY_INVALID, RAY_MISS, Ray, RayHit};
 use crate::table::{Command, Event};
 use crate::wire::Reader;
 
@@ -23,6 +24,10 @@ pub struct TestHost {
     pub regions: Vec<(u32, usize, usize)>,
     /// The input buttons' name ids, in their order.
     pub buttons: Vec<u32>,
+    /// Rays cast, in order.
+    pub rays: Vec<Ray>,
+    /// What every ray hits; `None` misses.
+    pub ray_hit: Option<RayHit>,
 }
 
 impl TestHost {
@@ -91,6 +96,21 @@ impl Host for TestHost {
             .iter()
             .position(|&b| b == name)
             .map_or(-1, |i| i as i32)
+    }
+
+    fn ray(&mut self, query: &[u8], hit: &mut [u8]) -> i32 {
+        let (Some(ray), Ok(out)) = (Ray::read(query), <&mut [u8; RayHit::BYTES]>::try_from(hit))
+        else {
+            return RAY_INVALID;
+        };
+        self.rays.push(ray);
+        match self.ray_hit {
+            Some(h) => {
+                h.write(out);
+                RAY_HIT
+            }
+            None => RAY_MISS,
+        }
     }
 }
 

@@ -4,6 +4,7 @@ use alloc::vec::Vec;
 
 use crate::Rng;
 use crate::host::Host;
+use crate::ray::{RAY_HIT, RAY_MISS, RAY_OVER_BUDGET, Ray, RayHit};
 use crate::table::{Command, Event};
 use crate::wire::{Ease, Entity, Kind, Sink, put_scene_value};
 
@@ -112,6 +113,16 @@ impl Shared {
             _ => {}
         }
     }
+}
+
+/// Why [`Ctx::ray`] cast nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RayRefused {
+    /// The direction is of zero length, or a number is negative or not
+    /// finite.
+    Invalid,
+    /// The tick already cast the `vm.rays_per_step` rays a step may.
+    OverBudget,
 }
 
 /// What a game acts through during a tick.
@@ -223,6 +234,21 @@ impl Ctx<'_> {
     /// order in the project's settings; `None` when there is none.
     pub fn button(&self, name: u32) -> Option<u16> {
         u16::try_from(self.host.button(name)).ok()
+    }
+
+    /// The first thing `ray` hits in the active room, as the room stood
+    /// when this step began: the commands sent so far this tick have not
+    /// moved anything yet. No hit without a room's collision.
+    pub fn ray(&mut self, ray: &Ray) -> Result<Option<RayHit>, RayRefused> {
+        let mut query = [0; Ray::BYTES];
+        ray.write(&mut query);
+        let mut hit = [0; RayHit::BYTES];
+        match self.host.ray(&query, &mut hit) {
+            RAY_HIT => Ok(RayHit::read(&hit)),
+            RAY_MISS => Ok(None),
+            RAY_OVER_BUDGET => Err(RayRefused::OverBudget),
+            _ => Err(RayRefused::Invalid),
+        }
     }
 
     /// `level` 0 debug, 1 info, 2 warning, 3 error.

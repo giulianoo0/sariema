@@ -12,12 +12,34 @@
 //! - `log(level, ptr, len)`: a line of UTF-8 text.
 //! - `button(name) -> index`: the input button whose name has the id
 //!   `name`, or −1.
+//! - `ray(query, query_len, hit, hit_len) -> answer`: casts the ray record
+//!   at `query` against the world as it stood when the tick began; on a
+//!   hit (1) the hit record is written at `hit`. 0 is a miss, −1 a record
+//!   that is not a ray, −2 a ray past `rays_per_step` in this tick.
 //!
 //! An access outside memory traps the call. Submitting more than
 //! `commands_bytes_per_step` in one tick stops the game as over budget; log
 //! text and lines past their per-tick caps are dropped.
 
+use std::ptr::NonNull;
+
 use crate::{VmError, VmSettings};
+
+/// Answers the queries a game makes during its tick, from the world as it
+/// stood when the tick began.
+pub trait Queries {
+    /// Reads the ray record `query` and, on a hit, writes the hit record
+    /// into `hit`: returns 1 for a hit, 0 for a miss, −1 for a record that
+    /// is not a ray. The records' layout is the engine's, not the machine's.
+    fn ray(&mut self, query: &[u8], hit: &mut [u8]) -> i32;
+}
+
+/// No world to query: every ray misses.
+impl Queries for () {
+    fn ray(&mut self, _: &[u8], _: &mut [u8]) -> i32 {
+        0
+    }
+}
 
 /// A region of the game's memory the engine reads after each tick.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,6 +68,12 @@ pub struct HostState {
     pub(crate) buttons: Vec<u32>,
     /// Why a host call stopped the game, when the reason is not a trap.
     pub(crate) stop: Option<VmError>,
+    /// What answers the game's queries, set only while a tick runs.
+    pub(crate) queries: Option<NonNull<dyn Queries>>,
+    rays_left: u32,
+    /// The ray record read and the hit record written, reused every ray.
+    ray_query: Vec<u8>,
+    ray_hit: Vec<u8>,
     settings: VmSettings,
 }
 
@@ -79,6 +107,10 @@ impl HostState {
             log_left: settings.log_bytes_per_step as usize,
             buttons: Vec::new(),
             stop: None,
+            queries: None,
+            rays_left: settings.rays_per_step,
+            ray_query: Vec::new(),
+            ray_hit: Vec::new(),
             settings,
         }
     }
@@ -100,6 +132,38 @@ impl HostState {
         self.log.clear();
         self.log_left = self.settings.log_bytes_per_step as usize;
         self.stop = None;
+        self.rays_left = self.settings.rays_per_step;
+    }
+
+    pub(crate) fn ray(
+        &mut self,
+        memory: &mut [u8],
+        query: u32,
+        query_len: u32,
+        hit: u32,
+        hit_len: u32,
+    ) -> Result<i32, String> {
+        let q = range(memory.len(), query, query_len, "ray")?;
+        let h = range(memory.len(), hit, hit_len, "ray")?;
+        if self.rays_left == 0 {
+            return Ok(-2);
+        }
+        self.rays_left -= 1;
+        let Some(mut queries) = self.queries else {
+            return Ok(0);
+        };
+        self.ray_query.clear();
+        self.ray_query.extend_from_slice(&memory[q]);
+        self.ray_hit.clear();
+        self.ray_hit.resize(h.len(), 0);
+        // SAFETY: `Vm::tick_with` sets `queries` from a live `&mut` borrow
+        // that outlasts the tick, and clears it before returning; host
+        // calls only happen during the tick, one at a time.
+        let answer = unsafe { queries.as_mut() }.ray(&self.ray_query, &mut self.ray_hit);
+        if answer == 1 {
+            memory[h].copy_from_slice(&self.ray_hit);
+        }
+        Ok(answer)
     }
 
     pub(crate) fn submit(&mut self, memory: &[u8], ptr: u32, len: u32) -> Result<(), String> {

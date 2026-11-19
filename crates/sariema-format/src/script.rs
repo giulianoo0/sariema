@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 mod codegen;
 pub mod cutscene;
 mod previous;
+pub mod ray;
 mod span;
 mod table;
 mod wire;

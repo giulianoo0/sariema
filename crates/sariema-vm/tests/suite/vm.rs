@@ -312,3 +312,134 @@ fn a_range_past_the_end_of_the_address_space_traps() {
     assert_eq!(error.code(), "E_GAME_TRAP");
     assert!(error.to_string().contains("outside"), "{error}");
 }
+
+/// Answers every ray with a hit record of 7s, keeping the queries it read.
+#[derive(Default)]
+struct Sevens {
+    queries: Vec<Vec<u8>>,
+}
+
+impl sariema_vm::Queries for Sevens {
+    fn ray(&mut self, query: &[u8], hit: &mut [u8]) -> i32 {
+        self.queries.push(query.to_vec());
+        hit.fill(7);
+        1
+    }
+}
+
+#[test]
+fn a_ray_is_answered_in_the_tick_until_the_steps_budget_is_spent() {
+    let wasm = wat::parse_str(format!(
+        r#"(module {IMPORTS}
+             (import "sariema" "ray" (func $ray (param i32 i32 i32 i32) (result i32)))
+             (memory (export "memory") 1 1024)
+             (data (i32.const 0) "abcdef")
+             (func (export "sariema_tick")
+               (i32.store (i32.const 128) (call $ray (i32.const 0) (i32.const 6) (i32.const 64) (i32.const 4)))
+               (i32.store (i32.const 132) (call $ray (i32.const 0) (i32.const 6) (i32.const 64) (i32.const 4)))
+               (i32.store (i32.const 136) (call $ray (i32.const 0) (i32.const 6) (i32.const 64) (i32.const 4)))
+               (call $submit (i32.const 64) (i32.const 88))))"#
+    ))
+    .unwrap();
+    let budget = VmSettings {
+        rays_per_step: 2,
+        ..settings()
+    };
+    let mut vm = load(&wasm, budget).unwrap();
+    for _ in 0..2 {
+        let mut sevens = Sevens::default();
+        let mut out = Vec::new();
+        vm.tick_with(&[], &[], &mut out, &mut sevens).unwrap();
+        assert_eq!(sevens.queries, [b"abcdef".to_vec(), b"abcdef".to_vec()]);
+        assert_eq!(&out[..4], &[7; 4], "the hit is written where the game asked");
+        let answers: Vec<i32> = out[64..76]
+            .chunks(4)
+            .map(|c| i32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        assert_eq!(answers, [1, 1, -2], "the third ray is over the step's budget");
+    }
+    let mut out = Vec::new();
+    vm.tick(&[], &[], &mut out).unwrap();
+    assert_eq!(&out[64..72], &[0; 8], "with no world, every ray misses");
+}
+
+#[test]
+fn a_ray_outside_memory_traps() {
+    let wasm = wat::parse_str(format!(
+        r#"(module {IMPORTS}
+             (import "sariema" "ray" (func $ray (param i32 i32 i32 i32) (result i32)))
+             (memory (export "memory") 1 1024)
+             (func (export "sariema_tick")
+               (drop (call $ray (i32.const 65530) (i32.const 64) (i32.const 0) (i32.const 4)))))"#
+    ))
+    .unwrap();
+    let mut vm = load(&wasm, settings()).unwrap();
+    assert!(matches!(tick(&mut vm), Err(VmError::Trap(_))));
+}
+
+struct Counting;
+
+thread_local! {
+    static ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static ALLOCATIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+fn count() {
+    if ARMED.with(std::cell::Cell::get) {
+        ALLOCATIONS.with(|n| n.set(n.get() + 1));
+    }
+}
+
+// SAFETY: every call is passed on to the system allocator unchanged.
+unsafe impl std::alloc::GlobalAlloc for Counting {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        count();
+        unsafe { std::alloc::System.alloc(layout) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+        unsafe { std::alloc::System.dealloc(ptr, layout) }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, size: usize) -> *mut u8 {
+        count();
+        unsafe { std::alloc::System.realloc(ptr, layout, size) }
+    }
+}
+
+#[global_allocator]
+static GLOBAL: Counting = Counting;
+
+/// Answers every ray with a hit of 7s.
+struct Quiet;
+
+impl sariema_vm::Queries for Quiet {
+    fn ray(&mut self, _query: &[u8], hit: &mut [u8]) -> i32 {
+        hit.fill(7);
+        1
+    }
+}
+
+#[test]
+fn rays_allocate_nothing_once_warmed_up() {
+    let wasm = wat::parse_str(format!(
+        r#"(module {IMPORTS}
+             (import "sariema" "ray" (func $ray (param i32 i32 i32 i32) (result i32)))
+             (memory (export "memory") 1 1024)
+             (func (export "sariema_tick")
+               (drop (call $ray (i32.const 0) (i32.const 37) (i32.const 64) (i32.const 40)))
+               (drop (call $ray (i32.const 0) (i32.const 37) (i32.const 64) (i32.const 40)))))"#
+    ))
+    .unwrap();
+    let mut vm = load(&wasm, settings()).unwrap();
+    let mut out = Vec::new();
+    for _ in 0..4 {
+        vm.tick_with(&[], &[], &mut out, &mut Quiet).unwrap();
+    }
+    ARMED.with(|a| a.set(true));
+    for _ in 0..64 {
+        vm.tick_with(&[], &[], &mut out, &mut Quiet).unwrap();
+    }
+    ARMED.with(|a| a.set(false));
+    assert_eq!(ALLOCATIONS.with(std::cell::Cell::get), 0);
+}

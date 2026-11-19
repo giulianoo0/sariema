@@ -14,16 +14,19 @@ use std::sync::Arc;
 use glam::{Quat, Vec2, Vec3};
 use sariema_core::STEP_SECONDS;
 use sariema_format::collision::{CollisionPack, Traversal};
+use sariema_format::script::ray::{RAY_HIT, RAY_INVALID, RAY_MISS, Ray, RayHit};
 use sariema_format::script::{
     Anchor, BlockReason, Command, Controller, Entity, Event, Kind, Property, name_id,
 };
 use sariema_physics::{
     ActorCollider, ActorDesc, ActorId, BlockReason as PhysicsBlock, ColliderId, EventKind, Intent,
-    Settings as PhysicsSettings, World, WorldBuild, actor_collider, hinge_turned, wrap_angle,
+    RayFilter, RayTarget, Settings as PhysicsSettings, World, WorldBuild, actor_collider,
+    hinge_turned, wrap_angle,
 };
 use sariema_runtime::events::Happening;
 use sariema_runtime::motion::Goal;
 use sariema_runtime::outbox::PhysicsIntent;
+use sariema_runtime::sim::Queries;
 use sariema_runtime::state::State;
 use sariema_runtime::tween::Target;
 
@@ -98,6 +101,8 @@ pub struct Physics {
     triggers: Vec<u32>,
     /// The entity that last switched each collider.
     switched: Vec<Entity>,
+    /// The `name_id` of each collider.
+    names: Vec<u32>,
     traversals: Vec<Traversing>,
     /// Ended traversals, kept for their buffers.
     spare: Vec<Traversing>,
@@ -221,6 +226,7 @@ impl Physics {
             colliders,
             triggers: pack.triggers.iter().map(|t| name_id(&t.name)).collect(),
             switched: vec![Entity::NONE; pack.colliders.len()],
+            names: pack.colliders.iter().map(|c| name_id(&c.name)).collect(),
             pack,
             actors: Vec::new(),
             owners: Vec::new(),
@@ -1010,4 +1016,42 @@ fn point_along(path: &[Vec3], along: &[f32], distance: f32) -> Vec3 {
         }
     }
     path[0]
+}
+
+impl Queries for Physics {
+    fn ray(&mut self, query: &[u8], hit: &mut [u8]) -> i32 {
+        let (Some(ray), Ok(out)) = (Ray::read(query), <&mut [u8; RayHit::BYTES]>::try_from(hit))
+        else {
+            return RAY_INVALID;
+        };
+        let (origin, dir) = (Vec3::from(ray.origin), Vec3::from(ray.dir));
+        if !origin.is_finite()
+            || !ray.max.is_finite()
+            || ray.max < 0.0
+            || dir.normalize_or_zero() == Vec3::ZERO
+        {
+            return RAY_INVALID;
+        }
+        let filter = RayFilter {
+            colliders: ray.colliders,
+            actors: ray.actors,
+            exclude_actor: self.mapped(ray.exclude).map(|m| m.id),
+        };
+        let Some(contact) = self.world.cast_ray(origin, dir, ray.max, filter) else {
+            return RAY_MISS;
+        };
+        let (entity, collider) = match contact.target {
+            RayTarget::Actor(a) => (self.owners[a.0 as usize], 0),
+            RayTarget::Collider(c) => (self.switched[c.0 as usize], self.names[c.0 as usize]),
+        };
+        RayHit {
+            distance: contact.distance,
+            point: contact.point.into(),
+            normal: contact.normal.into(),
+            entity,
+            collider,
+        }
+        .write(out);
+        RAY_HIT
+    }
 }

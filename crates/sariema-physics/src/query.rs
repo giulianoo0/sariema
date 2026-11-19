@@ -6,7 +6,7 @@
 use glam::Vec3;
 
 use crate::actor::{ActorCollider, Probe};
-use crate::intent::ColliderId;
+use crate::intent::{ActorId, ColliderId};
 use crate::narrow::Round;
 use crate::scene::Filter;
 use crate::world::World;
@@ -18,6 +18,44 @@ pub struct RayHit {
     /// Faces the ray's origin.
     pub normal: Vec3,
     pub collider: ColliderId,
+}
+
+/// What [`World::cast_ray`] sees.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RayFilter {
+    /// The enabled colliders, static and platforms.
+    pub colliders: bool,
+    /// The body capsules of the actors in other actors' way.
+    pub actors: bool,
+    /// An actor the ray passes through.
+    pub exclude_actor: Option<ActorId>,
+}
+
+impl Default for RayFilter {
+    fn default() -> RayFilter {
+        RayFilter {
+            colliders: true,
+            actors: true,
+            exclude_actor: None,
+        }
+    }
+}
+
+/// What a ray hit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RayTarget {
+    Collider(ColliderId),
+    Actor(ActorId),
+}
+
+/// The first thing [`World::cast_ray`] hits.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RayContact {
+    pub distance: f32,
+    pub point: Vec3,
+    /// Faces the ray's origin.
+    pub normal: Vec3,
+    pub target: RayTarget,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -67,6 +105,46 @@ impl World {
                 normal: h.normal,
                 collider: ColliderId(h.collider),
             })
+    }
+
+    /// First collider or actor along `dir` from `origin` within `max` metres,
+    /// as `filter` allows.
+    pub fn cast_ray(
+        &self,
+        origin: Vec3,
+        dir: Vec3,
+        max: f32,
+        filter: RayFilter,
+    ) -> Option<RayContact> {
+        let dir = dir.normalize_or_zero();
+        if dir == Vec3::ZERO || max.is_nan() || max < 0.0 {
+            return None;
+        }
+        let wall = (filter.colliders)
+            .then(|| self.scene().raycast(origin, dir, max, Filter::ALL))
+            .flatten()
+            .map(|h| {
+                (
+                    h.distance,
+                    h.normal,
+                    RayTarget::Collider(ColliderId(h.collider)),
+                )
+            });
+        let body = (filter.actors)
+            .then(|| self.ray_actors(origin, dir, max, filter.exclude_actor))
+            .flatten()
+            .map(|(distance, normal, id)| (distance, normal, RayTarget::Actor(id)));
+        let (distance, normal, target) = match (wall, body) {
+            (Some(w), Some(b)) if b.0 < w.0 => b,
+            (Some(w), _) => w,
+            (None, b) => b?,
+        };
+        Some(RayContact {
+            distance,
+            point: origin + dir * distance,
+            normal,
+            target,
+        })
     }
 
     /// First contact of the capsule `a`–`b` (radius `radius`) moved by `motion`.

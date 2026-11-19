@@ -29,7 +29,7 @@ use sariema_runtime::game::{LoadError, WasmLogic};
 use sariema_runtime::input::{Actions, RawInput};
 use sariema_runtime::outbox::{HostIn, HostOut};
 use sariema_runtime::scenery::{RoomRequest, RoomScene, Switch};
-use sariema_runtime::sim::{Logic, Modules, Simulation};
+use sariema_runtime::sim::{Logic, Modules, Queries, Simulation};
 use sariema_runtime::state::State;
 use sariema_ui::SafeArea;
 
@@ -98,6 +98,10 @@ impl Modules for Stages<'_> {
         if let Some(physics) = self.rooms.active_mut() {
             physics.step(s, self.anim);
         }
+    }
+
+    fn queries(&mut self) -> Option<&mut dyn Queries> {
+        Some(self.rooms.active_mut()?)
     }
 }
 

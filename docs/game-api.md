@@ -31,6 +31,7 @@ and imports only these functions from module `sariema`:
 | `register` | `(kind, ptr, len) -> i32` | A bulk region the engine reads in place after every tick; its id, or −1. Kind 1 is transforms. |
 | `log` | `(level, ptr, len)` | A line of UTF-8 text, level 0 (debug) to 3 (error). |
 | `button` | `(name) -> i32` | The index `button` events carry for the input button whose name has the id `name`, or −1. |
+| `ray` | `(query, query_len, hit, hit_len) -> i32` | Casts the ray record at `query` against the active room ([Rays](#rays)): 1 with the hit record written at `hit`, 0 for a miss, −1 for a record that is not a ray, −2 past `vm.rays_per_step`. |
 
 Nothing else exists: no files, no network, no clock, no system calls. A
 module that imports anything else does not load (`E_GAME_MODULE`).
@@ -211,6 +212,11 @@ game!(Hello);
 - `ctx.button(id("action"))` is the index `button` events carry for the
   input button named `action`, whatever its place in `input.buttons`;
   `None` when the project has none.
+- `ctx.ray(&Ray { origin, dir, max, colliders, actors, exclude })` is the
+  first thing the ray hits ([Rays](#rays)): `Ok(Some(RayHit))`, `Ok(None)`
+  for a miss, `Err(RayRefused)` for a ray that is not one or past the
+  step's budget. `TestHost::ray_hit` sets what it answers in tests, and
+  `TestHost::rays` keeps what was cast.
 - `Machine<S>` holds a state, the step it was entered and an `entered()`
   flag, for logic written as states.
 - `Transforms` is a bulk region of kind 1: entity placements applied after
@@ -247,6 +253,35 @@ still names the checkout, the home directory or cargo's:
 - an SDK from another checkout than the CLI's; build with that checkout's
   `sariema`.
 
+## Rays
+
+A game asks the active room what lies along a line with the `ray` import,
+during its tick, and gets the answer at once. The engine answers from the
+room as it stood when the step began: the game ticks before anything moves,
+so the commands it sent earlier in the same tick have not moved anything
+yet. The answer is the same on every host and every frame rate, and a cast
+allocates nothing.
+
+The query is a fixed little-endian record of 37 bytes
+(`sariema_sdk::ray::Ray::BYTES`): origin and direction (three `f32` each),
+the longest distance (`f32`), a flags byte (1: the room's colliders, 2:
+actors' bodies) and an entity the ray passes through (index and generation,
+`u32` each), such as the actor casting it. The direction may have any
+length but zero; a negative or non-finite number makes the record not a
+ray. Colliders are the enabled ones, static, switched or hinged, where they
+stand; actors are the capsules of actors in other actors' way, so a hidden
+actor is skipped unless `physics.hidden_actors_block` is on.
+
+The hit is a record of 40 bytes (`RayHit::BYTES`): the distance from the
+origin, the point, the surface's normal facing the origin (three `f32` each
+for both), the entity (the actor hit, or the entity that last switched the
+collider hit, or none) and the collider's name id (0 for an actor). The
+nearest of the two wins; an actor exactly as far as a wall is behind it.
+
+A game whose pack carries no room collision, or whose room is still being
+built, gets a miss for every ray. Past `vm.rays_per_step` rays in one tick,
+each further ray answers −2 without being cast.
+
 ## Budgets and the sandbox
 
 Every tick runs under limits from the `vm.*` settings:
@@ -261,6 +296,7 @@ Every tick runs under limits from the `vm.*` settings:
 | `vm.log_bytes_per_step` | 4096 | the rest of the step's log is dropped |
 | `vm.log_lines_per_step` | 64 | the step's further lines are dropped |
 | `vm.commands_bytes_per_step` | 4 MiB | `E_GAME_BUDGET` |
+| `vm.rays_per_step` | 256 | `ray` answers −2 |
 
 Fuel is about one unit per WebAssembly instruction. Exceeding any limit, or
 any trap (`unreachable`, out-of-bounds access, a panic), stops the game for
@@ -655,6 +691,7 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
 | `vm.max_call_depth` | 1000 | Nested calls before the game traps. |
 | `vm.max_regions` | 16 | Bulk data regions a game may register. |
 | `vm.memory_bytes` | 67108864 | Ceiling of the game's memory; growing past it stops the game with E_GAME_MEMORY. |
+| `vm.rays_per_step` | 256 | Rays one tick may cast; each past it is answered as over the step's budget. |
 | `vm.table_elements` | 10000 | Elements a table may grow to. |
 
 ## What we took from other engines
@@ -678,3 +715,10 @@ build with `E_SCHEMA`. `sariema api --json` lists them with the same docs.
   transform changed outside the fixed step. Godot does not reset a node
   shown again, so it slides in; Sariema draws an actor that appears from
   where it ends.
+- The ray query: Godot's `intersect_ray`, answered at once inside the
+  physics step and passing through the bodies it excludes; Rapier's
+  `cast_ray_and_get_normal`, a maximum distance, a filter that excludes one
+  body and the nearest hit with its normal; Jolt's `CastRay`, which fills a
+  result the caller owns. Sariema exchanges fixed records instead of
+  Godot's dictionary, so a cast allocates nothing, and answers from the
+  world as the step began instead of the world mid-step.

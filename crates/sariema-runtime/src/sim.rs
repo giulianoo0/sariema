@@ -16,6 +16,7 @@ use std::time::Duration;
 use glam::Vec3;
 use sariema_format::script::cutscene::Cutscene;
 use sariema_format::script::{Command, Controller, Entity, Event, Kind, records};
+pub use sariema_vm::Queries;
 
 use crate::apply::{Source, apply};
 use crate::clock::{FixedClock, Tick};
@@ -45,6 +46,19 @@ pub trait Logic {
     /// batch into `commands`.
     fn tick(&mut self, events: &[u8], ends: &[u32], commands: &mut Vec<u8>) -> Result<(), Stop>;
 
+    /// [`Logic::tick`], with `queries` answering what the logic asks of the
+    /// world as it stood when the step began.
+    fn tick_with(
+        &mut self,
+        events: &[u8],
+        ends: &[u32],
+        commands: &mut Vec<u8>,
+        queries: &mut dyn Queries,
+    ) -> Result<(), Stop> {
+        let _ = queries;
+        self.tick(events, ends, commands)
+    }
+
     /// Bulk regions after the last tick, by kind.
     fn regions(&self, each: &mut dyn FnMut(u32, &[u8])) {
         let _ = each;
@@ -64,6 +78,12 @@ pub trait Logic {
 /// the sequencer at the next step, as the built-in mover's do.
 pub trait Modules {
     fn step(&mut self, state: &mut State);
+
+    /// What answers the game's queries during its tick, before any module
+    /// has stepped; none when no module keeps a world to query.
+    fn queries(&mut self) -> Option<&mut dyn Queries> {
+        None
+    }
 }
 
 impl Modules for () {
@@ -245,10 +265,14 @@ impl<L: Logic> Simulation<L> {
         s.input.step(actions, |e| head.push(e));
 
         if self.stopped.is_none() {
-            match self
-                .logic
-                .tick(self.head.bytes(), self.head.ends(), &mut self.commands)
-            {
+            let mut no_world = ();
+            let queries = modules.queries().unwrap_or(&mut no_world);
+            match self.logic.tick_with(
+                self.head.bytes(),
+                self.head.ends(),
+                &mut self.commands,
+                queries,
+            ) {
                 Ok(()) => self.apply_commands(),
                 Err(stop) => self.stop(stop),
             }

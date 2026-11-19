@@ -125,6 +125,27 @@ fn imports(host: &Rc<RefCell<HostState>>) -> Imports {
     let h = host.clone();
     imports.define(
         "sariema",
+        "ray",
+        HostFunction::from(
+            move |mut ctx: FuncContext<'_>,
+                  (query, query_len, hit, hit_len): (i32, i32, i32, i32)| {
+                let m = memory(&ctx)?;
+                let data = m.data_mut(ctx.store_mut())?;
+                h.borrow_mut()
+                    .ray(
+                        data,
+                        query as u32,
+                        query_len as u32,
+                        hit as u32,
+                        hit_len as u32,
+                    )
+                    .map_err(failed)
+            },
+        ),
+    );
+    let h = host.clone();
+    imports.define(
+        "sariema",
         "button",
         HostFunction::from(move |_: FuncContext<'_>, name: i32| Ok(h.borrow().button(name as u32))),
     );

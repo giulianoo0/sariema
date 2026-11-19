@@ -19,6 +19,8 @@ extern crate alloc;
 #[macro_use]
 #[path = "../../sariema-format/src/script/codegen.rs"]
 mod codegen;
+#[path = "../../sariema-format/src/script/ray.rs"]
+pub mod ray;
 #[path = "../../sariema-format/src/script/span.rs"]
 mod span;
 #[path = "../../sariema-format/src/script/table.rs"]
@@ -38,7 +40,7 @@ mod region;
 mod run;
 pub mod testing;
 
-pub use ctx::{Ctx, Entities};
+pub use ctx::{Ctx, Entities, RayRefused};
 pub use machine::Machine;
 pub use region::Transforms;
 pub use rng::Pcg32 as Rng;

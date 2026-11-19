@@ -4,7 +4,7 @@
 //! machine, its cutscenes and its settings.
 
 use sariema_format::script::{BATCH_VERSION, GamePack, decode_game, name_id};
-use sariema_vm::{LogLine, Vm, VmError};
+use sariema_vm::{LogLine, Queries, Vm, VmError};
 
 use crate::settings::Settings;
 use crate::sim::{Logic, Simulation, Stop};
@@ -31,10 +31,22 @@ impl WasmLogic {
 
 impl Logic for WasmLogic {
     fn tick(&mut self, events: &[u8], ends: &[u32], commands: &mut Vec<u8>) -> Result<(), Stop> {
-        self.vm.tick(events, ends, commands).map_err(|e| Stop {
-            code: e.code(),
-            message: e.to_string(),
-        })
+        self.tick_with(events, ends, commands, &mut ())
+    }
+
+    fn tick_with(
+        &mut self,
+        events: &[u8],
+        ends: &[u32],
+        commands: &mut Vec<u8>,
+        queries: &mut dyn Queries,
+    ) -> Result<(), Stop> {
+        self.vm
+            .tick_with(events, ends, commands, queries)
+            .map_err(|e| Stop {
+                code: e.code(),
+                message: e.to_string(),
+            })
     }
 
     fn regions(&self, each: &mut dyn FnMut(u32, &[u8])) {

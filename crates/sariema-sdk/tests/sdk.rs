@@ -284,3 +284,47 @@ fn a_scene_tween_carries_every_parameter_with_its_value() {
         ]
     );
 }
+
+#[test]
+fn a_ray_reaches_the_host_and_its_hit_comes_back_whole() {
+    use sariema_sdk::ray::{Ray, RayHit};
+    struct Looker {
+        seen: Vec<Result<Option<RayHit>, sariema_sdk::RayRefused>>,
+    }
+    impl Game for Looker {
+        fn new(_: &mut Ctx<'_>) -> Looker {
+            Looker { seen: Vec::new() }
+        }
+        fn tick(&mut self, ctx: &mut Ctx<'_>, _: Events<'_>) {
+            self.seen.push(ctx.ray(&ahead()));
+        }
+    }
+    fn ahead() -> Ray {
+        Ray {
+            origin: [0.0, 1.0, 0.0],
+            dir: [0.0, 0.0, -1.0],
+            max: 12.5,
+            colliders: true,
+            actors: false,
+            exclude: Entity {
+                index: 3,
+                generation: 1,
+            },
+        }
+    }
+    let wall = RayHit {
+        distance: 4.25,
+        point: [0.0, 1.0, -4.25],
+        normal: [0.0, 0.0, 1.0],
+        entity: Entity::NONE,
+        collider: sariema_sdk::id("wall"),
+    };
+    let mut host = TestHost::new();
+    host.ray_hit = Some(wall);
+    let mut runner = Runner::<Looker>::new();
+    runner.run(&mut host);
+    host.ray_hit = None;
+    runner.run(&mut host);
+    assert_eq!(host.rays, [ahead(), ahead()]);
+    assert_eq!(runner.game().unwrap().seen, [Ok(Some(wall)), Ok(None)]);
+}

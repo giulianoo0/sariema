@@ -12,7 +12,7 @@ use crate::actor::{ActorCollider, ActorDesc};
 use crate::controller::{Derived, Ground, Mover};
 use crate::intent::{ActorId, BlockReason, ColliderId, Event, EventKind, Intent, TriggerId};
 use crate::math::{Bounds, flat, wrap_angle, yaw_matrix, yaw_of};
-use crate::narrow::Tolerance;
+use crate::narrow::{Part, Tolerance, sweep};
 use crate::nav::{NavCtx, NavGrid};
 use crate::scene::{Filter, NewCollider, Pose, Scene};
 use crate::settings::Settings;
@@ -1112,6 +1112,37 @@ impl World {
             return;
         }
         a.route = Some(route);
+    }
+
+    /// The first body of an actor in other actors' way, but `exclude`, along
+    /// unit `dir` from `origin` within `max`: its distance, normal and id.
+    pub(crate) fn ray_actors(
+        &self,
+        origin: Vec3,
+        dir: Vec3,
+        max: f32,
+        exclude: Option<ActorId>,
+    ) -> Option<(f32, Vec3, ActorId)> {
+        let block = self.settings.hidden_actors_block;
+        let tol = tolerance(&self.settings);
+        let mut best: Option<(f32, Vec3, ActorId)> = None;
+        for (i, a) in self.actors.iter().enumerate() {
+            let id = ActorId(i as u32);
+            if !a.in_the_way(block) || exclude == Some(id) {
+                continue;
+            }
+            let probe = a.desc.collider.probe(a.position, a.yaw, 0.0);
+            for round in probe.rounds() {
+                let part = Part::Round(*round);
+                if let Some(s) = sweep(origin, origin, 0.0, dir * max, &part, tol) {
+                    let distance = s.t * max;
+                    if best.is_none_or(|(b, ..)| distance < b) {
+                        best = Some((distance, s.normal, id));
+                    }
+                }
+            }
+        }
+        best
     }
 
     /// Pushes apart actors whose body capsules overlap, by sweep and prune on x.

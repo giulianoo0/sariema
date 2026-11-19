@@ -3,11 +3,13 @@
 //! The sandboxed WebAssembly machine that runs a game's logic.
 //!
 //! A game module exports `memory` and `sariema_tick`, optionally
-//! `sariema_batch_version() -> i32`, and imports only the four functions
-//! in [`host`]. No file, network or system access exists. Every tick runs
+//! `sariema_batch_version() -> i32`, and imports only the functions in
+//! [`host`]. No file, network or system access exists. Every tick runs
 //! under a fuel budget and the memory ceiling; exceeding either, or a trap,
 //! stops the game for good with a [`VmError`]; the host is never hung or
 //! panicked, and no step is resumed half-way.
+
+use std::ptr::NonNull;
 
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +18,7 @@ pub mod host;
 mod tinywasm_backend;
 mod wasmi_backend;
 
-pub use host::{LogLine, Region};
+pub use host::{LogLine, Queries, Region};
 #[cfg(feature = "tinywasm")]
 pub use tinywasm_backend::Tinywasm;
 pub use wasmi_backend::Wasmi;
@@ -42,6 +44,9 @@ pub struct VmSettings {
     pub log_lines_per_step: u32,
     /// Bytes of commands a tick may submit; more stops the game.
     pub commands_bytes_per_step: u32,
+    /// Rays a tick may cast with the `ray` import; past it, each answers
+    /// that the step's budget is spent.
+    pub rays_per_step: u32,
 }
 
 impl Default for VmSettings {
@@ -56,6 +61,7 @@ impl Default for VmSettings {
             log_bytes_per_step: 4096,
             log_lines_per_step: 64,
             commands_bytes_per_step: 4 << 20,
+            rays_per_step: 256,
         }
     }
 }
@@ -162,11 +168,23 @@ impl Vm {
     /// Runs one tick. `events` is this step's event batch and `ends` the end
     /// offset of each of its records. On success `commands` holds the batch
     /// the game submitted; on failure it is empty and the game stays stopped.
+    /// The game's queries all miss.
     pub fn tick(
         &mut self,
         events: &[u8],
         ends: &[u32],
         commands: &mut Vec<u8>,
+    ) -> Result<(), VmError> {
+        self.tick_with(events, ends, commands, &mut ())
+    }
+
+    /// [`Vm::tick`], the game's queries answered by `queries`.
+    pub fn tick_with(
+        &mut self,
+        events: &[u8],
+        ends: &[u32],
+        commands: &mut Vec<u8>,
+        queries: &mut dyn Queries,
     ) -> Result<(), VmError> {
         commands.clear();
         if let Some(e) = &self.stopped {
@@ -179,7 +197,15 @@ impl Vm {
             self.settings.fuel_per_step
         };
         self.ticks += 1;
-        match self.machine.tick(fuel, &mut self.host) {
+        let queries: NonNull<dyn Queries + '_> = NonNull::from(queries);
+        // SAFETY: only the lifetime is erased; the pointer is cleared below,
+        // before the borrow it comes from ends.
+        self.host.queries = Some(unsafe {
+            std::mem::transmute::<NonNull<dyn Queries + '_>, NonNull<dyn Queries>>(queries)
+        });
+        let ticked = self.machine.tick(fuel, &mut self.host);
+        self.host.queries = None;
+        match ticked {
             Ok(()) => {
                 std::mem::swap(&mut self.host.commands, commands);
                 Ok(())

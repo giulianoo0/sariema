@@ -15,6 +15,10 @@ pub trait Host {
     fn log(&mut self, level: u32, text: &str);
     /// The index of the input button whose name has the id `name`, or −1.
     fn button(&self, name: u32) -> i32;
+    /// Casts the [`crate::ray::Ray`] record `query`, writing the
+    /// [`crate::ray::RayHit`] record into `hit` on a hit; one of the
+    /// `RAY_*` answers of [`crate::ray`].
+    fn ray(&mut self, query: &[u8], hit: &mut [u8]) -> i32;
 }
 
 /// The engine, through the module's imports.
@@ -29,6 +33,7 @@ mod imports {
         pub fn register(kind: u32, ptr: *const u8, len: usize) -> i32;
         pub fn log(level: u32, ptr: *const u8, len: usize);
         pub fn button(name: u32) -> i32;
+        pub fn ray(query: *const u8, query_len: usize, hit: *mut u8, hit_len: usize) -> i32;
     }
 }
 
@@ -58,6 +63,12 @@ impl Host for Wasm {
         // SAFETY: the import takes a plain integer and touches no memory.
         unsafe { imports::button(name) }
     }
+
+    fn ray(&mut self, query: &[u8], hit: &mut [u8]) -> i32 {
+        // SAFETY: the engine reads `query` and writes at most `hit.len()`
+        // bytes into `hit`, and checks both ranges.
+        unsafe { imports::ray(query.as_ptr(), query.len(), hit.as_mut_ptr(), hit.len()) }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -79,6 +90,10 @@ impl Host for Wasm {
     }
 
     fn button(&self, _: u32) -> i32 {
+        unreachable!("the engine's imports exist only on wasm32")
+    }
+
+    fn ray(&mut self, _: &[u8], _: &mut [u8]) -> i32 {
         unreachable!("the engine's imports exist only on wasm32")
     }
 }

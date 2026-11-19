@@ -86,6 +86,23 @@ fn linker(engine: &Engine) -> Result<Linker<State>, Error> {
     )?;
     linker.func_wrap(
         "sariema",
+        "ray",
+        move |mut caller: Caller<'_, State>,
+              query: u32,
+              query_len: u32,
+              hit: u32,
+              hit_len: u32|
+              -> Result<i32, Error> {
+            let m = memory(&caller)?;
+            let (data, state) = m.data_and_store_mut(&mut caller);
+            state
+                .host
+                .ray(data, query, query_len, hit, hit_len)
+                .map_err(host_error)
+        },
+    )?;
+    linker.func_wrap(
+        "sariema",
         "button",
         |caller: Caller<'_, State>, name: u32| -> i32 { caller.data().host.button(name) },
     )?;

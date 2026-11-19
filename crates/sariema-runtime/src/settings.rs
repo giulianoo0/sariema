@@ -313,6 +313,10 @@ pub const DOCS: &[(&str, &str)] = &[
         "Bytes of commands one tick may submit; more stops the game with E_GAME_BUDGET.",
     ),
     (
+        "vm.rays_per_step",
+        "Rays one tick may cast; each past it is answered as over the step's budget.",
+    ),
+    (
         "physics.collision.skin",
         "Metres left between an actor and what stopped it.",
     ),
