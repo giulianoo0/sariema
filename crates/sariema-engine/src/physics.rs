@@ -471,7 +471,7 @@ impl Physics {
             let hidden = !node.visible;
             self.world.apply(Intent::SetHidden { actor: id, hidden });
             if s.motion.held(entity) {
-                self.world.apply(Intent::Pose {
+                self.world.apply(Intent::Hold {
                     actor: id,
                     position: pose.position,
                     yaw: to_physics(yaw),
@@ -632,7 +632,12 @@ impl Physics {
                 entity,
                 position,
                 yaw,
-            } => self.hold(s, entity, position, yaw),
+            } => self.pose(s, entity, position, yaw, true),
+            PhysicsIntent::Pose {
+                entity,
+                position,
+                yaw,
+            } => self.pose(s, entity, position, yaw, false),
             PhysicsIntent::TurnRate { entity, rate } => {
                 if let Some(m) = self.mapped_mut(entity) {
                     m.turn_rate = rate;
@@ -704,8 +709,8 @@ impl Physics {
     }
 
     /// Poses `entity` exactly at `position`, collider off, until its next
-    /// movement intent releases it.
-    fn hold(&mut self, s: &State, entity: Entity, position: Vec3, yaw: f32) {
+    /// movement intent releases it; `held`, as a hold.
+    fn pose(&mut self, s: &State, entity: Entity, position: Vec3, yaw: f32, held: bool) {
         self.end_traversal(entity);
         if s.world.node(entity).is_some_and(|n| !n.parent.is_none()) {
             return;
@@ -715,11 +720,19 @@ impl Physics {
         };
         m.written = (position, yaw);
         m.speed = 0.0;
-        let id = m.id;
-        self.world.apply(Intent::Pose {
-            actor: id,
-            position,
-            yaw: to_physics(yaw),
+        let (actor, yaw) = (m.id, to_physics(yaw));
+        self.world.apply(if held {
+            Intent::Hold {
+                actor,
+                position,
+                yaw,
+            }
+        } else {
+            Intent::Pose {
+                actor,
+                position,
+                yaw,
+            }
         });
     }
 
@@ -833,6 +846,12 @@ impl Physics {
             return;
         };
         self.end_traversal(entity);
+        if std::mem::take(&mut s.motion.mover_mut(entity).held)
+            && let Some(m) = self.mapped(entity)
+        {
+            let actor = m.id;
+            self.world.apply(Intent::Stop { actor });
+        }
         let mut run = (self.spare.pop()).unwrap_or_else(|| Traversing::with_capacity(0, 0));
         traversing(&mut run, entity, &self.pack.traversals[t], start, duration);
         self.traversals.push(run);
@@ -846,9 +865,10 @@ impl Physics {
     }
 
     /// Each traversal's pose for this step: along its points as far as its
-    /// timing curve has come, eased onto each contact so that the actor's socket or bone of that name (its
-    /// feet when it has neither) lands on it, and turning to the
-    /// traversal's facing no faster than the runtime's turn rate.
+    /// timing curve has come, eased onto each contact so that the actor's
+    /// socket or bone of that name (its feet when it has neither) lands on
+    /// it, and turning to the traversal's facing no faster than the
+    /// runtime's turn rate.
     fn traverse(&mut self, s: &State, anim: &mut Animation) {
         for t in &mut self.traversals {
             let Some(m) = self
@@ -898,10 +918,16 @@ impl Physics {
             let run = self.traversals.remove(k);
             let (entity, hold_end) = (run.entity, run.hold_end);
             self.spare.push(run);
-            if hold_end {
+            if hold_end && s.may_hold(entity) {
                 s.motion.mover_mut(entity).held = true;
                 if let Some(m) = self.mapped_mut(entity) {
                     m.speed = 0.0;
+                    let (actor, (position, yaw)) = (m.id, m.written);
+                    self.world.apply(Intent::Hold {
+                        actor,
+                        position,
+                        yaw: to_physics(yaw),
+                    });
                 }
             } else if let Some(m) = self.mapped(entity) {
                 let id = m.id;

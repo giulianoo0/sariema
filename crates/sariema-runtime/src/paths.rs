@@ -230,6 +230,7 @@ pub fn finish(s: &mut State, entity: Entity) {
 
 /// The collider on again where the root stands, or the actor held there.
 fn end(s: &mut State, entity: Entity, hold_end: bool) {
+    let hold_end = hold_end && s.may_hold(entity);
     if hold_end {
         s.motion.mover_mut(entity).held = true;
     }

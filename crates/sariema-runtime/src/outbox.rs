@@ -71,6 +71,13 @@ pub enum PhysicsIntent {
         position: Vec3,
         yaw: f32,
     },
+    /// As `Hold`, but not held: a clip path that starts from a hold keeps
+    /// the actor where it was until its first span moves it.
+    Pose {
+        entity: Entity,
+        position: Vec3,
+        yaw: f32,
+    },
     Knockback {
         entity: Entity,
         impulse: Vec3,

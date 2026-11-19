@@ -67,6 +67,8 @@ pub struct ActorState {
     pub ground: Option<ColliderId>,
     /// Whether a scripted move is under way.
     pub moving_to: bool,
+    /// Whether a hold keeps it posed ([`Intent::Hold`]).
+    pub held: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -105,6 +107,7 @@ struct Actor {
     teleport: Option<(Vec3, f32)>,
     pose: Option<(Vec3, f32)>,
     posed: bool,
+    held: Option<(Vec3, f32)>,
     move_to: Option<(Vec3, Option<f32>)>,
     /// `move_to` was given after the pending teleport, so it outlives it.
     move_after_teleport: bool,
@@ -173,6 +176,7 @@ impl Actor {
         if self.posed {
             self.posed = false;
             self.pose = None;
+            self.held = None;
             self.awake = true;
         }
     }
@@ -305,6 +309,7 @@ impl World {
             teleport: None,
             pose: None,
             posed: false,
+            held: None,
             move_to: None,
             move_after_teleport: false,
             route: None,
@@ -435,6 +440,7 @@ impl World {
             grounded: a.ground.is_some(),
             ground: a.ground.map(|g| ColliderId(g.collider)),
             moving_to: a.route.is_some() || a.move_to.is_some(),
+            held: a.held.is_some(),
         }
     }
 
@@ -616,6 +622,19 @@ impl World {
                 let a = &mut self.actors[actor.0 as usize];
                 a.pose = Some((position, yaw));
                 a.posed = true;
+                if a.held.is_some() {
+                    a.held = a.pose;
+                }
+            }
+            Intent::Hold {
+                actor,
+                position,
+                yaw,
+            } => {
+                let a = &mut self.actors[actor.0 as usize];
+                a.pose = Some((position, yaw));
+                a.posed = true;
+                a.held = a.pose;
             }
             Intent::SetColliderEnabled { collider, enabled } => {
                 if self.set_enabled(collider.0, enabled) && enabled {
@@ -1268,14 +1287,15 @@ impl World {
     }
 
     /// FNV-1a over every value the simulation carries from step to step.
-    /// An actor's body, its turn cap and a pose count only off their
+    /// An actor's body, its turn cap and a hold count only off their
     /// defaults, so a world that never sets them hashes as before they
-    /// existed.
+    /// existed; a pose that does not hold counts only by where it puts the
+    /// actor.
     pub fn state_hash(&self) -> u64 {
         const BODY_OFF: u32 = u32::MAX - 1;
         const OWN_TURN_CAP: u32 = u32::MAX - 2;
         const HIDDEN: u32 = u32::MAX - 3;
-        const POSED: u32 = u32::MAX - 4;
+        const HELD: u32 = u32::MAX - 4;
         let mut h = Fnv::new();
         h.u64(self.steps);
         for c in &self.scene.colliders {
@@ -1308,8 +1328,10 @@ impl World {
             if a.hidden {
                 h.u32(HIDDEN);
             }
-            if a.posed {
-                h.u32(POSED);
+            if let Some((position, yaw)) = a.held {
+                h.u32(HELD);
+                h.vec3(position);
+                h.f32(yaw);
             }
             if let Some(speed) = a.max_yaw_speed {
                 h.u32(OWN_TURN_CAP);

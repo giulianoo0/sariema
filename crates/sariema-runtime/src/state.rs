@@ -3,7 +3,7 @@
 //! Everything one step reads and writes, owned in one place so commands
 //! from the game and from the sequencer go through the same code.
 
-use sariema_format::script::{Controller, Entity, Event};
+use sariema_format::script::{Controller, Entity, Event, Kind};
 
 use crate::aim::Aims;
 use crate::camera::Camera;
@@ -149,6 +149,14 @@ impl State {
             .iter()
             .chain(&self.happened)
             .any(|&(n, x)| n >= since && x == h)
+    }
+
+    /// Whether `e` may be held: an actor of its own, since the collision
+    /// module poses a carried one where its carrier holds it.
+    pub fn may_hold(&self, e: Entity) -> bool {
+        self.world
+            .node(e)
+            .is_some_and(|n| n.kind == Kind::Actor && n.parent.is_none())
     }
 
     /// Hands the hero over: stops what the player's axis was doing and

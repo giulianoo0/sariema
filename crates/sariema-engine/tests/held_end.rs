@@ -2,7 +2,9 @@
 
 //! A traversal or a clip path that holds its end leaves the actor exactly
 //! there, collider off, with no gravity and no push-out, until its next
-//! movement command; one that does not lands it as before.
+//! movement command; one that does not lands it as before. The runtime's
+//! `held` and the collision module's pose agree on every path, a refused
+//! command and a room switch included.
 
 mod common;
 
@@ -10,10 +12,13 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use sariema_engine::{Engine, EngineSettings, RoomAssets};
 use sariema_format::collision::{Spot, Traversal};
-use sariema_format::script::{ClipMode, ClipSpan, Command, Ease, Event, name_id};
+use sariema_format::script::{
+    ClipMode, ClipSpan, Command, Ease, Event, Kind, RoomTransition, name_id,
+};
+use sariema_physics::ActorId;
 use sariema_runtime::input::Actions;
 use sariema_runtime::sim::Simulation;
 
@@ -84,6 +89,15 @@ fn room() -> RoomAssets {
     RoomAssets::collision("rig", pack)
 }
 
+/// A floor and a beam around `TOP`, with no traversals.
+fn next_room() -> RoomAssets {
+    let colliders = vec![
+        block("floor", [-6.0, -0.1, -4.0], [8.0, 0.0, 4.0]),
+        block("beam", [-0.3, 1.0, -0.3], [0.3, 1.5, 0.3]),
+    ];
+    RoomAssets::collision("next", collision("next", colliders))
+}
+
 /// What one step left: the hero's root, and the `located` its tick heard,
 /// which answers a `locate` sent the step before.
 #[derive(Clone, Copy, Debug, Default)]
@@ -100,7 +114,17 @@ type Script = Box<dyn FnMut(u64, &mut Vec<u8>, f32)>;
 fn run(
     at: [f32; 3],
     steps: usize,
+    script: Script,
+) -> (Vec<Step>, Engine<impl sariema_runtime::sim::Logic>) {
+    run_with(at, steps, script, None)
+}
+
+/// As [`run`], with the player's stick pushed forward from step `stick`.
+fn run_with(
+    at: [f32; 3],
+    steps: usize,
     mut script: Script,
+    stick: Option<usize>,
 ) -> (Vec<Step>, Engine<impl sariema_runtime::sim::Logic>) {
     let length = Rc::new(Cell::new(0.0f32));
     let heard = Rc::new(RefCell::new(None));
@@ -123,16 +147,30 @@ fn run(
         script(n, out, len.get());
     });
     let mut assets = assets();
-    assets.rooms = vec![room()];
+    assets.rooms = vec![room(), next_room()];
     let sim = Simulation::new(wired(), Vec::new(), logic, 1);
     let mut engine = Engine::new(sim, assets, EngineSettings::default()).unwrap();
     let model = &engine.animation().models[0];
     let clip = model.rig.clip("wave").expect("the hero has a wave");
     length.set(model.rig.clip_info(clip).duration);
-    let actions = Actions::for_settings(&engine.state().settings.input);
+    let idle = Actions::for_settings(&engine.state().settings.input);
+    let mut pushed = idle.clone();
+    pushed.axes[0] = Vec2::new(0.0, 1.0);
     let mut trace = Vec::with_capacity(steps);
-    for _ in 0..steps {
-        engine.step(&actions);
+    for n in 0..steps {
+        engine.step(if stick.is_some_and(|k| n >= k) {
+            &pushed
+        } else {
+            &idle
+        });
+        let held = engine.state().motion.held(entity(0));
+        let posed = engine
+            .physics()
+            .is_some_and(|p| p.world.actor(ActorId(0)).held);
+        assert_eq!(
+            held, posed,
+            "the runtime and the collision module agree, step {n}"
+        );
         trace.push(Step {
             root: engine.state().world.node(entity(0)).unwrap().local.position,
             located: heard.borrow_mut().take(),
@@ -186,6 +224,25 @@ type Release = fn(&mut Vec<u8>, f32);
 
 fn locate(out: &mut Vec<u8>) {
     send(out, Command::Locate { entity: entity(0) });
+}
+
+/// Climbs the held rope, then locates the hero before and after `then`,
+/// sent at step 101; the `held` of both answers.
+fn held_around(then: Release) -> (Vec<Step>, bool, bool) {
+    let (trace, _) = run(
+        [0.0; 3],
+        400,
+        Box::new(move |n, out, length| match n {
+            2 => climb(out, "rope"),
+            100 => locate(out),
+            101 => then(out, length),
+            102 => locate(out),
+            _ => {}
+        }),
+    );
+    let before = trace[101].located.expect("located before").2;
+    let after = trace[103].located.expect("located after").2;
+    (trace, before, after)
 }
 
 #[test]
@@ -382,4 +439,180 @@ fn a_held_actor_steps_without_allocating() {
         Vec3::from(TOP)
     );
     assert_eq!(ALLOCATIONS.with(Cell::get), 0);
+}
+
+#[test]
+fn a_refused_traverse_leaves_a_held_actor_held() {
+    let (trace, before, after) = held_around(|out, _| climb(out, "nowhere"));
+    assert!(before, "held before the refused traverse");
+    assert!(
+        after,
+        "still held after it, as the collision module keeps it"
+    );
+    for (k, s) in trace[101..].iter().enumerate() {
+        assert_eq!(
+            s.root,
+            Vec3::from(TOP),
+            "still at the top, step {}",
+            101 + k
+        );
+    }
+}
+
+#[test]
+fn a_held_actor_given_a_parent_is_not_held() {
+    let (trace, _) = run(
+        [0.0; 3],
+        120,
+        Box::new(|n, out, _| match n {
+            1 => {
+                send(
+                    out,
+                    Command::Spawn {
+                        entity: entity(1),
+                        kind: Kind::Empty,
+                        asset: 0,
+                    },
+                );
+                send(
+                    out,
+                    Command::SetParent {
+                        entity: entity(0),
+                        parent: entity(1),
+                    },
+                );
+            }
+            3 => send(
+                out,
+                Command::Teleport {
+                    entity: entity(0),
+                    position: [0.0, 0.0, 0.0],
+                    yaw: 0.0,
+                    force: true,
+                    hold: true,
+                },
+            ),
+            100 => locate(out),
+            _ => {}
+        }),
+    );
+    let (_, _, held) = trace[101].located.expect("located");
+    assert!(!held, "the collision module cannot hold a carried actor");
+}
+
+#[test]
+fn the_players_stick_releases_a_held_hero() {
+    let (trace, _) = run_with(
+        [0.0; 3],
+        400,
+        Box::new(|n, out, _| match n {
+            1 => send(
+                out,
+                Command::SetHero {
+                    entity: entity(0),
+                    speed: 1.5,
+                },
+            ),
+            2 => climb(out, "rope"),
+            100 | 102 => locate(out),
+            _ => {}
+        }),
+        Some(101),
+    );
+    assert!(trace[101].located.expect("located before").2, "held");
+    assert!(!trace[103].located.expect("located after").2, "released");
+    assert!(
+        trace[399].root.y < 0.05,
+        "down on the floor once released: {}",
+        trace[399].root
+    );
+}
+
+#[test]
+fn a_held_actor_handed_to_another_rooms_collision_stays_held_where_it_was() {
+    let (trace, _) = run(
+        [0.0; 3],
+        400,
+        Box::new(|n, out, _| match n {
+            2 => climb(out, "rope"),
+            150 => send(
+                out,
+                Command::RoomSwitch {
+                    room: name_id("next"),
+                    transition: RoomTransition::Cut,
+                    duration: 0.0,
+                },
+            ),
+            300 => locate(out),
+            _ => {}
+        }),
+    );
+    for (k, s) in trace[100..].iter().enumerate() {
+        assert_eq!(
+            s.root,
+            Vec3::from(TOP),
+            "held at the top, in the beam of the next room, step {}",
+            100 + k
+        );
+    }
+    assert!(trace[301].located.expect("located").2, "still held");
+}
+
+#[test]
+fn set_transform_of_a_hidden_held_actor_releases_it() {
+    let (trace, _) = run(
+        [0.0; 3],
+        400,
+        Box::new(|n, out, _| match n {
+            2 => climb(out, "rope"),
+            99 => send(
+                out,
+                Command::SetVisible {
+                    entity: entity(0),
+                    visible: false,
+                },
+            ),
+            100 | 102 => locate(out),
+            101 => send(
+                out,
+                Command::SetTransform {
+                    entity: entity(0),
+                    position: TOP,
+                    yaw: 0.0,
+                },
+            ),
+            _ => {}
+        }),
+    );
+    assert!(trace[101].located.expect("located before").2, "held");
+    assert!(!trace[103].located.expect("located after").2, "released");
+    assert!(
+        trace[399].root.y < 0.05,
+        "down on the floor once released: {}",
+        trace[399].root
+    );
+}
+
+#[test]
+fn a_held_actor_given_a_carrier_is_released_on_both_sides() {
+    let (trace, before, after) = held_around(|out, _| {
+        send(
+            out,
+            Command::Spawn {
+                entity: entity(1),
+                kind: Kind::Empty,
+                asset: 0,
+            },
+        );
+        send(
+            out,
+            Command::SetParent {
+                entity: entity(0),
+                parent: entity(1),
+            },
+        );
+    });
+    assert!(before, "held before it is carried");
+    assert!(!after, "a carried actor is not held");
+    assert!(trace[399].located.is_none());
 }

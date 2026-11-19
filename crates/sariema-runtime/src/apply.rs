@@ -89,6 +89,7 @@ fn place(
         m.goal = Goal::Idle;
         m.face = None;
     }
+    let hold = hold && s.may_hold(e);
     if s.world.node(e).is_some_and(|n| n.kind == Kind::Actor) {
         s.motion.mover_mut(e).held = hold;
     }
@@ -168,6 +169,10 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             s.world.can_parent(entity, parent).map_err(refuse(entity))?;
             no_jump::may_reparent(s, entity, parent)?;
             s.world.set_parent(entity, parent).map_err(refuse(entity))?;
+            if !s.may_hold(entity) && s.motion.held(entity) {
+                s.motion.mover_mut(entity).held = false;
+                s.outbox.physics.push(PhysicsIntent::Stop { entity });
+            }
         }
         C::SetVisible { entity, visible } => {
             s.world.node_mut(entity).map_err(refuse(entity))?.visible = visible
@@ -269,9 +274,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
                 });
                 s.happen(Happening::Blocked(entity));
             } else {
-                let mover = s.motion.mover_mut(entity);
-                mover.goal = Goal::Idle;
-                mover.held = false;
+                s.motion.mover_mut(entity).goal = Goal::Idle;
                 s.outbox.physics.push(PhysicsIntent::Traverse {
                     entity,
                     traversal,
@@ -360,7 +363,7 @@ pub fn apply(s: &mut State, command: &Command<'_>, source: Source) -> Result<(),
             let held = std::mem::take(&mut mover.held);
             s.outbox.physics.push(PhysicsIntent::Stop { entity });
             if held {
-                s.outbox.physics.push(PhysicsIntent::Hold {
+                s.outbox.physics.push(PhysicsIntent::Pose {
                     entity,
                     position: root.0,
                     yaw: root.1,

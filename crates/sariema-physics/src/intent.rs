@@ -61,6 +61,14 @@ pub enum Intent {
         position: Vec3,
         yaw: f32,
     },
+    /// A [`Intent::Pose`] that holds: the state hash counts the hold and its
+    /// pose until the same movements release it. A later `Pose` moves a
+    /// held actor and keeps it held.
+    Hold {
+        actor: ActorId,
+        position: Vec3,
+        yaw: f32,
+    },
     /// Enabling takes effect at once for queries; at the next step, actors
     /// inside the collider are pushed out of it ([`EventKind::PushedOut`]),
     /// or it is disabled again when one cannot be ([`EventKind::EnableRefused`]).

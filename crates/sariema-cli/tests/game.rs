@@ -529,6 +529,11 @@ fn the_climb_example_replays_through_the_whole_engine_to_pinned_events_and_state
     );
     // The same in the browsers (packages/sariema-web, `npm test`).
     assert_eq!(played["engine_hash"], "e7cb04ad09f5acbc");
+    assert_eq!(
+        run("300")["physics_hash"],
+        "1c1953bbd5b783bd",
+        "under way and not held, the climb's traversal hashes as before holds existed"
+    );
     let again = run("900");
     for hash in ["engine_hash", "physics_hash", "audio_hash"] {
         assert_eq!(again[hash], played[hash], "{hash} differs between two runs");
