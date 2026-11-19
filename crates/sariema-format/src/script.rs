@@ -165,9 +165,13 @@ impl fmt::Display for GameFormatError {
             GameFormatError::BadMagic => {
                 write!(f, "not a game pack: the file does not start with SRMG")
             }
+            GameFormatError::Version { found } if *found < GAME_VERSION => write!(
+                f,
+                "game pack version {found} is older than this engine reads ({GAME_VERSION}): rebuild it with this engine's `sariema build`"
+            ),
             GameFormatError::Version { found } => write!(
                 f,
-                "game pack version {found} is not supported (reads {GAME_VERSION})"
+                "game pack version {found} is newer than this engine reads ({GAME_VERSION}): run it with a newer engine"
             ),
             GameFormatError::Truncated => write!(f, "game pack is truncated"),
             GameFormatError::Invalid(why) => write!(f, "game pack is invalid: {why}"),

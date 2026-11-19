@@ -137,6 +137,11 @@ fn foreign_old_and_cut_bytes_are_errors_with_their_codes() {
     let mut old = bytes.clone();
     old[4..8].copy_from_slice(&0u32.to_le_bytes());
     assert_eq!(decode(&old), Err(CollisionError::Version { found: 0 }));
+    let text = decode(&old).unwrap_err().to_string();
+    assert!(text.contains("rebuild it with this engine's"), "{text}");
+    old[4..8].copy_from_slice(&99u32.to_le_bytes());
+    let text = decode(&old).unwrap_err().to_string();
+    assert!(text.contains("newer engine"), "{text}");
     for n in 0..bytes.len() {
         let err = decode(&bytes[..n]).unwrap_err();
         assert!(

@@ -210,9 +210,13 @@ impl fmt::Display for CollisionError {
             CollisionError::BadMagic => {
                 write!(f, "not a collision pack: the file does not start with SRMC")
             }
+            CollisionError::Version { found } if *found < VERSION => write!(
+                f,
+                "collision pack version {found} is older than this engine reads ({VERSION}): rebuild it with this engine's `sariema build`"
+            ),
             CollisionError::Version { found } => write!(
                 f,
-                "collision pack version {found} is not supported (expected {VERSION})"
+                "collision pack version {found} is newer than this engine reads ({VERSION}): run it with a newer engine"
             ),
             CollisionError::Truncated => write!(f, "collision pack is truncated"),
             CollisionError::Invalid(why) => write!(f, "collision pack is invalid: {why}"),

@@ -235,10 +235,13 @@ fn an_older_game_pack_is_refused_for_the_older_batch_its_logic_speaks() {
     }
     let mut version = written_by_3(&game);
     version[4] = 2;
-    assert_eq!(
-        decode_game(&version).unwrap_err(),
-        GameFormatError::Version { found: 2 }
-    );
+    let error = decode_game(&version).unwrap_err();
+    assert_eq!(error, GameFormatError::Version { found: 2 });
+    let text = error.to_string();
+    assert!(text.contains("rebuild it with this engine's"), "{text}");
+    version[4] = 99;
+    let text = decode_game(&version).unwrap_err().to_string();
+    assert!(text.contains("newer engine"), "{text}");
 }
 
 #[test]
