@@ -444,7 +444,9 @@ without `--headless` the pack plays in a window.
   collision module to carry one); `set_speed_scale` scales the player's axis
   and `move_intent`; `move_intent` holds a velocity; `face` turns at
   the actor's turn rate, in place when nothing drives the actor (it drops
-  the speed left from a walk); a walk under way keeps its speed. `motion.turn_rate` is every actor's rate and the
+  the speed left from a walk), also when position tweens left it posed or
+  it is held at a kinematic end, which keeps it posed and held where it
+  is; a walk under way keeps its speed. `motion.turn_rate` is every actor's rate and the
   fastest anything turns; `set_turn_rate` gives one actor a rate of its own,
   no faster (`E_TURN_RATE` otherwise), and 0 gives it the setting back, so
   a big hero and a small companion turn each at its own speed under the

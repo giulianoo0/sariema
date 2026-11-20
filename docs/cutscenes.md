@@ -51,11 +51,12 @@ Then, in order:
    `cutscene_started` is sent.
 2. **Placement.** Every role with a start place is brought there without a
    jump: a hidden actor is placed; one within `cutscene.start_tolerance`
-   (0.02 m) only turns; one within `cutscene.start_blend_max` (0.3 m) is
-   eased there over `cutscene.start_blend` (0.25 s); a farther one walks
-   there at `cutscene.start_walk_speed` (1.5 m/s). Each then turns to its
-   start yaw. The steps begin when every role is in place. A role the game
-   teleported in the same tick it played the cutscene, with a collision
+   (0.02 m) only turns, also when it is posed or held there; one within
+   `cutscene.start_blend_max` (0.3 m) is eased there over
+   `cutscene.start_blend` (0.25 s); a farther one walks there at
+   `cutscene.start_walk_speed` (1.5 m/s). Each then turns to its start yaw.
+   The steps begin when every role is in place. A role the game teleported
+   in the same tick it played the cutscene, with a collision
    module, is judged a step later, from where the teleport landed, or from
    where it stood if the module refused it. With a collision module the
    floor holds actors at its height, so for a start within

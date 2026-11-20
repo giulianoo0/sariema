@@ -787,6 +787,8 @@ impl World {
                 a.move_to = None;
                 a.knockback = None;
                 a.pressing_wall = false;
+            } else {
+                self.turn_posed(i);
             }
             return;
         }
@@ -1015,8 +1017,6 @@ impl World {
 
     fn turn(&mut self, i: usize) {
         let filter = self.settings.controller.yaw_filter;
-        let blend = self.derived.yaw_blend;
-        let (setting, dt) = (self.derived.max_turn, self.settings.step_seconds);
         let a = &mut self.actors[i];
         let facing = match a.route {
             Some(Route {
@@ -1034,8 +1034,8 @@ impl World {
                 a.target_yaw = want;
             }
         }
-        let max = a.max_yaw_speed.map_or(setting, |speed| speed * dt);
-        let yaw = wrap_angle(a.yaw + (wrap_angle(a.target_yaw - a.yaw) * blend).clamp(-max, max));
+        let yaw = self.turned_yaw(i);
+        let a = &mut self.actors[i];
         let swings = a.desc.collider.head.is_some_and(|h| h.forward != 0.0);
         if !swings || yaw == a.yaw {
             a.yaw = yaw;
@@ -1052,6 +1052,31 @@ impl World {
             a.awake |= at != a.position;
             a.position = at;
             a.yaw = yaw;
+        }
+    }
+
+    /// One step of the actor's yaw towards its target, at its turn rate.
+    fn turned_yaw(&self, i: usize) -> f32 {
+        let (setting, dt) = (self.derived.max_turn, self.settings.step_seconds);
+        let a = &self.actors[i];
+        let max = a.max_yaw_speed.map_or(setting, |speed| speed * dt);
+        let turn = wrap_angle(a.target_yaw - a.yaw) * self.derived.yaw_blend;
+        wrap_angle(a.yaw + turn.clamp(-max, max))
+    }
+
+    /// A posed actor no pose moved this step turns in place towards a yaw
+    /// it was told to face, collider off, so nothing pushes it, and held
+    /// where it was held.
+    fn turn_posed(&mut self, i: usize) {
+        let a = &self.actors[i];
+        if a.target_yaw == a.yaw {
+            return;
+        }
+        let yaw = self.turned_yaw(i);
+        let a = &mut self.actors[i];
+        a.yaw = yaw;
+        if let Some((_, held)) = &mut a.held {
+            *held = yaw;
         }
     }
 

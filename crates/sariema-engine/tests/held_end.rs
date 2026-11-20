@@ -616,3 +616,41 @@ fn a_held_actor_given_a_carrier_is_released_on_both_sides() {
     assert!(!after, "a carried actor is not held");
     assert!(trace[399].located.is_none());
 }
+
+#[test]
+fn a_held_climber_turns_on_face_and_stays_held_where_it_is() {
+    let (before, _) = run(
+        [0.0; 3],
+        200,
+        Box::new(|n, out, _| match n {
+            2 => climb(out, "rope"),
+            140 => locate(out),
+            _ => {}
+        }),
+    );
+    let (_, from, _) = before[141].located.expect("located before");
+    let to = (from + 90.0 + 180.0).rem_euclid(360.0) - 180.0;
+    let (trace, _) = run(
+        [0.0; 3],
+        400,
+        Box::new(move |n, out, _| match n {
+            2 => climb(out, "rope"),
+            150 => send(
+                out,
+                Command::Face {
+                    entity: entity(0),
+                    yaw: to,
+                },
+            ),
+            300 => locate(out),
+            _ => {}
+        }),
+    );
+    for (k, s) in trace[100..].iter().enumerate() {
+        assert_eq!(s.root, Vec3::from(TOP), "held at the top, step {}", 100 + k);
+    }
+    let (_, yaw, held) = trace[301].located.expect("located");
+    assert!(held, "still held once turned");
+    let off = ((yaw - to + 180.0).rem_euclid(360.0) - 180.0).abs();
+    assert!(off < 1e-3, "faces {to}, from {from}: {yaw}");
+}
