@@ -61,6 +61,10 @@ pub enum Intent {
         position: Vec3,
         yaw: f32,
     },
+    /// A [`Intent::Pose`] at the yaw the actor has: it only moves it, so a
+    /// pending [`Intent::Face`] goes on turning it. A `Pose` makes its yaw
+    /// the target instead, which drops the face.
+    Shift { actor: ActorId, position: Vec3 },
     /// A [`Intent::Pose`] that holds: the state hash counts the hold and its
     /// pose until the same movements release it. A later `Pose` moves a
     /// held actor and keeps it held.

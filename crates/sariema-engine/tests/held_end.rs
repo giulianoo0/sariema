@@ -103,6 +103,7 @@ fn next_room() -> RoomAssets {
 #[derive(Clone, Copy, Debug, Default)]
 struct Step {
     root: Vec3,
+    yaw: f32,
     located: Option<([f32; 3], f32, bool)>,
 }
 
@@ -171,8 +172,11 @@ fn run_with(
             held, posed,
             "the runtime and the collision module agree, step {n}"
         );
+        let node = engine.state().world.node(entity(0)).unwrap();
+        let (root, yaw) = (node.local.position, node.local.yaw);
         trace.push(Step {
-            root: engine.state().world.node(entity(0)).unwrap().local.position,
+            root,
+            yaw,
             located: heard.borrow_mut().take(),
         });
     }
@@ -753,4 +757,27 @@ fn a_held_climber_whose_yaw_is_tweened_keeps_the_tweens_yaw_over_a_face_in_its_l
         wrapped(yaw - tweened).abs() < 1e-3,
         "keeps {tweened}: {yaw}"
     );
+}
+
+#[test]
+fn a_face_sent_mid_traversal_leaves_the_traversals_yaw_untouched() {
+    let yaws = |face: bool| {
+        let (trace, _) = run(
+            [0.0; 3],
+            200,
+            Box::new(move |n, out, _| match n {
+                2 => climb(out, "rope"),
+                40 if face => send(
+                    out,
+                    Command::Face {
+                        entity: entity(0),
+                        yaw: 90.0,
+                    },
+                ),
+                _ => {}
+            }),
+        );
+        trace.iter().map(|s| s.yaw.to_bits()).collect::<Vec<_>>()
+    };
+    assert_eq!(yaws(true), yaws(false), "bit for bit, on every step");
 }

@@ -106,6 +106,8 @@ struct Actor {
     knockback: Option<Knockback>,
     teleport: Option<(Vec3, f32)>,
     pose: Option<(Vec3, f32)>,
+    /// The pending pose came from [`Intent::Shift`].
+    shifted: bool,
     posed: bool,
     held: Option<(Vec3, f32)>,
     move_to: Option<(Vec3, Option<f32>)>,
@@ -176,6 +178,7 @@ impl Actor {
         if self.posed {
             self.posed = false;
             self.pose = None;
+            self.shifted = false;
             self.held = None;
             self.awake = true;
         }
@@ -308,6 +311,7 @@ impl World {
             knockback: None,
             teleport: None,
             pose: None,
+            shifted: false,
             posed: false,
             held: None,
             move_to: None,
@@ -621,6 +625,16 @@ impl World {
             } => {
                 let a = &mut self.actors[actor.0 as usize];
                 a.pose = Some((position, yaw));
+                a.shifted = false;
+                a.posed = true;
+                if a.held.is_some() {
+                    a.held = a.pose;
+                }
+            }
+            Intent::Shift { actor, position } => {
+                let a = &mut self.actors[actor.0 as usize];
+                a.pose = Some((position, a.yaw));
+                a.shifted = true;
                 a.posed = true;
                 if a.held.is_some() {
                     a.held = a.pose;
@@ -633,6 +647,7 @@ impl World {
             } => {
                 let a = &mut self.actors[actor.0 as usize];
                 a.pose = Some((position, yaw));
+                a.shifted = false;
                 a.posed = true;
                 a.held = a.pose;
             }
@@ -777,9 +792,10 @@ impl World {
             if let Some((position, yaw)) = self.actors[i].pose.take() {
                 let ground = self.standing_on(&self.actors[i], position, yaw);
                 let a = &mut self.actors[i];
-                if !(a.facing && yaw == a.yaw) {
+                if !(a.facing && std::mem::take(&mut a.shifted)) {
                     a.target_yaw = yaw;
                 }
+                a.shifted = false;
                 a.position = position;
                 a.yaw = yaw;
                 a.velocity = Vec3::ZERO;
@@ -1066,9 +1082,8 @@ impl World {
     }
 
     /// A posed actor turns towards a yaw it was told to face, collider off,
-    /// so nothing pushes it, and held where it was held. A pose that sets
-    /// another yaw has made that yaw its target; one that only moves it, at
-    /// the yaw it has, keeps the face.
+    /// so nothing pushes it, and held where it was held. A `Pose` has made
+    /// its own yaw the target; a `Shift` only moves it and keeps the face.
     fn turn_posed(&mut self, i: usize) {
         let a = &self.actors[i];
         if a.target_yaw == a.yaw {

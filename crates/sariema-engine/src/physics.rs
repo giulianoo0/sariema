@@ -823,15 +823,17 @@ impl Physics {
                 continue;
             };
             m.written = (position, yaw);
-            let yaw = if moved_only {
-                self.world.actor(m.id).yaw
+            self.world.apply(if moved_only {
+                Intent::Shift {
+                    actor: m.id,
+                    position,
+                }
             } else {
-                to_physics(yaw)
-            };
-            self.world.apply(Intent::Pose {
-                actor: m.id,
-                position,
-                yaw,
+                Intent::Pose {
+                    actor: m.id,
+                    position,
+                    yaw: to_physics(yaw),
+                }
             });
         }
     }
