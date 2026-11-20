@@ -777,9 +777,11 @@ impl World {
             if let Some((position, yaw)) = self.actors[i].pose.take() {
                 let ground = self.standing_on(&self.actors[i], position, yaw);
                 let a = &mut self.actors[i];
+                if !(a.facing && yaw == a.yaw) {
+                    a.target_yaw = yaw;
+                }
                 a.position = position;
                 a.yaw = yaw;
-                a.target_yaw = yaw;
                 a.velocity = Vec3::ZERO;
                 a.vertical = 0.0;
                 a.ground = ground;
@@ -787,9 +789,8 @@ impl World {
                 a.move_to = None;
                 a.knockback = None;
                 a.pressing_wall = false;
-            } else {
-                self.turn_posed(i);
             }
+            self.turn_posed(i);
             return;
         }
         self.carry(i);
@@ -1064,9 +1065,10 @@ impl World {
         wrap_angle(a.yaw + turn.clamp(-max, max))
     }
 
-    /// A posed actor no pose moved this step turns in place towards a yaw
-    /// it was told to face, collider off, so nothing pushes it, and held
-    /// where it was held.
+    /// A posed actor turns towards a yaw it was told to face, collider off,
+    /// so nothing pushes it, and held where it was held. A pose that sets
+    /// another yaw has made that yaw its target; one that only moves it, at
+    /// the yaw it has, keeps the face.
     fn turn_posed(&mut self, i: usize) {
         let a = &self.actors[i];
         if a.target_yaw == a.yaw {

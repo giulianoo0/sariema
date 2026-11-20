@@ -810,6 +810,7 @@ impl Physics {
                 continue;
             };
             m.carried = !node.parent.is_none();
+            let moved_only = !m.carried && node.local.yaw == m.written.1;
             let (position, yaw) = if m.carried {
                 let Some(pose) = s.world.current_pose(m.entity) else {
                     continue;
@@ -822,10 +823,15 @@ impl Physics {
                 continue;
             };
             m.written = (position, yaw);
+            let yaw = if moved_only {
+                self.world.actor(m.id).yaw
+            } else {
+                to_physics(yaw)
+            };
             self.world.apply(Intent::Pose {
                 actor: m.id,
                 position,
-                yaw: to_physics(yaw),
+                yaw,
             });
         }
     }

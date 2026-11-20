@@ -16,7 +16,7 @@ use glam::{Vec2, Vec3};
 use sariema_engine::{Engine, EngineSettings, RoomAssets};
 use sariema_format::collision::{Spot, Traversal};
 use sariema_format::script::{
-    ClipMode, ClipSpan, Command, Ease, Event, Kind, RoomTransition, name_id,
+    ClipMode, ClipSpan, Command, Ease, Event, Kind, Property, RoomTransition, name_id,
 };
 use sariema_physics::ActorId;
 use sariema_runtime::input::Actions;
@@ -653,4 +653,104 @@ fn a_held_climber_turns_on_face_and_stays_held_where_it_is() {
     assert!(held, "still held once turned");
     let off = ((yaw - to + 180.0).rem_euclid(360.0) - 180.0).abs();
     assert!(off < 1e-3, "faces {to}, from {from}: {yaw}");
+}
+
+/// Steps from sending a 0.4 s tween to hearing it is done.
+const TWEEN_HEARD_AFTER: u64 = 24;
+
+fn tween(out: &mut Vec<u8>, tween: u32, property: Property, to: f32) {
+    send(
+        out,
+        Command::Tween {
+            tween,
+            entity: entity(0),
+            property,
+            var: 0,
+            to,
+            duration: 0.4,
+            ease: Ease::InOutSine,
+        },
+    );
+}
+
+/// The held climber's yaw at the top before anything turns it.
+fn climbers_yaw() -> f32 {
+    let (before, _) = run(
+        [0.0; 3],
+        200,
+        Box::new(|n, out, _| match n {
+            2 => climb(out, "rope"),
+            140 => locate(out),
+            _ => {}
+        }),
+    );
+    before[141].located.expect("located before").1
+}
+
+fn wrapped(yaw: f32) -> f32 {
+    (yaw + 180.0).rem_euclid(360.0) - 180.0
+}
+
+/// Climbs the held rope, tweens the climber 0.3 m along x from step 150,
+/// with its yaw to `tweened` when given, and sends `face` to `to` on the
+/// step the game hears the tweens are done, the same step as their last
+/// pose; the trace and the `held` and yaw located after.
+fn held_tween_and_face(tweened: Option<f32>, to: f32) -> (Vec<Step>, bool, f32) {
+    let (trace, _) = run(
+        [0.0; 3],
+        400,
+        Box::new(move |n, out, _| match n {
+            2 => climb(out, "rope"),
+            150 => {
+                tween(out, 20, Property::PositionX, 0.3);
+                if let Some(yaw) = tweened {
+                    tween(out, 21, Property::Yaw, yaw);
+                }
+            }
+            _ if n == 150 + TWEEN_HEARD_AFTER => send(
+                out,
+                Command::Face {
+                    entity: entity(0),
+                    yaw: to,
+                },
+            ),
+            300 => locate(out),
+            _ => {}
+        }),
+    );
+    let (_, yaw, held) = trace[301].located.expect("located");
+    (trace, held, yaw)
+}
+
+#[test]
+fn a_held_climber_moved_by_a_position_tween_turns_on_a_face_sent_with_its_last_pose() {
+    let from = climbers_yaw();
+    let to = wrapped(from + 90.0);
+    let (trace, held, yaw) = held_tween_and_face(None, to);
+    assert!(held, "still held");
+    assert!(
+        wrapped(yaw - to).abs() < 1e-3,
+        "faces {to}, from {from}: {yaw}"
+    );
+    let end = Vec3::new(0.3, TOP[1], TOP[2]);
+    for (k, s) in trace[200..].iter().enumerate() {
+        assert_eq!(
+            s.root,
+            end,
+            "held where the tween left it, step {}",
+            200 + k
+        );
+    }
+}
+
+#[test]
+fn a_held_climber_whose_yaw_is_tweened_keeps_the_tweens_yaw_over_a_face_in_its_last_step() {
+    let from = climbers_yaw();
+    let tweened = wrapped(from + 45.0);
+    let (_, held, yaw) = held_tween_and_face(Some(tweened), wrapped(from + 90.0));
+    assert!(held, "still held");
+    assert!(
+        wrapped(yaw - tweened).abs() < 1e-3,
+        "keeps {tweened}: {yaw}"
+    );
 }

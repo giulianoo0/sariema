@@ -237,3 +237,158 @@ fn a_posed_actor_turning_allocates_nothing() {
     assert!(faces(yaw, 90.0), "{yaw}");
     assert_eq!(ALLOCATIONS.with(Cell::get), 0);
 }
+
+/// Where the game's tweens seat the actor, from the origin.
+const SEATED: [f32; 3] = [1.0, 0.5, -0.5];
+/// The step the tweens start.
+const TWEENS_AT: u64 = 2;
+
+type Script = Box<dyn FnMut(u64, &[Event<'_>], &mut Vec<u8>)>;
+
+/// The hero's yaw and root after each step of a game that spawns it at the
+/// origin facing 0 and then runs `script`.
+fn trace(mut script: Script) -> Trace {
+    let logic = native(move |n, events, out| {
+        if n == 0 {
+            spawn_hero(out, [0.0; 3], 0.0);
+        }
+        script(n, events, out);
+    });
+    let mut engine = engine(logic, &[]);
+    let actions = Actions::for_settings(&engine.state().settings.input);
+    let mut trace = Trace::default();
+    for _ in 0..STEPS {
+        engine.step(&actions);
+        let node = engine.state().world.node(entity(0)).unwrap();
+        trace.yaw.push(node.local.yaw);
+        trace.root.push(node.local.position);
+    }
+    trace
+}
+
+/// As the game seats its hero: X, Y and Z tweened together over 0.4 s, in
+/// and out of a sine, with `yaw` tweened alongside when given.
+fn seat(out: &mut Vec<u8>, yaw: Option<f32>) {
+    let properties = [
+        Property::PositionX,
+        Property::PositionY,
+        Property::PositionZ,
+    ];
+    let tweens = properties.into_iter().zip(SEATED).map(|(p, to)| (p, to));
+    for (k, (property, to)) in tweens.chain(yaw.map(|y| (Property::Yaw, y))).enumerate() {
+        send(
+            out,
+            Command::Tween {
+                tween: 10 + k as u32,
+                entity: entity(0),
+                property,
+                var: 0,
+                to,
+                duration: 0.4,
+                ease: Ease::InOutSine,
+            },
+        );
+    }
+}
+
+/// Seats the hero (its yaw tweened to `yaw` too when given) and sends
+/// `face` 90 at step `at`, or on the step the game hears the tweens are
+/// done; the trace and the step the face was sent.
+fn seat_and_face(yaw: Option<f32>, at: Option<u64>) -> (Trace, u64) {
+    let sent = Rc::new(Cell::new(None));
+    let when = sent.clone();
+    let trace = trace(Box::new(move |n, events, out| {
+        if n == TWEENS_AT {
+            seat(out, yaw);
+        }
+        let done = events.iter().any(|e| matches!(e, Event::TweenDone { .. }));
+        let now = match at {
+            Some(at) => n == at,
+            None => done && when.get().is_none(),
+        };
+        if now {
+            face(out);
+            when.set(Some(n));
+        }
+    }));
+    (trace, sent.get().expect("face sent"))
+}
+
+/// A free hero at the origin told to face 90 at step `at`.
+fn free_face(at: u64) -> Trace {
+    trace(Box::new(move |n, _, out| {
+        if n == at {
+            face(out);
+        }
+    }))
+}
+
+#[test]
+fn face_sent_as_the_tweens_report_done_turns_the_actor_as_a_free_one_turns() {
+    let (posed, at) = seat_and_face(None, None);
+    let free = free_face(at);
+    let at = at as usize;
+    assert_eq!(posed.yaw[at - 1], 0.0, "still facing the start");
+    assert_eq!(
+        posed.yaw[at..],
+        free.yaw[at..],
+        "the same turn, step for step"
+    );
+    assert!(
+        faces(posed.yaw[STEPS - 1], 90.0),
+        "{}",
+        posed.yaw[STEPS - 1]
+    );
+    assert_eq!(
+        posed.root[STEPS - 1],
+        Vec3::from(SEATED),
+        "where the tweens seat it"
+    );
+}
+
+#[test]
+fn face_sent_mid_tween_turns_the_actor_while_it_is_carried() {
+    let at = TWEENS_AT + 12;
+    let (posed, _) = seat_and_face(None, Some(at));
+    let free = free_face(at);
+    let at = at as usize;
+    assert_eq!(
+        posed.yaw[at..],
+        free.yaw[at..],
+        "the same turn, step for step"
+    );
+    assert!(
+        posed.yaw[at] != 0.0 && posed.root[at] != posed.root[at - 1],
+        "turning while it moves"
+    );
+    assert!(
+        faces(posed.yaw[STEPS - 1], 90.0),
+        "{}",
+        posed.yaw[STEPS - 1]
+    );
+    assert_eq!(
+        posed.root[STEPS - 1],
+        Vec3::from(SEATED),
+        "where the tweens seat it"
+    );
+}
+
+#[test]
+fn a_pose_that_sets_a_yaw_in_the_step_of_a_face_keeps_its_yaw() {
+    let (posed, _) = seat_and_face(Some(45.0), None);
+    assert!(
+        faces(posed.yaw[STEPS - 1], 45.0),
+        "the tween's yaw: {}",
+        posed.yaw[STEPS - 1]
+    );
+    assert_eq!(posed.root[STEPS - 1], Vec3::from(SEATED));
+}
+
+#[test]
+fn the_tweens_are_heard_done_twenty_four_steps_after_they_start() {
+    let (_, at) = seat_and_face(None, None);
+    assert_eq!(at, TWEENS_AT + TWEEN_HEARD_AFTER);
+}
+
+/// Steps from sending a 0.4 s tween to hearing it is done.
+const TWEEN_HEARD_AFTER: u64 = 24;
