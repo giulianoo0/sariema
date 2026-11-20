@@ -274,7 +274,7 @@ fn seat(out: &mut Vec<u8>, yaw: Option<f32>) {
         Property::PositionY,
         Property::PositionZ,
     ];
-    let tweens = properties.into_iter().zip(SEATED).map(|(p, to)| (p, to));
+    let tweens = properties.into_iter().zip(SEATED);
     for (k, (property, to)) in tweens.chain(yaw.map(|y| (Property::Yaw, y))).enumerate() {
         send(
             out,
